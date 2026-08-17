@@ -129,8 +129,8 @@ Nota: el descompilat **no** comprova solapaments de registres a MBM (els fusiona
 ## 7. Decisions d'arquitectura de l'app
 
 - **Estructura** (segons prompt actualitzat): `src/app`, `src/components`, `src/core/{project-format,signals,validation}`, `src/protocols/{knx,modbus/master}`, `src/gateway-families/knx-mbm`, `src/server/{intesis-transport,persistence}`. Regles de dependència del prompt: core/protocols purs; server → domini, mai al revés; app/components sense sockets ni fs.
-- **XML**: `fast-xml-parser` amb `preserveOrder: true` com a candidat; gate de la iteració 2 = round-trip byte-estable parse→serialize sense canvis, i patches sobre l'arbre preservat (mai regenerar). Si no passa, alternativa documentada.
-- **ZIP**: `fflate` (petita, síncrona, pura) — candidat; es confirma a la iteració 2.
+- **XML**: `fast-xml-parser` (`preserveOrder: true`) es va avaluar a la iteració 2 i es va **descartar**: no distingeix `<tag />` de `<tag></tag>` i normalitza CRLF→LF, de manera que el round-trip byte-estable era impossible. Alternativa justificada i implementada: parser propi petit (`src/core/project-format/xml/parse.ts`) per al subconjunt XML machine-generated del format (sense comentaris/CDATA; falla en veu alta si n'apareixen), amb serialitzador estil .NET. Gate superat: la fixture real de referència (164 KB, BOM+CRLF) fa round-trip byte-idèntic, i els patches són quirúrgics.
+- **ZIP**: `fflate` (petita, síncrona, pura). Confirmada: round-trip correcte i sortida determinista (mtime fixat). Nota: `strFromU8` menja el BOM UTF-8; `extractIbmaps` el restaura.
 - **Persistència**: `.local-data/` (gitignored), escriptures atòmiques (tmp+rename), interfícies `ProjectRepository` + `ProjectFileStore`. Binaris al fs, mai a l'estat React ni al navegador.
 - **Backend**: Route Handlers `runtime='nodejs'` + mòduls `server-only`; SSE per a logs/progrés; `GatewaySessionManager` en memòria darrere d'interfície (limitació single-process documentada); password només en memòria; cap SEND* exposat a l'MVP.
 - **Demo mode**: projecte demo (fixture sintètica KNX–MBM marcada com a tal), etiqueta visual persistent, mai barrejat amb sessió live.
