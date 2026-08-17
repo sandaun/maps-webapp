@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // The `server-only` package throws outside RSC builds; tests run in plain Node.
+      "server-only": fileURLToPath(new URL("./tests/empty-module.ts", import.meta.url)),
+    },
   },
   test: {
     environment: "jsdom",
