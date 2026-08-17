@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  /* HMS palette (verbatim from the v6 design reference) */
+  --color-hms-blue: #043d5d;
+  --color-hms-blue-hover: #032e47;
+  --color-hms-accent: #1268b3;
+  --color-hms-accent-hover: #0e5896;
+  --color-hms-pop: #1dc3eb;
+  --color-background-app: #f5f6f7;
+  --color-hms-muted: #eff0f1;
+  --color-text-body: #333333;
+  --color-fg-muted: #6b7780;
+  --color-fg-subtle: #97a0a8;
+  --color-border: #e2e5e7;
+  --color-border-strong: #c9cfd3;
+  --color-warning: #d9881b;
+  --color-warning-bg: #fdf6ec;
+  --color-warning-text: #8a5a12;
+  --color-success: #0a6b4c;
+  --color-success-bg: #f1faf6;
+  --color-error: #b03a2e;
+  --color-error-bg: #fdf3f2;
+
+  /* Typography: display Saira/Industry, body Lato, mono for addresses/frames */
+  --font-display: "Saira", "Industry", system-ui, sans-serif;
+  --font-sans: "Lato", "Carlito", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  background-color: var(--color-background-app);
+  color: var(--color-text-body);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}

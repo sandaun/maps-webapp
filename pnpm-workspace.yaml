@@ -1,0 +1,5 @@
+# NOTE: this is NOT a monorepo workspace. pnpm 11 stores its settings in this
+# file even for single-package projects. There is intentionally no `packages:`
+# key — the app stays a single pnpm package (see docs/knx-mbm-mvp.md).
+allowBuilds:
+  unrs-resolver: true

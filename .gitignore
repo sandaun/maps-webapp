@@ -1,0 +1,19 @@
+# Reference / research material (read-only, never part of the build)
+temp/
+
+# Local MVP data (projects, received files) — local single-user storage
+.local-data/
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Test / coverage
+coverage/
+
+# Misc
+*.tsbuildinfo
+.DS_Store
