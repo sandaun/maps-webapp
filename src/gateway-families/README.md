@@ -11,7 +11,10 @@ A family module contains only what is specific to the combination:
 - `from-xml.ts` — XML → model mapping.
 - `xml-ops.ts` — edit operations as patches on the preserved XML document.
 - `validate.ts` — family validation rules with stable codes.
+- `xbl/` — the deterministic XBL binary generator (only in families where it
+  has been ported; currently `knx-mbm`, pending byte-level verification).
 - `fixtures/` — synthetic test fixtures (marked as synthetic; no secrets).
+- `index.ts` — the family's small public API (deep imports stay out of bounds).
 
 Rules:
 

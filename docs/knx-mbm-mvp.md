@@ -209,3 +209,33 @@ Nota: el descompilat **no** comprova solapaments de registres a MBM (els fusiona
 - **NO VERIFICADA**: no hi ha fixture real KNX–MBM; la pantalla Deploy segueix desactivada i **res no llegeix encara** l'artefacte de capability. Marques UNVERIFIED documentades al codi: port broadcast TCP sense offset RTU (verbatim), comparació de port de l'error-object contra el nou índex RTU, PhysicalPort=índex (l'XML s'ignora), parseig lax d'Endianess, versions parcials ("1.0" → padding amb 0), refs de conversió amb segments buits tolerats (C# llençaria), forma legacy sense `RtuNodes` no suportada, i SW version per defecte no derivable del projecte.
 - **Harness `scripts/verify-xbl.ts`** (script `pnpm verify:xbl`): `pnpm verify:xbl <projecte.(ibmaps|zip|blob)> <referència.(bin|xbl)> [--mask-timestamp] [--sw-version a.b.c.d] [--now ISO]`. La referència pot ser blob complet (valida CRC32 via `parseCompleteBlob`) o XBL cru; la SW version s'extreu per defecte del header de la referència (tag 1 → fill 2, **no** es maska — una diferència de versió és una divergència real a investigar); `--mask-timestamp` posa a zero els 6 bytes volàtils (localitzats estructuralment en ambdós buffers) abans de comparar. Sortides: 0 = match byte a byte (escriu `.local-data/capabilities.json` atòmicament, clau `knxMbmXblVerified` amb `verifiedAt`, sha256 de projecte i referència, `xblLength`, `maskedTimestamp`, `swVersion`), 1 = divergència (primer offset amb context hex ±16B), 2 = error d'ús/setup. Quan arribi una fixture real: generar l'XBL de referència amb el MAPS d'escriptori des del mateix `.ibmaps` i executar el harness; si passa, la iteració següent pot habilitar el deploy llegint la capability.
 - **Tests nous (44)**: `tlv.test.ts` (vectors varint calculats a mà 0/127/128/16383/16384/2097151/2097152, serialització node/contenidor/array, helpers; propietats fast-check: round-trip varint sobre tot el rang i round-trip serialize→decode d'arbres aleatoris) i `generate.test.ts` (determinisme amb `now` fix, diff només als 6 bytes del timestamp, estructura completa header/IBOX/KNX/MBM amb bytes exactes derivats del C#, ordre posicional dels fills KNX, ordenació lectura-primer dels senyals, poll records, errors: no-KNX–MBM i comptatges desiguals). Autotest del harness contra referència sintètica auto-generada: match (blob i cru), divergència amb offset, errors d'ús.
+
+### Iteració 9 — Tancament del primer lliurament (feta)
+
+- **README d'arrel nou** (`README.md`, anglès): què és l'MVP, mapa d'arquitectura per mòduls, com executar (`pnpm install` / `pnpm dev`, demo explícit des d'Overview, dades a `.local-data/` o `MAPS_DATA_DIR`), com verificar (`pnpm test` / `typecheck` / `lint` / `build` / `verify:xbl`), live mode només-lectura amb contrasenyes només en memòria, i el bloqueig del deploy modificat amb l'ús exacte del harness `verify-xbl` documentat des del propi script.
+- **Revisió de `src/gateway-families/README.md`**: afegits `xbl/` i `index.ts` a la llista de continguts d'una família (existien des de les iteracions 0 i 8 però no constaven); la resta segueix sent exacta.
+- **Verificació final**: `pnpm test` (suite completa verda), `pnpm typecheck`, `pnpm lint` i `pnpm build` verds després dels canvis de documentació.
+
+#### Criteris d'acceptació del primer lliurament (del prompt d'encàrrec)
+
+1. **`pnpm dev` arrenca app + runtime backend en dev** — FET. Ordre única documentada al README; el backend viu als Route Handlers Node de la mateixa app.
+2. **Una sola app i un sol paquet pnpm, sense workspace/`apps/`/`packages/`/Turborepo/Nx** — FET. El `pnpm-workspace.yaml` de l'arrel només porta settings de pnpm 11 (sense clau `packages:`); comentari al fitxer.
+3. **Arrenca sense compte, login, Supabase ni variables cloud** — FET. Mode local single-user; cap dependència d'autenticació.
+4. **Projectes locals sobreviuen reinicis, fora de Git, via adaptadors locals** — FET. `LocalProjectStore` a `.local-data/` (o `MAPS_DATA_DIR`), escriptures atòmiques tmp+rename, gitignored.
+5. **`pnpm test` sense passarel·la física** — FET. Suite verda (unitaris + integració; transport provat contra fake gateway scriptat amb DH+XXTEA reals).
+6. **UI només KNX ↔ Modbus Master i en anglès** — FET. Cap altra família implementada ni visible; textos UI en anglès.
+7. **Flux demo complet i clarament etiquetat** — FET. "Load demo project" explícit a Overview, fixture sintètica marcada, mai barrejada amb sessió live ni auto-carregada.
+8. **Live mode: discovery, connect, INFO?, receive** — PARCIAL. Implementat i provat offline contra fake gateway; pendent la prova en viu contra hardware real (només lectura i només amb autorització explícita; no hi ha cap KNX–MBM disponible).
+9. **Obrir, editar, validar i desar `.ibmaps` KNX–MBM sense perdre nodes/camps desconeguts** — FET. Parser propi amb patches quirúrgics; la fixture real de referència (164 KB, BOM+CRLF) fa round-trip byte-idèntic.
+10. **Round-trip estable XML/ZIP del projecte sense canvis** — FET. Byte-estable als dos nivells (XML i ZIP determinista amb mtime fixat), cobert per tests.
+11. **Cap secret als logs ni al frontend persistent** — FET. Contrasenya només en memòria (netejada després de l'intent de connexió), sense persistència ni logs de claus/payloads; fixtures sanejades.
+12. **Deploy de canvis impossible d'activar accidentalment sense `knxMbmXblVerified` obtingut de proves** — FET. No hi ha cap endpoint SENDPROJ/SENDCMPLT; el botó està desactivat i la capability només l'escriu `scripts/verify-xbl.ts` després d'un match byte a byte (res no la llegeix encara, així que el deploy romans apagat de forma incondicional).
+13. **README amb arquitectura, execució, proves, live mode i fixture pendent** — FET. Aquesta iteració.
+
+Nota d'entrega: les **captures de les pantalles clau** que demana el prompt queden PENDENTS — no s'han fet captures visuals en aquesta iteració.
+
+#### Bloquejos reals (sense canvis respecte a la iteració 8)
+
+- **No hi ha passarel·la KNX–MBM disponible** → el transport live resta sense validar contra hardware real; la prova en viu (només lectura) requereix autorització explícita de l'usuari.
+- **No hi ha fixture real KNX–MBM (`.ibmaps` + XBL de la mateixa passarel·la)** → el generador XBL no està verificat byte a byte → `knxMbmXblVerified` mai s'escrit → deploy de configuracions modificades desactivat. Camí de desbloqueig: obtenir la fixture, generar la referència amb el MAPS d'escriptori i executar `pnpm verify:xbl <projecte> <referència> [--mask-timestamp]`.
+- **Variant `_RT` del projecte KNX–MBM**: fora d'abast fins tenir evidència (decisió de la iteració 0 mantinguda).
