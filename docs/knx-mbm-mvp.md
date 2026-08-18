@@ -239,3 +239,10 @@ Nota d'entrega: les **captures de les pantalles clau** que demana el prompt qued
 - **No hi ha passarel·la KNX–MBM disponible** → el transport live resta sense validar contra hardware real; la prova en viu (només lectura) requereix autorització explícita de l'usuari.
 - **No hi ha fixture real KNX–MBM (`.ibmaps` + XBL de la mateixa passarel·la)** → el generador XBL no està verificat byte a byte → `knxMbmXblVerified` mai s'escrit → deploy de configuracions modificades desactivat. Camí de desbloqueig: obtenir la fixture, generar la referència amb el MAPS d'escriptori i executar `pnpm verify:xbl <projecte> <referència> [--mask-timestamp]`.
 - **Variant `_RT` del projecte KNX–MBM**: fora d'abast fins tenir evidència (decisió de la iteració 0 mantinguda).
+
+### Post-lliurament — primera prova en viu (2026-08-18, 770 Air Daikin a 192.168.2.130)
+
+- **Discovery unicast afegit**: el broadcast UDP/23 no surt de WSL2/NAT (l'app corre a 172.31.x, la LAN és 192.168.2.x), així que el scan no trobava res. `POST /api/gateway/discovery` ara accepta `targets: string[]` (IPs unicast, màx 64) que es consulten a més del broadcast; la pantalla Connection té un camp "Direct IP (optional)" amb validació client.
+- **Prova en viu només-lectura (autoritzada)**: la 770 Air (APPNAME Daikin, APPID 67, platform 700 Series, core 2.0.52.0) respon a `INFO?` unicast i el parser extreu tots els camps via l'API de l'app. El broadcast segueix sense funcionar des de WSL2 — limitació de xarxa, no del codi.
+- **Correcció derivada de la prova real**: `NETDHCP` ve com `ON`/`OFF` (no `1`/`0`); `summarizeInfo` ho accepta ara (`/^(1|true|on|yes)$/i`) amb test nou.
+- Pendent: connect (login DH/XXTEA) i receive contra la 770 Air — mateixa autorització només-lectura, quan l'usuari ho demani.

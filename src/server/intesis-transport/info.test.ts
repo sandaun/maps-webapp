@@ -93,4 +93,10 @@ describe("summarizeInfo", () => {
     const noApp = summarizeInfo(parseInfoLines("INFO:NOAPP\r\nINFO:END\r\n"));
     expect(noApp.noApp).toBe(true);
   });
+
+  it("parses NETDHCP ON/OFF as sent by real 700 Series units", () => {
+    // Observed on a live 770 Air (core 2.0.52.0): INFO:NETDHCP:ON.
+    expect(summarizeInfo(parseInfoLines("INFO:NETDHCP:ON\r\nINFO:END\r\n")).dhcp).toBe(true);
+    expect(summarizeInfo(parseInfoLines("INFO:NETDHCP:OFF\r\nINFO:END\r\n")).dhcp).toBe(false);
+  });
 });

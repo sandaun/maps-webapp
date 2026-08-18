@@ -71,7 +71,8 @@ export function summarizeInfo(info: GatewayInfo): GatewayInfoSummary {
     ip: k["NETIP"],
     netmask: k["NETMASK"],
     gateway: k["NETGW"],
-    dhcp: k["NETDHCP"] === undefined ? undefined : k["NETDHCP"] === "1" || /^true$/i.test(k["NETDHCP"]),
+    // Real devices send ON/OFF (observed on a 770 Air, core 2.0.52); accept 1/true too.
+    dhcp: k["NETDHCP"] === undefined ? undefined : /^(1|true|on|yes)$/i.test(k["NETDHCP"]),
     status: k["STATUS"],
     bootloader: "BL" in k || k["STATUS"] === "BL",
     noApp: "NOAPP" in k,

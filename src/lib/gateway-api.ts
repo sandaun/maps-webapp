@@ -63,10 +63,12 @@ export function isKnxMbmGateway(info: GatewayInfoSummary, raw?: Record<string, s
   return /IN-KNX-MBM|KNXMBM/i.test(haystack);
 }
 
-/** UDP/23 discovery scan. */
-export async function scanGateways(): Promise<DiscoveredGateway[]> {
+/** UDP/23 discovery scan. Optional unicast targets for NAT/WSL setups. */
+export async function scanGateways(targets?: string[]): Promise<DiscoveredGateway[]> {
   const data = await request<{ gateways: DiscoveredGateway[] }>("/api/gateway/discovery", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(targets?.length ? { targets } : {}),
   });
   return data.gateways;
 }

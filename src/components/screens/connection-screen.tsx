@@ -38,6 +38,7 @@ export function ConnectionScreen() {
   const [gateways, setGateways] = React.useState<DiscoveredGateway[] | null>(null);
   const [scanning, setScanning] = React.useState(false);
   const [scanError, setScanError] = React.useState<string | null>(null);
+  const [directIp, setDirectIp] = React.useState("");
 
   const [host, setHost] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -65,7 +66,17 @@ export function ConnectionScreen() {
     setScanning(true);
     setScanError(null);
     try {
-      setGateways(await scanGateways());
+      const targets = directIp
+        .split(/[\s,;]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const invalid = targets.find((value) => !/^(\d{1,3}\.){3}\d{1,3}$/.test(value));
+      if (invalid) {
+        setScanError(`"${invalid}" is not a valid IPv4 address.`);
+        setScanning(false);
+        return;
+      }
+      setGateways(await scanGateways(targets.length ? targets : undefined));
     } catch (err) {
       setGateways([]);
       setScanError(errorMessage(err, "Scan failed"));
@@ -230,13 +241,23 @@ export function ConnectionScreen() {
             <div>
               <CardTitle>Discovered gateways</CardTitle>
               <p className="text-xs text-fg-muted">
-                UDP broadcast scan (port 23) — KNX ↔ Modbus Master units are highlighted.
+                UDP scan (port 23) — KNX ↔ Modbus Master units are highlighted. Broadcast does not
+                leave NAT/WSL networks; add direct IPs if nothing answers.
               </p>
             </div>
-            <Button size="sm" variant="secondary" onClick={handleScan} disabled={scanning}>
-              <Search className="h-3.5 w-3.5" aria-hidden />
-              {scanning ? "Scanning…" : gateways === null ? "Scan the network" : "Scan again"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Input
+                value={directIp}
+                onChange={(event) => setDirectIp(event.target.value)}
+                placeholder="Direct IP (optional)"
+                aria-label="Direct IP for unicast discovery"
+                className="h-8 w-44 text-xs"
+              />
+              <Button size="sm" variant="secondary" onClick={handleScan} disabled={scanning}>
+                <Search className="h-3.5 w-3.5" aria-hidden />
+                {scanning ? "Scanning…" : gateways === null ? "Scan the network" : "Scan again"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {scanError && (
