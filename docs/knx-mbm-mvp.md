@@ -247,3 +247,9 @@ Nota d'entrega: les **captures de les pantalles clau** que demana el prompt qued
 - **Correcció derivada de la prova real**: `NETDHCP` ve com `ON`/`OFF` (no `1`/`0`); `summarizeInfo` ho accepta ara (`/^(1|true|on|yes)$/i`) amb test nou.
 - **Connect + INFO? provats en viu (2026-08-18, autorització explícita, només lectura)**: login encriptat (DH + derivació de clau + XXTEA + LOGIN0/1/2) completat contra la 770 Air real amb la contrasenya de fàbrica; sessió `encrypted: true`; `INFO?` per TCP parsejat correctament; receive respon netament "The gateway has no project stored" (la unitat està verge, CFGNAME=NO CONFIG) — el camí RECVCMPLT complet quedarà provat quan la unitat tingui configuració. Sessió tancada després de la prova.
 - Pendent: receive complet contra la 770 Air (requereix que tingui projecte) i, si s'implementa la família Daikin, verificació XBL amb fixture real.
+
+### Fase 2 (branca `feat/ac-me-modbus`) — pas 2.1: primera fixture real rebuda
+
+- Eina nova `scripts/receive-project.ts` (`pnpm receive:project`): RECVCMPLT read-only contra una passarel·la viva, valida blob (len/CRC32/ZIP) i desa a disc amb sha256. Contrasenya només via `GW_PASSWORD`.
+- **Primera fixture real capturada** (2026-08-18, 770 Air a 192.168.2.130): `IN770AIRxxxO000` Mitsubishi Electric AC ↔ Modbus **Slave**, XML de 297 KB + XBL oficial de 8.205 B, CRC32 verificat. Desada a `.local-data/fixtures/` (fora de Git — pot contenir credencials).
+- El camí de transferència complet (login encriptat + XMODEM + validació) queda així validat contra hardware real.

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:xbl": "tsx scripts/verify-xbl.ts"
+    "verify:xbl": "tsx scripts/verify-xbl.ts",
+    "receive:project": "NODE_OPTIONS=--conditions=react-server tsx scripts/receive-project.ts"
   },
   "dependencies": {
     "@tanstack/react-table": "^9.1.2",
