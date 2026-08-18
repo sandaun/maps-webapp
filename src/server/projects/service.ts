@@ -7,21 +7,37 @@ import {
   XmlDocument,
 } from "@/core/project-format";
 import {
+  addDevice,
+  addRtuNode,
   addSignal,
+  addTcpNode,
   isKnxMbmProject,
   projectFromXml,
+  removeDevice,
+  removeNode,
   removeSignal,
   setGatewayInfo,
   setGeneralInfo,
   setKnxExtendedAddresses,
   setKnxPhysicalAddress,
+  updateDevice,
+  updateRtuNode,
   updateSignal,
+  updateTcpNode,
   validateProject,
   type KnxMbmProject,
+  type NodeLocator,
   type SignalPatch,
 } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import type { ValidationIssue } from "@/core/validation/issue";
+import {
+  MAX_RTU_NODES,
+  MAX_TCP_NODES,
+  type MbmDevice,
+  type MbmRtuNode,
+  type MbmTcpNode,
+} from "@/protocols/modbus/master";
 import { getProjectStore } from "../persistence";
 import type { ProjectMeta, ProjectSource } from "../persistence/types";
 
@@ -33,6 +49,11 @@ export interface ProjectView {
   hasCompleteBlob: boolean;
 }
 
+/** Editable node/device fields (topology itself changes via add/remove ops). */
+export type RtuNodePatch = Partial<Omit<MbmRtuNode, "devices">>;
+export type TcpNodePatch = Partial<Omit<MbmTcpNode, "devices">>;
+export type DevicePatch = Partial<Omit<MbmDevice, "index">>;
+
 /** Patch operations accepted by the API (validated with zod at the edge). */
 export type ProjectPatch =
   | { type: "setGeneralInfo"; name?: string; description?: string }
@@ -41,7 +62,15 @@ export type ProjectPatch =
   | { type: "setKnxExtendedAddresses"; enabled: boolean }
   | { type: "addSignal" }
   | { type: "removeSignal"; id: number }
-  | { type: "updateSignal"; id: number; patch: SignalPatch };
+  | { type: "updateSignal"; id: number; patch: SignalPatch }
+  | { type: "addRtuNode" }
+  | { type: "addTcpNode" }
+  | { type: "removeNode"; locator: NodeLocator }
+  | { type: "updateRtuNode"; nodeIndex: number; patch: RtuNodePatch }
+  | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatch }
+  | { type: "addDevice"; locator: NodeLocator }
+  | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatch }
+  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number };
 
 export async function listProjects(): Promise<ProjectMeta[]> {
   return getProjectStore().list();
@@ -146,6 +175,40 @@ function applyPatch(doc: XmlDocument, patch: ProjectPatch): void {
       break;
     case "updateSignal":
       updateSignal(doc, patch.id, patch.patch);
+      break;
+    case "addRtuNode": {
+      const count = doc.findAll(["ExternalProtocol", "RtuNodes", "RtuNode"]).length;
+      if (count >= MAX_RTU_NODES) {
+        throw new ProjectServiceError(409, `RTU node limit reached (${MAX_RTU_NODES}).`);
+      }
+      addRtuNode(doc);
+      break;
+    }
+    case "addTcpNode": {
+      const count = doc.findAll(["ExternalProtocol", "TCPNodes", "TCPNode"]).length;
+      if (count >= MAX_TCP_NODES) {
+        throw new ProjectServiceError(409, `TCP node limit reached (${MAX_TCP_NODES}).`);
+      }
+      addTcpNode(doc);
+      break;
+    }
+    case "removeNode":
+      removeNode(doc, patch.locator);
+      break;
+    case "updateRtuNode":
+      updateRtuNode(doc, patch.nodeIndex, patch.patch);
+      break;
+    case "updateTcpNode":
+      updateTcpNode(doc, patch.nodeIndex, patch.patch);
+      break;
+    case "addDevice":
+      addDevice(doc, patch.locator);
+      break;
+    case "updateDevice":
+      updateDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.patch);
+      break;
+    case "removeDevice":
+      removeDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex });
       break;
   }
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import { CurrentProjectProvider } from "@/lib/current-project";
 
 export const metadata: Metadata = {
   title: "MAPS Web — KNX ↔ Modbus Master",
@@ -13,7 +14,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AppShell>{children}</AppShell>
+        <CurrentProjectProvider>
+          <AppShell>{children}</AppShell>
+        </CurrentProjectProvider>
       </body>
     </html>
   );

@@ -65,6 +65,49 @@ describe("project service", () => {
     ).rejects.toThrow();
   });
 
+  it("adds and edits an RTU node, enforcing the node limit", async () => {
+    const meta = await loadDemoProject();
+    const before = await getProjectView(meta.id);
+    const rtuCount = before.project.mbm.rtuNodes.length;
+
+    const view = await applyPatches(meta.id, [
+      { type: "addRtuNode" },
+      { type: "updateRtuNode", nodeIndex: rtuCount, patch: { baudrate: 19200, parity: 2 } },
+    ]);
+    expect(view.project.mbm.rtuNodes).toHaveLength(rtuCount + 1);
+    expect(view.project.mbm.rtuNodes[rtuCount]).toMatchObject({ baudrate: 19200, parity: 2 });
+
+    // The demo fixture has 1 RTU node; the second add hits MAX_RTU_NODES = 2.
+    const error = await applyPatches(meta.id, [{ type: "addRtuNode" }]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProjectServiceError);
+    expect((error as ProjectServiceError).status).toBe(409);
+  });
+
+  it("adds, edits and removes a device on a node", async () => {
+    const meta = await loadDemoProject();
+    const locator = { kind: "rtu" as const, nodeIndex: 0 };
+    const before = await getProjectView(meta.id);
+    const deviceCount = before.project.mbm.rtuNodes[0].devices.length;
+
+    const view = await applyPatches(meta.id, [
+      { type: "addDevice", locator },
+      {
+        type: "updateDevice",
+        locator,
+        deviceIndex: deviceCount,
+        patch: { name: "Rooftop AHU", slave: 7 },
+      },
+    ]);
+    const devices = view.project.mbm.rtuNodes[0].devices;
+    expect(devices).toHaveLength(deviceCount + 1);
+    expect(devices[deviceCount]).toMatchObject({ name: "Rooftop AHU", slave: 7 });
+
+    const after = await applyPatches(meta.id, [
+      { type: "removeDevice", locator, deviceIndex: deviceCount },
+    ]);
+    expect(after.project.mbm.rtuNodes[0].devices).toHaveLength(deviceCount);
+  });
+
   it("opens the real complete blob when the reference checkout is present", async () => {
     if (!existsSync(REFERENCE_COMPLETE)) return;
     const bytes = new Uint8Array(readFileSync(REFERENCE_COMPLETE));

@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { OverviewScreen } from "@/components/screens/overview-screen";
 
 export default function OverviewPage() {
-  return <PlaceholderPage title="Overview" />;
+  return <OverviewScreen />;
 }

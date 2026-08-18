@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { DevicesScreen } from "@/components/screens/devices-screen";
 
 export default function DevicesPage() {
-  return <PlaceholderPage title="Modbus devices" />;
+  return <DevicesScreen />;
 }

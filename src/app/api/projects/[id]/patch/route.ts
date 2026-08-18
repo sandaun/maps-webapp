@@ -41,6 +41,49 @@ const modbusPatchSchema = z
   })
   .partial();
 
+const nodeLocatorSchema = z.object({
+  kind: z.enum(["rtu", "tcp"]),
+  nodeIndex: z.number().int().min(0),
+});
+
+const rtuNodePatchSchema = z
+  .object({
+    baudrate: z.number().int().min(1200).max(115200),
+    dataBits: z.number().int().min(5).max(8),
+    parity: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    stopBits: z.union([z.literal(1), z.literal(2)]),
+    timeInterFrame: z.number().int().min(0),
+    physicalPort: z.union([z.literal(0), z.literal(1)]),
+    pollAfterWrite: z.boolean(),
+    pollReadSignal: z.boolean(),
+  })
+  .partial();
+
+const tcpNodePatchSchema = z
+  .object({
+    nodeIndex: z.number().int().min(0),
+    ip: z.string().max(45),
+    port: z.number().int().min(1).max(65535),
+    description: z.string().max(128),
+    timeInterFrame: z.number().int().min(0),
+    retryTimeout: z.number().int().min(0),
+    connTimeout: z.number().int().min(0),
+    rxTimeout: z.number().int().min(0),
+    timeInterFrameSlaveChange: z.number().int().min(100),
+  })
+  .partial();
+
+const devicePatchSchema = z
+  .object({
+    name: z.string().max(128),
+    manufacturer: z.string().max(128),
+    slave: z.number().int().min(0).max(255),
+    baseRegister: z.union([z.literal(0), z.literal(1)]),
+    timeout: z.number().int().min(100).max(30000),
+    enabled: z.boolean(),
+  })
+  .partial();
+
 const patchSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("setGeneralInfo"),
@@ -70,6 +113,31 @@ const patchSchema = z.discriminatedUnion("type", [
       idxOperations: z.string().max(1024).optional(),
       idxFilters: z.string().max(1024).optional(),
     }),
+  }),
+  z.object({ type: z.literal("addRtuNode") }),
+  z.object({ type: z.literal("addTcpNode") }),
+  z.object({ type: z.literal("removeNode"), locator: nodeLocatorSchema }),
+  z.object({
+    type: z.literal("updateRtuNode"),
+    nodeIndex: z.number().int().min(0),
+    patch: rtuNodePatchSchema,
+  }),
+  z.object({
+    type: z.literal("updateTcpNode"),
+    nodeIndex: z.number().int().min(0),
+    patch: tcpNodePatchSchema,
+  }),
+  z.object({ type: z.literal("addDevice"), locator: nodeLocatorSchema }),
+  z.object({
+    type: z.literal("updateDevice"),
+    locator: nodeLocatorSchema,
+    deviceIndex: z.number().int().min(0),
+    patch: devicePatchSchema,
+  }),
+  z.object({
+    type: z.literal("removeDevice"),
+    locator: nodeLocatorSchema,
+    deviceIndex: z.number().int().min(0),
   }),
 ]);
 

@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { ConfigurationScreen } from "@/components/screens/configuration-screen";
 
 export default function ConfigurationPage() {
-  return <PlaceholderPage title="Configuration" />;
+  return <ConfigurationScreen />;
 }

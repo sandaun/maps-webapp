@@ -1,6 +1,7 @@
 import { DemoBanner } from "@/components/demo-banner";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
+import { ValidationPanel } from "@/components/validation-panel";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -9,8 +10,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="ml-[228px] flex min-h-screen flex-col">
         <Header />
         <DemoBanner />
-        <main className="mx-auto w-full max-w-[1440px] flex-1 p-6">{children}</main>
+        <main className="w-full flex-1 p-6 pb-16">{children}</main>
       </div>
+      <ValidationPanel />
     </div>
   );
 }

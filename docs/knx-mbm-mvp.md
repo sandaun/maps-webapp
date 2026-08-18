@@ -161,3 +161,14 @@ Nota: el descompilat **no** comprova solapaments de registres a MBM (els fusiona
 
 - Falta fixture KNX–MBM: `.ibmaps` + bytes XBL corresponents de la mateixa passarel·la.
 - `knxMbmXblVerified` serà un artefacte generat per `scripts/verify-xbl.ts` quan la comparació byte a byte passi — mai una variable manual.
+
+## 11. Estat d'iteracions
+
+### Iteració 5 — Pantalles principals (feta)
+
+- **Pantalles**: Overview (stat cards + accions: demo/open/export/switcher), Configuration (General / Gateway / KNX TP amb adreça física `area.line.device` i toggle d'adreces esteses), Modbus devices (seccions RTU ≤2 i TCP ≤5, formularis de node + taula de dispositius amb add/edit/remove, errors de límit 409 del servidor visibles), Signals (TanStack Table amb paginació de 100, cerca de text, filtre actiu/inactiu, comptador `active / total`, checkbox d'activació amb patch immediat i drawer d'edició de 372 px a la dreta segons la maqueta v6). Connection / Diagnostics / Deploy segueixen com a placeholders (iteració 7).
+- **Patch ops noves** (`POST /api/projects/[id]/patch`, zod a la vora): `addRtuNode`, `addTcpNode` (límits 409: 2 RTU / 5 TCP), `removeNode`, `updateRtuNode`, `updateTcpNode`, `addDevice`, `updateDevice`, `removeDevice`, a més de les de senyals i configuració general/gateway/KNX.
+- **Projecte actual**: `CurrentProjectProvider` (client) amb id persistit a `localStorage` llegit via `useSyncExternalStore` (snapshot servidor `null` → sense mismatch d'hidratació); 404 neteja a l'estat "sense projecte"; el demo mai es carrega automàticament. `usePatch()` aplica patches i substitueix la vista amb la resposta del servidor.
+- **Validació a la UI**: panell global col·lapsable (AppShell) amb issues agrupades per severitat + llista inline per pantalla (`ScreenIssues` filtra per `ref.screen`).
+- **Shell**: contingut full-width alineat a l'esquerra com la maqueta (s'ha eliminat el `mx-auto max-w-[1440px]`).
+- **Tests nous (RTL)**: agrupació del panell de validació, taula de senyals (render, cerca, toggle actiu, drawer→`updateSignal` amb fetch mockejat), estat buit d'Overview. Suite: 81 tests verds; `lint`/`typecheck`/`build` verds.
