@@ -172,3 +172,17 @@ Nota: el descompilat **no** comprova solapaments de registres a MBM (els fusiona
 - **Validació a la UI**: panell global col·lapsable (AppShell) amb issues agrupades per severitat + llista inline per pantalla (`ScreenIssues` filtra per `ref.screen`).
 - **Shell**: contingut full-width alineat a l'esquerra com la maqueta (s'ha eliminat el `mx-auto max-w-[1440px]`).
 - **Tests nous (RTL)**: agrupació del panell de validació, taula de senyals (render, cerca, toggle actiu, drawer→`updateSignal` amb fetch mockejat), estat buit d'Overview. Suite: 81 tests verds; `lint`/`typecheck`/`build` verds.
+
+### Iteració 6 — Transport Intesis (feta, offline)
+
+- **Capa nova `src/server/intesis-transport/`** (tot `server-only`, desacoblada del domini; el domini només es toca via `parseCompleteBlob`/`openCompleteBlob` ja existents):
+  - `crypto/`: CRC-16/CCITT (port de `Crc16.cs`, taula generada), XXTEA-128-CBC (port exacte de `XxTea.cs`, paraules BE, padding de zeros), DH amb p/q constants + derivació de clau de sessió (SHA1 folding asimètric pwd 0/4/8/12, K 1/5/9/13 + XOR) i keystreams TX/RX (blocs de 128 B, `iv[0]++`+MD5). CRC32: es **reutilitza** `src/core/project-format/crc32.ts` (no duplicat).
+  - `xmodem/`: receptor XMODEM-1K com a màquina d'estats pura (CRC16, padding CTRL-Z, retrissions, CAN CAN, EOT→ACK) + helper d'encodatge només per a tests. Correccions documentades sobre la sonda: duplicats re-ACK en lloc de rebutjar-los, i `takePending()` retorna els bytes posteriors a l'EOT al canal de línies.
+  - `session.ts`: màquina d'estats de sessió sobre una interfície `Duplex` (LOGIN0/1/2, detecció SKT → fallback en clar, keepalive només-event com el MAPS, `INFO?`, `RECVCMPLT` amb validació length/CRC32/ZIP via `parseCompleteBlob`; `RECVCMPLT:ERR` **no** s'ignora, a diferència de la sonda).
+  - `transport.ts`: `TcpDuplex` (node:net, TCP/23, keepalive de socket).
+  - `discovery.ts`: parser pur de datagrames + wrapper node:dgram (broadcast per interfície + 255.255.255.255, UDP/23, `INFO?` sense CRLF).
+  - `manager.ts`: `GatewaySessionManager` en memòria darrere de `GatewaySessions` (limitació single-process documentada), contrasenya només en memòria, events log/progrés amb replay per a SSE, errors HTTP-shaped (`GatewayRequestError`).
+  - `testing/fake-gateway.ts`: servidor fals scriptat (DH+XXTEA reals amb clau privada fixa) compartit pels tests.
+- **API** (`runtime nodejs`, zod a la vora, `errorResponse` reutilitzat i generalitzat per errors amb `status`): `POST /api/gateway/discovery`, `POST|GET /api/gateway/sessions`, `GET|DELETE /api/gateway/sessions/[id]`, `POST .../info`, `POST .../receive` (→ `openCompleteBlob`, source `"gateway"`), `GET .../events` (SSE). **Cap endpoint d'escriptura** (SENDPROJ/SENDCMPLT no existen al codi).
+- **Verificat offline** (67 tests nous, 148 totals): vectors de cada primitiva calculats amb `sonda_maps.py` (procedència documentada als tests; LOGIN0/1/2 end-to-end amb aleatorietat fixa), login xifrat + fallback en clar + rebuig d'autenticació contra el servidor fals, parser `INFO?` amb la resposta documentada de PROTOCOL.md §8.5, RECVCMPLT feliç + rebuig per CRC32 corromput / llargada anunciada errònia / unitat buida (`RECVPROJ:INVALID`), parser de discovery. `pnpm test`/`typecheck`/`lint`/`build` verds.
+- **Pendent**: prova en viu contra el 700 Air de l'usuari — **només lectura** (connect, INFO?, RECVCMPLT) i només amb autorització explícita; validació del keepalive i dels bytes `00` intercalats en trànsit real.
