@@ -23,4 +23,7 @@ Rules:
 - Future combinations (BAC–MBM, BAC–DALI, Modbus–DALI, M-Bus–Modbus…) get
   their own folder here when they are actually implemented. Do not create
   empty folders or speculative skeletons for them.
-- KNX–MBM is currently the only implemented family.
+- Implemented families:
+  - `knx-mbm` — KNX ↔ Modbus Master (with XBL generator).
+  - `me-mbs` — Mitsubishi Electric AC ↔ Modbus Slave (770 Air,
+    `IntesisProjectMbsMe_RT`; domain layer only, XBL writers pending step 2.4).
