@@ -17,3 +17,6 @@ coverage/
 # Misc
 *.tsbuildinfo
 .DS_Store
+
+# CLI session logs
+kimi-resume.log

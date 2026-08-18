@@ -2,4 +2,6 @@
 # file even for single-package projects. There is intentionally no `packages:`
 # key — the app stays a single pnpm package (see docs/knx-mbm-mvp.md).
 allowBuilds:
+  # tsx (scripts/verify-xbl.ts runner) wraps esbuild; its postinstall links the binary.
+  esbuild: true
   unrs-resolver: true
