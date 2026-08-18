@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(input: string, init?: RequestInit): Promise<T> {
+export async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, init);
   const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {

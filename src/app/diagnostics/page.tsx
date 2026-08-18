@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { DiagnosticsScreen } from "@/components/screens/diagnostics-screen";
 
 export default function DiagnosticsPage() {
-  return <PlaceholderPage title="Diagnostics" />;
+  return <DiagnosticsScreen />;
 }

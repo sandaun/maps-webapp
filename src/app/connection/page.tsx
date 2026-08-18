@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { ConnectionScreen } from "@/components/screens/connection-screen";
 
 export default function ConnectionPage() {
-  return <PlaceholderPage title="Connection" />;
+  return <ConnectionScreen />;
 }

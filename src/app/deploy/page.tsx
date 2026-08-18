@@ -1,5 +1,5 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { DeployScreen } from "@/components/screens/deploy-screen";
 
 export default function DeployPage() {
-  return <PlaceholderPage title="Deploy" />;
+  return <DeployScreen />;
 }
