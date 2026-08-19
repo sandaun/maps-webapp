@@ -41,10 +41,10 @@
   --color-row-rule: #f4f5f6;
   --color-toggle-off: #cbd1d6;
 
-  /* Typography: display Saira/Industry, body Lato, mono for addresses/frames */
-  --font-display: "Saira", "Industry", system-ui, sans-serif;
-  --font-sans: "Lato", "Carlito", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* Self-hosted and preloaded through next/font in app/layout.tsx. */
+  --font-display: var(--font-saira), "Industry", system-ui, sans-serif;
+  --font-sans: var(--font-lato), "Carlito", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
 body {
