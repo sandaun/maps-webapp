@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 import { AppShell } from "./app-shell";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/connection",
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock("next/link", () => ({
@@ -14,12 +16,22 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/gateway-api", () => ({
+  listGatewaySessions: vi.fn().mockResolvedValue([]),
+}));
+
+afterEach(() => {
+  window.localStorage.clear();
+});
+
 describe("AppShell", () => {
   it("renders brand, all 7 nav sections and the demo banner", () => {
     render(
-      <AppShell>
-        <div>content</div>
-      </AppShell>,
+      <WorkspaceChromeProvider>
+        <AppShell>
+          <div>content</div>
+        </AppShell>
+      </WorkspaceChromeProvider>,
     );
 
     expect(screen.getByText("MAPS")).toBeInTheDocument();
@@ -39,6 +51,22 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/Demo mode/);
     expect(screen.getByText("No gateway connected")).toBeInTheDocument();
+    expect(screen.getByText("Offline")).toBeInTheDocument();
     expect(screen.getByText("content")).toBeInTheDocument();
+  });
+
+  it("collapses the sidebar to icon-only width", () => {
+    render(
+      <WorkspaceChromeProvider>
+        <AppShell>
+          <div>content</div>
+        </AppShell>
+      </WorkspaceChromeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.queryByText("· INTESIS CLOUD")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Signals" })).toBeInTheDocument();
   });
 });

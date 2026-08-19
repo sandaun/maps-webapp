@@ -1,322 +1,134 @@
 "use client";
 
 import * as React from "react";
-import { flexRender } from "@tanstack/react-table";
-import {
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  legacyCreateColumnHelper,
-  useLegacyTable,
-  type LegacyColumnDef,
-} from "@tanstack/react-table/legacy";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
-import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
-import { describeSpec } from "@/protocols/me";
-import { READ_WRITE } from "@/protocols/modbus/slave";
-import { FORMAT_LABELS } from "@/protocols/modbus/master/types";
+import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
-import type { ProjectView } from "@/lib/project-types";
+import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { ScreenIssues } from "@/components/screens/screen-gate";
-import { MeMbsSignalDrawer } from "@/components/screens/signal-drawer-me-mbs";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
-
-const PAGE_SIZE = 100;
-
-const ACCESS_LABELS: Record<number, string> = {
-  [READ_WRITE.READ]: "Read",
-  [READ_WRITE.TRIGGER]: "Trigger",
-  [READ_WRITE.READWRITE]: "Read–write",
-};
+import { useSignalSelection } from "@/components/screens/use-signal-selection";
+import { meMbsColumns, ME_TAB_ORDER, toMeRow } from "@/components/signals/columns-me-mbs";
+import { SignalsGrid } from "@/components/signals/signals-grid";
+import { SignalsPagination, SignalsToolbar, type ActiveFilter } from "@/components/signals/signals-toolbar";
+import { SignalsWorkspace } from "@/components/signals/signals-workspace";
+import { ME_GROUP_LABELS } from "@/components/signals/types";
+import { usePagedSignals } from "@/components/signals/use-paged-signals";
 
 type View = Extract<ProjectView, { family: "me-mbs" }>;
-
-interface SignalRow {
-  signal: MeMbsSignal;
-  /** Desktop-tool description of the AC parameter (spec table). */
-  acParameter: string;
-  /** "Controller-wide" or "C1 · G3 — Office". */
-  scopeLabel: string;
-  searchText: string;
-}
-
-function scopeLabel(project: MeMbsProject, signal: MeMbsSignal): string {
-  const { g50Index, groupIndex, unitId } = signal.me;
-  if (groupIndex < 0) return unitId >= 0 ? `C${g50Index + 1} · unit ${unitId}` : "Controller-wide";
-  const group = project.me.controllers[g50Index]?.groups.find((g) => g.index === groupIndex);
-  const base = `C${g50Index + 1} · G${groupIndex + 1}`;
-  return group?.description ? `${base} — ${group.description}` : base;
-}
-
-function acParameter(project: MeMbsProject, signal: MeMbsSignal): string {
-  const { groupIndex, signalSpecIndex } = signal.me;
-  const group = project.me.controllers[signal.me.g50Index]?.groups.find(
-    (g) => g.index === groupIndex,
-  );
-  const info = describeSpec(signalSpecIndex, {
-    general: groupIndex < 0 && signal.me.unitId < 0,
-    fanSpeeds: group?.fanSpeeds ?? 4,
-    temperatureMode: project.me.temperatureMode,
-  });
-  return info?.description ?? `Spec ${signalSpecIndex}`;
-}
-
-function toRow(project: MeMbsProject, signal: MeMbsSignal): SignalRow {
-  const ac = acParameter(project, signal);
-  const scope = scopeLabel(project, signal);
-  return {
-    signal,
-    acParameter: ac,
-    scopeLabel: scope,
-    searchText: [
-      signal.id,
-      signal.description,
-      ac,
-      scope,
-      signal.modbus.address,
-      signal.modbus.slaveIndex,
-    ]
-      .join(" ")
-      .toLowerCase(),
-  };
-}
-
-const columnHelper = legacyCreateColumnHelper<SignalRow>();
 
 /** Signals table for a Mitsubishi Electric AC ↔ Modbus Slave project. */
 export function MeMbsSignalsView({ view }: { view: View }) {
   const applyPatches = usePatch();
+  const chrome = useWorkspaceChrome();
   const { project } = view;
   const { signals } = project;
   const [search, setSearch] = React.useState("");
-  const [activeFilter, setActiveFilter] = React.useState<"all" | "active" | "inactive">("all");
-  const [selectedId, setSelectedId] = React.useState<number | null>(null);
+  const [activeFilter, setActiveFilter] = React.useState<ActiveFilter>("all");
   const [actionError, setActionError] = React.useState<string | null>(null);
 
-  const rows = React.useMemo(() => signals.map((s) => toRow(project, s)), [project, signals]);
+  const rows = React.useMemo(() => signals.map((s) => toMeRow(project, s)), [project, signals]);
+  const columns = React.useMemo(() => meMbsColumns(project), [project]);
   const activeCount = React.useMemo(() => signals.filter((s) => s.active).length, [signals]);
+  const signalIds = React.useMemo(() => signals.map((s) => s.id), [signals]);
+  const { selected: checkedIds, toggle, toggleAll, selectMany, clear } = useSignalSelection(signalIds);
 
-  const columns = React.useMemo<LegacyColumnDef<SignalRow, any>[]>(
-    () => [
-      columnHelper.accessor((row) => row.signal.id, {
-        id: "id",
-        header: "#",
-        cell: (ctx) => <span className="font-mono text-fg-subtle">{ctx.getValue()}</span>,
-      }),
-      columnHelper.accessor((row) => row.signal.active, {
-        id: "active",
-        header: "Active",
-        filterFn: (row, _id, value: boolean) => row.original.signal.active === value,
-        cell: (ctx) => (
-          <Checkbox
-            aria-label={`Active signal ${ctx.row.original.signal.id}`}
-            checked={ctx.getValue()}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) =>
-              void runPatch([
-                {
-                  type: "updateSignal",
-                  id: ctx.row.original.signal.id,
-                  patch: { active: e.target.checked },
-                },
-              ])
-            }
-          />
-        ),
-      }),
-      columnHelper.accessor((row) => row.signal.description, {
-        id: "description",
-        header: "Description",
-        cell: (ctx) => ctx.getValue() || <span className="text-fg-subtle">—</span>,
-      }),
-      columnHelper.accessor((row) => row.acParameter, {
-        id: "acParameter",
-        header: "AC parameter",
-      }),
-      columnHelper.accessor((row) => row.scopeLabel, {
-        id: "scope",
-        header: "Controller / group",
-      }),
-      columnHelper.accessor((row) => row.signal.modbus.address, {
-        id: "address",
-        header: "Register",
-        cell: (ctx) => <span className="font-mono">{ctx.getValue()}</span>,
-      }),
-      columnHelper.accessor((row) => row.signal.modbus.readWrite, {
-        id: "access",
-        header: "Access",
-        cell: (ctx) => ACCESS_LABELS[ctx.getValue()] ?? "?",
-      }),
-      columnHelper.accessor((row) => row.signal.modbus.format, {
-        id: "format",
-        header: "Format",
-        cell: (ctx) => {
-          const modbus = ctx.row.original.signal.modbus;
-          return `${FORMAT_LABELS[modbus.format] ?? "?"} ${modbus.lenBits}-bit`;
-        },
-      }),
-    ],
-    // runPatch is stable enough for the column closures (see below).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const isActive = React.useCallback((row: (typeof rows)[number]) => row.signal.active, []);
+  const searchText = React.useCallback((row: (typeof rows)[number]) => row.searchText, []);
+  const rowId = React.useCallback((row: (typeof rows)[number]) => row.signal.id, []);
+  const { page, setPage, pageRows, pageCount, visibleIds, pageIds, filtered } = usePagedSignals(
+    rows,
+    search,
+    activeFilter,
+    isActive,
+    searchText,
+    rowId,
   );
 
-  async function runPatch(patches: Parameters<typeof applyPatches>[0]) {
+  const byId = React.useMemo(() => new Map(signals.map((s) => [s.id, s])), [signals]);
+  const errorIds = React.useMemo(() => {
+    const ids = new Set<number>();
+    for (const issue of view.issues) {
+      if (issue.severity === "error" && issue.ref?.entity === "signal" && typeof issue.ref.id === "number") {
+        ids.add(issue.ref.id);
+      }
+    }
+    return ids;
+  }, [view.issues]);
+
+  async function runPatch(patches: ProjectPatchInput[], undoLabel?: string, inverses?: ProjectPatchInput[]) {
     setActionError(null);
     try {
       await applyPatches(patches);
+      chrome.bumpDirty(patches.length);
+      if (inverses && inverses.length > 0) {
+        chrome.pushUndo({ label: undoLabel ?? "change", patches: inverses });
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed");
     }
   }
 
-  const table = useLegacyTable({
-    data: rows,
-    columns,
-    state: {
-      globalFilter: search,
-      columnFilters: activeFilter === "all" ? [] : [{ id: "active", value: activeFilter === "active" }],
-    },
-    onGlobalFilterChange: setSearch,
-    globalFilterFn: (row, _columnId, filterValue: string) =>
-      row.original.searchText.includes(filterValue.trim().toLowerCase()),
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
-    autoResetPageIndex: false,
-  });
+  const checkedList = [...checkedIds];
 
-  const selected = selectedId !== null ? signals.find((s) => s.id === selectedId) : undefined;
+  function setActiveForChecked(active: boolean) {
+    const patches = checkedList
+      .filter((id) => byId.get(id)?.active !== active)
+      .map((id) => ({ type: "updateSignal" as const, id, patch: { active } }));
+    const inverses = patches.map((p) => ({
+      type: "updateSignal" as const,
+      id: p.id,
+      patch: { active: !active },
+    }));
+    if (patches.length > 0) void runPatch(patches, active ? "Enable" : "Disable", inverses);
+  }
 
   return (
-    <div className="-m-6 flex items-stretch">
-      <div className="min-w-0 flex-1 space-y-3 p-6">
-        <ScreenIssues issues={view.issues} screen="signals" />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" aria-hidden />
-            <Input
-              aria-label="Search signals"
-              placeholder="Search name, AC parameter, group, register…"
-              className="w-80 pl-8"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <Select
-            aria-label="Filter by state"
-            className="w-32"
-            value={activeFilter}
-            onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </Select>
-          <Button size="sm" variant="secondary" onClick={() => void runPatch([{ type: "addSignal" }])}>
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Add signal
-          </Button>
-          <span className="ml-auto font-mono text-xs text-fg-muted">
-            {activeCount} active / {signals.length}
-          </span>
-        </div>
-
-        {actionError && (
-          <p role="alert" className="rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
-            {actionError}
-          </p>
-        )}
-
-        <div className="rounded-lg border border-border bg-white shadow-sm">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="py-6 text-center text-fg-muted">
-                    No signals match the current filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.original.signal.id === selectedId ? "selected" : undefined}
-                    className={cn(
-                      "cursor-pointer",
-                      row.original.signal.id === selectedId && "bg-hms-muted",
-                    )}
-                    onClick={() => setSelectedId(row.original.signal.id)}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-fg-muted">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!table.getCanPreviousPage()}
-            onClick={() => table.previousPage()}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-            Previous
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!table.getCanNextPage()}
-            onClick={() => table.nextPage()}
-          >
-            Next
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-          </Button>
-          <span className="font-mono">
-            Page {table.getState().pagination.pageIndex + 1} / {Math.max(1, table.getPageCount())}
-          </span>
-          <span>
-            · {table.getFilteredRowModel().rows.length} of {rows.length} signals
-          </span>
-        </div>
-      </div>
-
-      {selected && (
-        <MeMbsSignalDrawer
-          key={selected.id}
-          signal={selected}
-          project={project}
-          onClose={() => setSelectedId(null)}
-          onRemoved={() => setSelectedId(null)}
-        />
+    <SignalsWorkspace
+      selectedCount={checkedIds.size}
+      matchingCount={visibleIds.length}
+      pageFullySelected={pageIds.length > 0 && pageIds.every((id) => checkedIds.has(id))}
+      onEnable={() => setActiveForChecked(true)}
+      onDisable={() => setActiveForChecked(false)}
+      onClear={clear}
+      onSelectAllMatching={() => selectMany(visibleIds)}
+    >
+      <ScreenIssues issues={view.issues} screen="signals" />
+      <SignalsToolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search name, AC parameter, group, register…"
+        activeFilter={activeFilter}
+        onFilter={setActiveFilter}
+        activeCount={activeCount}
+        total={signals.length}
+      />
+      {actionError && (
+        <p role="alert" className="rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
+          {actionError}
+        </p>
       )}
-    </div>
+      <SignalsGrid
+        rows={pageRows}
+        columns={columns}
+        groupLabels={ME_GROUP_LABELS}
+        rowId={rowId}
+        rowActive={(row) => row.signal.active}
+        rowError={(row) => errorIds.has(row.signal.id)}
+        selected={checkedIds}
+        pageIds={pageIds}
+        onToggle={toggle}
+        onTogglePage={() => toggleAll(pageIds)}
+        applyPatches={applyPatches}
+        tabOrder={ME_TAB_ORDER}
+        widthStorageKey="signals-grid-widths:me-mbs:v1"
+      />
+      <SignalsPagination
+        page={page}
+        pageCount={pageCount}
+        filteredCount={filtered.length}
+        total={rows.length}
+        onPrev={() => setPage((p) => Math.max(0, p - 1))}
+        onNext={() => setPage((p) => p + 1)}
+      />
+    </SignalsWorkspace>
   );
 }

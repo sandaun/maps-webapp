@@ -21,6 +21,25 @@
   --color-success-bg: #f1faf6;
   --color-error: #b03a2e;
   --color-error-bg: #fdf3f2;
+  --color-success-border: #bfe3d4;
+  --color-error-border: #e8c4c0;
+  --color-warning-border: #e8d3b4;
+
+  /* Protocol sides (design spec §4) */
+  --color-bms-text: #8a5a12;
+  --color-bms-surface: #fdfaf4;
+  --color-bms-border: #e6d9c2;
+  --color-device-text: #1268b3;
+  --color-device-surface: #f7fbfe;
+  --color-device-border: #cfe0ef;
+  --color-gateway-surface: #f7f8f9;
+  --color-row-hover: #f7fbfe;
+  --color-row-selected: #f5fafe;
+  --color-row-open: #eaf3fb;
+  --color-row-error: #fefaf9;
+  --color-table-header: #fafbfc;
+  --color-row-rule: #f4f5f6;
+  --color-toggle-off: #cbd1d6;
 
   /* Typography: display Saira/Industry, body Lato, mono for addresses/frames */
   --font-display: "Saira", "Industry", system-ui, sans-serif;

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import {
   projectFromXml as knxProjectFromXml,
@@ -11,7 +11,10 @@ import {
   validateProject as validateMe,
 } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { ADDRESS_MODES } from "@/protocols/modbus/slave";
 import type { ProjectView } from "@/lib/project-types";
+import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
+import { UndoToast } from "@/components/signals/undo-toast";
 import { SignalsScreen } from "./signals-screen";
 
 const mocks = vi.hoisted(() => ({
@@ -68,32 +71,69 @@ vi.mock("@/lib/current-project", () => ({
   usePatch: () => mocks.applyPatches,
 }));
 
+function renderSignals() {
+  return render(
+    <WorkspaceChromeProvider>
+      <SignalsScreen />
+      <UndoToast />
+    </WorkspaceChromeProvider>,
+  );
+}
+
+beforeEach(() => {
+  mocks.applyPatches.mockReset();
+  window.localStorage.clear();
+});
+
 describe("SignalsScreen (knx-mbm)", () => {
   it("renders the signal table with formatted KNX/Modbus columns", () => {
     mocks.view = buildKnxView();
-    render(<SignalsScreen />);
+    renderSignals();
 
     expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
     expect(screen.getByText("Room temperature")).toBeInTheDocument();
     expect(screen.getByText("1/0/3")).toBeInTheDocument();
     expect(screen.getByText("9.001")).toBeInTheDocument();
     expect(screen.getAllByText("RTU 1")).toHaveLength(2);
-    // 2 active signals out of 2 total.
     expect(screen.getByText("2 active / 2")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Signal map" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("filters rows with the text search", () => {
     mocks.view = buildKnxView();
-    render(<SignalsScreen />);
+    renderSignals();
     fireEvent.change(screen.getByLabelText("Search signals"), { target: { value: "temperature" } });
     expect(screen.queryByText("Heat pump on/off")).not.toBeInTheDocument();
     expect(screen.getByText("Room temperature")).toBeInTheDocument();
   });
 
+  it("resizes columns and restores their saved widths", () => {
+    mocks.view = buildKnxView();
+    const first = renderSignals();
+    const handle = screen.getByRole("button", { name: "Resize Description column" });
+    const header = handle.parentElement;
+    expect(header).toHaveStyle({ width: "280px" });
+
+    fireEvent(handle, new MouseEvent("pointerdown", { bubbles: true, clientX: 100 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 180 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+
+    expect(header).toHaveStyle({ width: "360px" });
+    expect(JSON.parse(window.localStorage.getItem("signals-grid-widths:knx-mbm:v1") ?? "{}")).toMatchObject({
+      description: 360,
+    });
+
+    first.unmount();
+    renderSignals();
+    expect(screen.getByRole("button", { name: "Resize Description column" }).parentElement).toHaveStyle({
+      width: "360px",
+    });
+  });
+
   it("toggles a signal active state via a patch", async () => {
     mocks.applyPatches.mockResolvedValue(buildKnxView());
     mocks.view = buildKnxView();
-    render(<SignalsScreen />);
+    renderSignals();
 
     fireEvent.click(screen.getByLabelText("Active signal 0"));
 
@@ -103,72 +143,207 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
-  it("opens the drawer and saves an edited description via updateSignal", async () => {
+  it("selects rows without opening a drawer and bulk-disables them", async () => {
     mocks.applyPatches.mockResolvedValue(buildKnxView());
     mocks.view = buildKnxView();
-    render(<SignalsScreen />);
+    renderSignals();
 
-    fireEvent.click(screen.getByText("Heat pump on/off"));
-    expect(screen.getByText("SIGNAL 0")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"));
 
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "HP command" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save signal" }));
+    expect(screen.queryByText("SIGNAL 0")).not.toBeInTheDocument();
+    expect(screen.getByText("2 signals selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit field…" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
 
     await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalled());
-    const [patches] = mocks.applyPatches.mock.calls.at(-1)!;
-    expect(patches).toHaveLength(1);
-    expect(patches[0].type).toBe("updateSignal");
-    expect(patches[0].id).toBe(0);
-    expect(patches[0].patch.description).toBe("HP command");
-    expect(patches[0].patch.knx.groupAddress).toBe(2051);
+    expect(mocks.applyPatches).toHaveBeenCalledWith([
+      { type: "updateSignal", id: 0, patch: { active: false } },
+      { type: "updateSignal", id: 1, patch: { active: false } },
+    ]);
+  });
+
+  it("edits a description inline on Enter and does not open the drawer", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("Heat pump on/off"));
+    expect(screen.queryByText("SIGNAL 0")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save signal" })).not.toBeInTheDocument();
+
+    const input = screen.getByLabelText("Edit Description signal 0");
+    fireEvent.change(input, { target: { value: "HP command" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalled());
+    expect(mocks.applyPatches).toHaveBeenCalledWith([
+      { type: "updateSignal", id: 0, patch: { description: "HP command" } },
+    ]);
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("cancels an inline edit on Escape without saving", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("Heat pump on/off"));
+    const input = screen.getByLabelText("Edit Description signal 0");
+    fireEvent.change(input, { target: { value: "nope" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(mocks.applyPatches).not.toHaveBeenCalled();
+    expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
+  });
+
+  it("queues two rapid saves on the same cell so the last value is sent", async () => {
+    let release!: (value: ProjectView) => void;
+    const first = new Promise<ProjectView>((resolve) => {
+      release = resolve;
+    });
+    mocks.applyPatches.mockImplementationOnce(() => first).mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("Heat pump on/off"));
+    const firstInput = screen.getByLabelText("Edit Description signal 0");
+    fireEvent.change(firstInput, { target: { value: "one" } });
+    fireEvent.keyDown(firstInput, { key: "Enter" });
+
+    fireEvent.click(screen.getByText("Heat pump on/off"));
+    const secondInput = screen.getByLabelText("Edit Description signal 0");
+    fireEvent.change(secondInput, { target: { value: "two" } });
+    fireEvent.keyDown(secondInput, { key: "Enter" });
+
+    expect(mocks.applyPatches).toHaveBeenCalledTimes(1);
+    release(buildKnxView());
+
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(2));
+    expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
+      { type: "updateSignal", id: 0, patch: { description: "two" } },
+    ]);
+  });
+
+  it("applies a bulk Edit field… patch to the selection", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit field…" }));
+
+    fireEvent.change(screen.getByLabelText("Bulk value"), { target: { value: "Shared name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalled());
+    expect(mocks.applyPatches).toHaveBeenCalledWith([
+      { type: "updateSignal", id: 0, patch: { description: "Shared name" } },
+      { type: "updateSignal", id: 1, patch: { description: "Shared name" } },
+    ]);
+  });
+
+  it("selects the current page from the header, then all matching rows", () => {
+    const view = buildKnxView();
+    if (view.family !== "knx-mbm") throw new Error("expected knx");
+    const extra = Array.from({ length: 100 }, (_, i) => ({
+      ...view.project.signals[0],
+      id: i + 10,
+      description: `Extra ${i}`,
+    }));
+    view.project.signals = [...view.project.signals, ...extra];
+    mocks.view = view;
+    renderSignals();
+
+    fireEvent.click(screen.getByLabelText("Select all signals"));
+    expect(screen.getByText("100 signals selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select all 102 matching" }));
+    expect(screen.getByText("102 signals selected")).toBeInTheDocument();
+  });
+
+  it("switches to Validation and Import & export tabs", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
+    expect(screen.getByRole("tab", { name: "Validation" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Import & export" }));
+    expect(screen.getByRole("button", { name: "Import project" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Export project" })).toBeInTheDocument();
+  });
+
+  it("undos the last inline save from the toast", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("Heat pump on/off"));
+    const input = screen.getByLabelText("Edit Description signal 0");
+    fireEvent.change(input, { target: { value: "HP command" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(2));
+    expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
+      { type: "updateSignal", id: 0, patch: { description: "Heat pump on/off" } },
+    ]);
   });
 });
 
 describe("SignalsScreen (me-mbs)", () => {
   it("renders me-mbs columns: AC parameter, controller/group, register, access", () => {
     mocks.view = buildMeView();
-    render(<SignalsScreen />);
+    renderSignals();
 
-    // Column set switches by family.
     expect(screen.getByText("AC parameter")).toBeInTheDocument();
-    expect(screen.getByText("Controller / group")).toBeInTheDocument();
+    expect(screen.getByText("Controller")).toBeInTheDocument();
+    expect(screen.getByText("Group")).toBeInTheDocument();
     expect(screen.getByText("Access")).toBeInTheDocument();
     expect(screen.queryByText("Group address")).not.toBeInTheDocument();
     expect(screen.queryByText("DPT")).not.toBeInTheDocument();
 
-    // Spec table descriptions resolved (general + group signals).
     expect(screen.getByText("Centralized controller communication error")).toBeInTheDocument();
     expect(screen.getByText("Room Humidity")).toBeInTheDocument();
-    // Scope labels.
     expect(screen.getAllByText("Controller-wide")).toHaveLength(2);
     expect(screen.getAllByText(/C1 · G1 — Office/).length).toBeGreaterThan(0);
-    // Trigger access exists on this family.
-    expect(screen.getAllByText("Trigger").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Control").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("→").length).toBeGreaterThan(0);
+    fireEvent.mouseEnter(screen.getAllByText("→")[0]);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Control · trigger");
+    expect(screen.queryByRole("button", { name: "Add signal" })).not.toBeInTheDocument();
     expect(screen.getByText("9 active / 9")).toBeInTheDocument();
   });
 
-  it("opens the me-mbs drawer and saves description + endpoint edits", async () => {
-    mocks.applyPatches.mockResolvedValue(buildMeView());
+  it("keeps generated ME descriptions and fixed register addresses read-only", () => {
     mocks.view = buildMeView();
-    render(<SignalsScreen />);
+    renderSignals();
 
-    // Signal 2 is the group "On/Off" signal. The description cell carries the
-    // allowed-values suffix; the AC parameter cell renders exactly "On/Off".
-    fireEvent.click(screen.getByText("On/Off"));
-    expect(screen.getByText("SIGNAL 2")).toBeInTheDocument();
+    const desc = screen.getByText(/On\/Off\s+/);
+    fireEvent.click(desc);
+    fireEvent.click(screen.getByText("100"));
+    expect(screen.queryByLabelText("Edit Description signal 2")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Edit Register signal 2")).not.toBeInTheDocument();
+    expect(mocks.applyPatches).not.toHaveBeenCalled();
+  });
 
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Office on/off" } });
-    fireEvent.change(screen.getByLabelText("Register address"), { target: { value: "500" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save signal" }));
+  it("edits only the ME register when address mode is custom", async () => {
+    const view = buildMeView();
+    if (view.family !== "me-mbs") throw new Error("Expected ME-MBS view");
+    view.project.mbs.addressMode = ADDRESS_MODES.CUSTOM;
+    mocks.applyPatches.mockResolvedValue(view);
+    mocks.view = view;
+    renderSignals();
 
-    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalled());
-    const [patches] = mocks.applyPatches.mock.calls.at(-1)!;
-    expect(patches).toHaveLength(1);
-    expect(patches[0].type).toBe("updateSignal");
-    expect(patches[0].id).toBe(2);
-    expect(patches[0].patch.description).toBe("Office on/off");
-    expect(patches[0].patch.modbus.address).toBe(500);
-    expect(patches[0].patch.me.g50Index).toBe(0);
-    expect(patches[0].patch.me.groupIndex).toBe(0);
+    fireEvent.click(screen.getByText("100"));
+    fireEvent.change(screen.getByLabelText("Edit Register signal 2"), { target: { value: "500" } });
+    fireEvent.keyDown(screen.getByLabelText("Edit Register signal 2"), { key: "Enter" });
+
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(1));
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      { type: "updateSignal", id: 2, patch: { modbus: { address: 500 } } },
+    ]);
   });
 });
