@@ -88,6 +88,10 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
     expect(screen.queryByText("INTESIS · CLOUD")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Signals" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+    expect(screen.getByText("INTESIS · CLOUD")).toBeInTheDocument();
   });
 
   it("shows the real session and hides the demo banner when connected", () => {
