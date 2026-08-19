@@ -22,6 +22,7 @@ export {
   type ConnectResult,
   type GatewayErrorCode,
   type GatewaySessionOptions,
+  type SendFileOptions,
   type SessionEvents,
 } from "./session";
 export {

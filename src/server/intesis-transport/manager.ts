@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { GatewayError, GatewaySession } from "./session";
+import { GatewayError, GatewaySession, type SendFileOptions } from "./session";
 import { TcpDuplex, type Duplex } from "./transport";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
 
@@ -46,6 +46,11 @@ export interface GatewaySessions {
   queryInfo(id: string): Promise<GatewayInfoSummary>;
   /** RECVCMPLT: downloads and validates the "complete" blob (read-only). */
   receiveProject(id: string): Promise<Uint8Array>;
+  /**
+   * SENDCMPLT: uploads a "complete" blob (WRITE — only reachable through the
+   * gated deploy service, src/server/deploy/).
+   */
+  sendComplete(id: string, blob: Uint8Array, options?: SendFileOptions): Promise<void>;
   /** Subscribe to the session event stream (SSE); replays recent history. */
   subscribe(id: string, listener: SessionEventListener): () => void;
 }
@@ -176,6 +181,15 @@ export class GatewaySessionManager implements GatewaySessions {
   async receiveProject(id: string): Promise<Uint8Array> {
     const managed = this.require(id);
     return this.runExclusive(managed, () => managed.session.receiveComplete()).catch(
+      (error: unknown) => {
+        throw toGatewayRequestError(error);
+      },
+    );
+  }
+
+  async sendComplete(id: string, blob: Uint8Array, options?: SendFileOptions): Promise<void> {
+    const managed = this.require(id);
+    return this.runExclusive(managed, () => managed.session.sendComplete(blob, options)).catch(
       (error: unknown) => {
         throw toGatewayRequestError(error);
       },

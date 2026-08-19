@@ -119,6 +119,123 @@ describe("GatewaySession over the fake gateway", () => {
     session.close();
     await expect(session.queryInfo()).rejects.toBeInstanceOf(GatewayError);
   });
+
+  it("uploads a complete blob via SENDCMPLT + XMODEM-1K (happy path)", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin" });
+    const logs: string[] = [];
+    const progress: [number, number][] = [];
+    const session = new GatewaySession(fake, {
+      password: "admin",
+      ...TEST_TIMEOUTS,
+      log: (line) => logs.push(line),
+      progress: (sent, total) => progress.push([sent, total]),
+    });
+    await session.connect();
+    await session.sendComplete(blob, {
+      name: "My, Project",
+      comments: "deploy, test",
+      now: new Date("2026-08-19T10:20:30"),
+    });
+    // The command went out with sanitized args and the ZIP-only length
+    // (blob = [4B len][32B XBL][4B CRC][ZIP] → zipLen = blob.length - 40).
+    expect(fake.getSendCommands()).toEqual([
+      `SENDCMPLT,My Project,19/08/2026 10:20:30,deploy test,${blob.length - 40}`,
+    ]);
+    const [received] = fake.getReceivedUploads();
+    // CTRL-Z padding of the last 1K packet is included on the wire.
+    expect(received.subarray(0, blob.length)).toEqual(blob);
+    expect(received.length).toBe(Math.ceil(blob.length / 1024) * 1024);
+    expect(progress.at(-1)).toEqual([blob.length, blob.length]);
+    expect(logs.some((l) => l.includes("SENDCMPLT sent"))).toBe(true);
+    expect(logs.some((l) => l.includes("accepted the upload"))).toBe(true);
+    session.close();
+  });
+
+  it("uploads only the ZIP via SENDPROJ", async () => {
+    const blob = makeTestBlob();
+    const zip = blob.subarray(4 + 32 + 4);
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await session.sendProject(zip, { now: new Date("2026-08-19T10:20:30") });
+    expect(fake.getSendCommands()).toEqual([
+      `SENDPROJ,maps-cloud,19/08/2026 10:20:30,no_comments,${zip.length}`,
+    ]);
+    const [received] = fake.getReceivedUploads();
+    expect(received.subarray(0, zip.length)).toEqual(zip);
+    session.close();
+  });
+
+  it("rejects a malformed blob before touching the wire", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.sendComplete(Uint8Array.of(1, 2, 3))).rejects.toMatchObject({
+      code: "invalid-blob",
+    });
+    expect(fake.getSendCommands()).toEqual([]);
+    session.close();
+  });
+
+  it("survives a NAK retry scripted by the gateway", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", sendScript: { nakPacketOnce: 2 } });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await session.sendComplete(blob);
+    const [received] = fake.getReceivedUploads();
+    expect(received.subarray(0, blob.length)).toEqual(blob);
+    session.close();
+  });
+
+  it("maps a gateway CAN CAN to a transfer error", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", sendScript: { canAtPacket: 1 } });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.sendComplete(blob)).rejects.toMatchObject({
+      code: "transfer",
+      message: expect.stringContaining("cancelled"),
+    });
+    session.close();
+  });
+
+  it("maps CMPLTFILE:ERR after the transfer to a transfer error", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", sendScript: { rejectAfterTransfer: true } });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.sendComplete(blob)).rejects.toMatchObject({
+      code: "transfer",
+      message: expect.stringContaining("rejected"),
+    });
+    session.close();
+  });
+
+  it("maps a refused SENDCMPLT command to a transfer error", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", sendScript: { refuseCommand: true } });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.sendComplete(blob)).rejects.toMatchObject({
+      code: "transfer",
+      message: expect.stringContaining("refused"),
+    });
+    session.close();
+  });
+
+  it("uploads over a cleartext (SKT) session too", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", cleartext: true });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    const { encrypted } = await session.connect();
+    expect(encrypted).toBe(false);
+    await session.sendComplete(blob);
+    const [received] = fake.getReceivedUploads();
+    expect(received.subarray(0, blob.length)).toEqual(blob);
+    session.close();
+  });
 });
 
 describe("fake gateway sanity", () => {

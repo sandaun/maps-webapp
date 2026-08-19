@@ -9,14 +9,15 @@ import {
 } from "../crypto/dh";
 import { xxtea128CbcDecrypt } from "../crypto/xxtea";
 import { buildCompleteBlob, buildProjectZip } from "@/core/project-format";
-import { buildXmodem1KPackets } from "../xmodem/xmodem";
+import { buildXmodem1KPackets, XmodemReceiver } from "../xmodem/xmodem";
 import type { Duplex } from "../transport";
 
 /**
  * Offline fake Intesis gateway for tests: a scripted Duplex reproducing the
- * documented protocol sequences (PROTOCOL.md §3/§8/§9) — LOGIN0/1/2 with real
- * DH+XXTEA (fixed server private key), the SKT cleartext fallback for old
- * firmware, INFO? and RECVCMPLT/XMODEM-1K. No real network involved.
+ * documented protocol sequences (PROTOCOL.md §3/§8/§9/§10) — LOGIN0/1/2 with
+ * real DH+XXTEA (fixed server private key), the SKT cleartext fallback for
+ * old firmware, INFO?, RECVCMPLT/XMODEM-1K and a receive-a-project mode for
+ * SENDCMPLT/SENDPROJ (XMODEM-1K transmitter side). No real network involved.
  * Shared by the session and manager test suites.
  */
 
@@ -31,6 +32,18 @@ export const FAKE_INFO_BODY =
   "INFO:APPVERSION:1.0.0.0\r\n" +
   "INFO:PLATFORM:700 Series\r\n" +
   "INFO:STATUS:RUNNING\r\n";
+
+/** Scripted behaviours for the receive-a-project mode (SENDCMPLT/SENDPROJ). */
+export interface FakeGatewaySendScript {
+  /** Refuse the SEND command with `<PREFIX>:ERR` instead of READY. */
+  refuseCommand?: boolean;
+  /** NAK the first copy of this 1-based packet once (forces a retransmission). */
+  nakPacketOnce?: number;
+  /** Cancel with CAN CAN when this 1-based packet arrives. */
+  canAtPacket?: number;
+  /** Answer `<PREFIX>:ERR` after a fully received transfer. */
+  rejectAfterTransfer?: boolean;
+}
 
 export interface FakeGatewayConfig {
   password: string;
@@ -47,17 +60,25 @@ export interface FakeGatewayConfig {
   /** Optional greeting bytes on connect (e.g. 00 00, PROTOCOL.md §7.4). */
   greeting?: Uint8Array;
   infoBody?: string;
+  /** Receive-a-project scripting for SENDCMPLT/SENDPROJ uploads. */
+  sendScript?: FakeGatewaySendScript;
 }
 
 export class FakeGateway implements Duplex {
   private outbox: Uint8Array[] = [];
   private waiters: ((chunk: Uint8Array | null) => void)[] = [];
   private inbox = "";
-  private stage: "pre-login" | "login1-sent" | "established" | "xmodem" = "pre-login";
+  private stage: "pre-login" | "login1-sent" | "established" | "xmodem" | "xmodem-recv" =
+    "pre-login";
   private pubA = 0n;
   private toClient?: Keystream; // server → client (client RX keystream)
   private fromClient?: Keystream; // client → server (client TX keystream)
   private skt: number;
+  private uplinkRx?: XmodemReceiver; // receive-a-project mode (SENDCMPLT/SENDPROJ)
+  private uploadPrefix?: string;
+  private nakkedPackets = new Set<number>();
+  private receivedUploads: Uint8Array[] = [];
+  private sendCommands: string[] = [];
   closed = false;
 
   constructor(private readonly config: FakeGatewayConfig) {
@@ -69,7 +90,7 @@ export class FakeGateway implements Duplex {
 
   write(data: Uint8Array): void {
     if (this.closed) throw new Error("fake gateway closed");
-    if (this.stage === "established" || this.stage === "xmodem") {
+    if (this.stage === "established" || this.stage === "xmodem" || this.stage === "xmodem-recv") {
       this.handleEstablished(this.fromClient ? this.fromClient.apply(data) : data);
       return;
     }
@@ -162,6 +183,10 @@ export class FakeGateway implements Duplex {
       }
       return;
     }
+    if (this.stage === "xmodem-recv") {
+      this.handleUploadBytes(data);
+      return;
+    }
     this.inbox += new TextDecoder().decode(data);
     for (;;) {
       const i = this.inbox.indexOf("\r\n");
@@ -181,8 +206,80 @@ export class FakeGateway implements Duplex {
           this.respondEncrypted(`RECVCMPLT:READY:${n}\r\n`);
           this.stage = "xmodem";
         }
+      } else if (/^[01]:(SPONS|COMMS|DEBUG)=0$/.test(line)) {
+        // Upload pre-commands (PROTOCOL.md §10.1).
+        this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+      } else if (line.startsWith("SENDCMPLT,") || line.startsWith("SENDPROJ,")) {
+        this.handleSendCommand(line);
       }
     }
+  }
+
+  private handleSendCommand(line: string): void {
+    this.sendCommands.push(line);
+    const prefix = line.startsWith("SENDCMPLT,") ? "CMPLTFILE" : "PROJFILE";
+    this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+    if (this.config.sendScript?.refuseCommand) {
+      this.respondEncrypted(`${prefix}:ERR\r\n`);
+      return;
+    }
+    this.respondEncrypted(`${prefix}:READY\r\n`);
+    this.uploadPrefix = prefix;
+    this.uplinkRx = new XmodemReceiver();
+    // Real gateways request CRC mode with 'C' once ready (PROTOCOL.md §10.5).
+    this.respondEncryptedRaw(this.uplinkRx.begin());
+    this.stage = "xmodem-recv";
+  }
+
+  /** XMODEM-1K receiver side of a SENDCMPLT/SENDPROJ upload, with scripts. */
+  private handleUploadBytes(data: Uint8Array): void {
+    const script = this.config.sendScript ?? {};
+    // Packet-level scripts inspect the frame header (frames arrive whole: the
+    // session writes each packet in a single channel send).
+    if ((data[0] === 0x01 || data[0] === 0x02) && data.length >= 4) {
+      const packetNo = data[1];
+      if (script.canAtPacket === packetNo) {
+        this.respondEncryptedRaw(Uint8Array.of(0x18, 0x18)); // CAN CAN
+        this.stage = "established";
+        this.uplinkRx = undefined;
+        return;
+      }
+      if (script.nakPacketOnce === packetNo && !this.nakkedPackets.has(packetNo)) {
+        this.nakkedPackets.add(packetNo);
+        this.respondEncryptedRaw(Uint8Array.of(0x15)); // NAK → force retransmission
+        return;
+      }
+    }
+    if (!this.uplinkRx) return;
+    const step = this.uplinkRx.push(data);
+    this.respondEncryptedRaw(step.send);
+    if (step.status === "done") {
+      const received = step.data!;
+      this.receivedUploads.push(received);
+      const prefix = this.uploadPrefix!;
+      const padded = this.uplinkRx.getReceivedBytes();
+      this.uplinkRx = undefined;
+      this.stage = "established";
+      this.respondEncrypted(`${prefix}:RX:${received.length}/${padded}\r\n`);
+      this.respondEncrypted(`${prefix}:SAVING XBL..\r\n`);
+      this.respondEncrypted(`${prefix}:SAVING PROJ..\r\n`);
+      this.respondEncrypted(`${prefix}:${script.rejectAfterTransfer ? "ERR" : "OK"}\r\n`);
+    } else if (step.status !== "active") {
+      this.uplinkRx = undefined;
+      this.stage = "established";
+    }
+  }
+
+  // ----- test introspection -----
+
+  /** SENDCMPLT/SENDPROJ command lines received so far (arguments included). */
+  getSendCommands(): string[] {
+    return [...this.sendCommands];
+  }
+
+  /** Uploads received so far (CTRL-Z padding of the last packet included). */
+  getReceivedUploads(): Uint8Array[] {
+    return this.receivedUploads.map((u) => new Uint8Array(u));
   }
 
   private respondCleartext(text: string): void {

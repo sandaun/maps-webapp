@@ -136,3 +136,54 @@ export async function receiveGatewayProject(id: string): Promise<ProjectMeta> {
   );
   return data.project;
 }
+
+/** Mirror of `DeployGateCheck` in `src/server/deploy/service.ts`. */
+export interface DeployGateCheck {
+  id: "family" | "capability" | "session-appid";
+  ok: boolean;
+  detail: string;
+}
+
+/** Mirror of `DeployStatus` in `src/server/deploy/service.ts`. */
+export interface DeployStatus {
+  deployable: boolean;
+  checks: DeployGateCheck[];
+}
+
+/** Mirror of `DeployResult` in `src/server/deploy/service.ts`. */
+export interface DeployResult {
+  projectId: string;
+  sessionId: string;
+  bytes: number;
+  xblBytes: number;
+  zipBytes: number;
+  appId: number;
+  swVersion: string;
+}
+
+/** Server-side deploy gate evaluation for a project/session pair. */
+export async function getDeployStatus(sessionId: string, projectId: string): Promise<DeployStatus> {
+  const data = await request<{ status: DeployStatus }>(
+    `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy?projectId=${encodeURIComponent(projectId)}`,
+  );
+  return data.status;
+}
+
+/**
+ * SENDCMPLT deploy (WRITES configuration to the gateway). The server re-runs
+ * all gates; the UI must still ask for explicit confirmation first.
+ */
+export async function deployGatewayProject(
+  sessionId: string,
+  projectId: string,
+): Promise<DeployResult> {
+  const data = await request<{ result: DeployResult }>(
+    `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    },
+  );
+  return data.result;
+}

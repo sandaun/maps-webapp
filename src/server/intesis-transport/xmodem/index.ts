@@ -14,4 +14,11 @@ export {
   type XmodemStatus,
   type XmodemStep,
 } from "./xmodem";
+export {
+  NAK,
+  XmodemSender,
+  type XmodemSenderOptions,
+  type XmodemSenderPhase,
+  type XmodemSenderStep,
+} from "./sender";
 export { crc16Ccitt } from "../crypto/crc16";

@@ -4,18 +4,20 @@ import { ClientLogin, type RandomSource } from "./crypto/dh";
 import { parseInfoLines, type GatewayInfo } from "./info";
 import type { Duplex } from "./transport";
 import { XmodemReceiver } from "./xmodem/xmodem";
+import { XmodemSender } from "./xmodem/sender";
 
 /**
  * Gateway control session (TCP/23): LOGIN0/1/2 handshake with DH + XXTEA,
- * cleartext fallback for old firmware (SKT pattern), `INFO?` queries and
- * `RECVCMPLT` downloads over XMODEM-1K. Read-only by design: no SEND* command
- * is implemented (docs/knx-mbm-mvp.md §3).
+ * cleartext fallback for old firmware (SKT pattern), `INFO?` queries,
+ * `RECVCMPLT` downloads and `SENDCMPLT`/`SENDPROJ` uploads over XMODEM-1K.
+ * The write path exists for the deploy flow (src/server/deploy/) and is
+ * gated there — the session itself only speaks the protocol.
  *
- * Port of `fer_login` / `Canal` / `mode_info` / `mode_descarrega` from
- * temp/maps-cloud/sonda_maps.py (live-validated, PROTOCOL.md §8), with the
- * documented fixes: `RECVCMPLT:ERR` is NOT ignored, XMODEM duplicates are
- * re-ACKed, and the received blob is validated (length/CRC32/ZIP) via
- * `parseCompleteBlob`.
+ * Port of `fer_login` / `Canal` / `mode_info` / `mode_descarrega` /
+ * `mode_puja` from temp/maps-cloud/sonda_maps.py (live-validated,
+ * PROTOCOL.md §8/§10), with the documented fixes: `RECVCMPLT:ERR` is NOT
+ * ignored, XMODEM duplicates are re-ACKed, and the received blob is
+ * validated (length/CRC32/ZIP) via `parseCompleteBlob`.
  */
 
 export type GatewayErrorCode =
@@ -68,6 +70,13 @@ export interface GatewaySessionOptions extends SessionEvents {
 const CRLF = Uint8Array.of(0x0d, 0x0a);
 const CR = 0x0d;
 const LF = 0x0a;
+
+/** Pre-commands pausing gateway activity during an upload (PROTOCOL.md §10.1). */
+const SEND_PRE_COMMANDS = ["0:SPONS=0", "1:SPONS=0", "0:COMMS=0", "1:COMMS=0", "0:DEBUG=0", "1:DEBUG=0"];
+/** The MAPS waits up to 20 s for `<TYPE>FILE:READY` (PROTOCOL.md §10.3). */
+const SEND_READY_TIMEOUT_MS = 20_000;
+/** The gateway can take a while to apply the received config (sonda: 60 s). */
+const SEND_VALIDATION_TIMEOUT_MS = 60_000;
 
 /** Buffered text/binary channel over a Duplex, decrypting on arrival (sonda's `Canal`). */
 class Channel {
@@ -144,6 +153,33 @@ export interface ConnectResult {
   info: GatewayInfo;
   /** False when the firmware answered with the SKT cleartext pattern. */
   encrypted: boolean;
+}
+
+export interface SendFileOptions {
+  /** Project name argument (sanitized: no commas/CRLF, max 63 chars). */
+  name?: string;
+  /** Comments argument (sanitized: no commas/CRLF, max 255 chars). */
+  comments?: string;
+  /** Timestamp for the command argument (defaults to now; test hook). */
+  now?: Date;
+}
+
+/** `dd/MM/yyyy HH:mm:ss` — the date format the SEND commands take (PROTOCOL.md §3.4). */
+function formatSendDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
+}
+
+/**
+ * The command arguments are comma-separated, so commas and line breaks must
+ * not survive (the desktop MAPS UrlEncodes them; stripping is equivalent for
+ * the ASCII names/comments this app produces).
+ */
+function sanitizeSendArg(value: string, maxLength: number): string {
+  return value.replace(/[,\r\n]+\s*/g, " ").trim().slice(0, maxLength);
 }
 
 export class GatewaySession {
@@ -338,6 +374,129 @@ export class GatewaySession {
       }
       this.events.log?.(`Blob validated (${total} bytes, CRC32 OK)`);
       return data;
+    });
+  }
+
+  /**
+   * `SENDCMPLT`: uploads a "complete" blob (`[4B BE n][XBL][CRC32][ZIP]`) via
+   * XMODEM-1K. **Writes configuration to the gateway** — the deploy flow
+   * (src/server/deploy/) gates this behind family/capability/session checks.
+   * Wire sequence per PROTOCOL.md §10 (live-validated round-trip).
+   */
+  async sendComplete(blob: Uint8Array, options: SendFileOptions = {}): Promise<void> {
+    let zipLength: number;
+    try {
+      zipLength = parseCompleteBlob(blob).zip.length;
+    } catch (error) {
+      throw new GatewayError(
+        "invalid-blob",
+        `Refusing to upload a malformed blob: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+    // SENDCMPLT's length argument is the ZIP length only (PROTOCOL.md §10.2).
+    await this.sendFile({
+      command: "SENDCMPLT",
+      filePrefix: "CMPLTFILE",
+      // The sonda also accepts CONFIGFILE:OK as the final confirmation.
+      okMarkers: ["CMPLTFILE:OK", "CONFIGFILE:OK"],
+      payload: blob,
+      lengthArg: zipLength,
+      options,
+    });
+  }
+
+  /**
+   * `SENDPROJ`: uploads ONLY the project ZIP (no XBL). The firmware stores it
+   * but does NOT recompile the running config from it (PROTOCOL.md §10,
+   * SENDPROJ experiment) — deploys go through `sendComplete`.
+   */
+  async sendProject(zip: Uint8Array, options: SendFileOptions = {}): Promise<void> {
+    if (zip.length < 2 || zip[0] !== 0x50 || zip[1] !== 0x4b) {
+      throw new GatewayError("invalid-blob", "Refusing to upload: the payload is not a ZIP (no PK magic)");
+    }
+    await this.sendFile({
+      command: "SENDPROJ",
+      filePrefix: "PROJFILE",
+      okMarkers: ["PROJFILE:OK"],
+      payload: zip,
+      lengthArg: zip.length,
+      options,
+    });
+  }
+
+  /** Shared SENDPROJ/SENDCMPLT flow (sonda `mode_puja` / `mode_pujaproy`). */
+  private async sendFile(params: {
+    command: string;
+    /** Progress/verdict line prefix, e.g. `CMPLTFILE`. */
+    filePrefix: string;
+    okMarkers: string[];
+    payload: Uint8Array;
+    lengthArg: number;
+    options: SendFileOptions;
+  }): Promise<void> {
+    const channel = this.requireChannel();
+    const { command, filePrefix, okMarkers, payload, lengthArg, options } = params;
+    return this.withBusy(async () => {
+      // Pre-commands: pause comms/debug on both ports during the upload.
+      for (const cmd of SEND_PRE_COMMANDS) {
+        channel.sendLine(cmd);
+        await this.readLineMatching(
+          (l) => l.includes(" - OK") || l.includes("ERR") || l.includes("INVALID"),
+          5_000,
+        );
+      }
+      this.events.log?.("Gateway comms paused for the upload (SPONS/COMMS/DEBUG=0)");
+
+      const name = sanitizeSendArg(options.name ?? "maps-cloud", 63);
+      const comments = sanitizeSendArg(options.comments ?? "no_comments", 255);
+      const date = formatSendDate(options.now ?? new Date());
+      channel.sendLine(`${command},${name},${date},${comments},${lengthArg}`);
+      this.events.log?.(`${command} sent (${payload.length} bytes to send)`);
+
+      const ready = await this.readLineMatching(
+        (l) => l.includes(`${filePrefix}:READY`) || l.includes("ERR") || l.includes("INVALID"),
+        SEND_READY_TIMEOUT_MS,
+      );
+      if (!ready) throw new GatewayError("timeout", `No ${filePrefix}:READY response from the gateway`);
+      if (ready.includes("ERR") || ready.includes("INVALID")) {
+        throw new GatewayError("transfer", `Gateway refused the upload: ${ready.trim()}`);
+      }
+      this.events.log?.("Gateway ready; starting XMODEM-1K upload");
+
+      const tx = new XmodemSender(payload);
+      for (;;) {
+        const chunk = await channel.readAvailable(5_000);
+        if (chunk === null) throw new GatewayError("closed", "Connection lost during upload");
+        const step = chunk.length === 0 ? tx.onTimeout() : tx.push(chunk);
+        this.sendIfAny(channel, step.send);
+        this.events.progress?.(step.sentBytes, payload.length);
+        if (step.status === "done") break;
+        if (step.status === "cancelled") {
+          throw new GatewayError("transfer", "Upload cancelled by the gateway (CAN CAN)");
+        }
+        if (step.status === "failed") {
+          throw new GatewayError("transfer", step.error ?? "XMODEM upload failed");
+        }
+      }
+      this.events.log?.(`XMODEM upload complete (${payload.length} bytes); waiting for validation`);
+
+      // Device-side validation: progress lines (logged), then OK/ERR.
+      const deadline = Date.now() + SEND_VALIDATION_TIMEOUT_MS;
+      for (;;) {
+        const line = await channel.readLine(Math.max(1, deadline - Date.now()));
+        if (line === null) break;
+        const text = new TextDecoder().decode(line).trim();
+        if (okMarkers.some((m) => text.includes(m))) {
+          this.events.log?.(`Gateway accepted the upload (${text})`);
+          return;
+        }
+        if (text.includes("ERR") || text.includes("INVALID")) {
+          throw new GatewayError("transfer", `Gateway rejected the upload: ${text}`);
+        }
+        if (text.startsWith(`${filePrefix}:`)) this.events.log?.(`Gateway: ${text}`);
+        if (Date.now() >= deadline) break;
+      }
+      throw new GatewayError("timeout", `No ${filePrefix}:OK within ${SEND_VALIDATION_TIMEOUT_MS / 1000} s`);
     });
   }
 
