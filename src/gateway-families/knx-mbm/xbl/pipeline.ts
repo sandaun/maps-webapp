@@ -18,23 +18,24 @@ import {
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
+import {
+  createConversionList,
+  parseConversionIds,
+  parseConversions,
+  parseFloatLenient,
+  parseXblHeader,
+  parseXblIbox,
+  type ActiveConversion,
+  type ConversionIdRef,
+  type ParsedConversion,
+} from "@/core/xbl";
 import { parseGroupAddress } from "@/protocols/knx";
 
 // --- parsed (pre-XBL) structures -------------------------------------------
 
-export interface ConversionIdRef {
-  index: number;
-  inverted: boolean;
-}
-
-export interface ParsedConversion {
-  type: number;
-  params: [number, number, number, number];
-}
-
-export interface ActiveConversion extends ParsedConversion {
-  isLast: boolean;
-}
+// Conversion types/table builder are shared with the other families; they
+// live in `src/core/xbl/conversions.ts` (moved in step 2.4).
+export type { ActiveConversion, ConversionIdRef, ParsedConversion } from "@/core/xbl";
 
 export interface KnxObjectParsed {
   active: boolean;
@@ -285,8 +286,8 @@ export function runXblPipeline(doc: XmlDocument): XblPipelineResult {
     enabledError.length > 0;
 
   return {
-    header: parseHeader(doc),
-    ibox: parseIbox(doc),
+    header: parseXblHeader(doc),
+    ibox: parseXblIbox(doc),
     activeConversions,
     knx: {
       physicalAddress: parseIntText(internal, "IndAddress", 65535),
@@ -335,11 +336,6 @@ function parseFloatText(el: XmlElement, tag: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** Port of IntesisXML.GetFloatValue (accepts both "." and "," decimals). */
-function parseFloatLenient(value: string): number {
-  return Number(value.replace(",", "."));
-}
-
 function parseBoolText(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback;
   return value.toLowerCase() === "true";
@@ -358,22 +354,6 @@ function parseNumberAttr(el: XmlElement | undefined, name: string, fallback: num
 function parseStringAttr(el: XmlElement | undefined, name: string, fallback: string): string {
   const v = el ? getAttr(el, name) : undefined;
   return v ?? fallback;
-}
-
-/**
- * Port of IntesisConversion.ParseConversionIDs. DEVIATION: empty segments
- * (e.g. a trailing ";") are skipped instead of throwing — the C# parser would
- * fail the whole project load on them.
- */
-function parseConversionIds(value: string | undefined): ConversionIdRef[] {
-  if (!value) return [];
-  const out: ConversionIdRef[] = [];
-  for (const segment of value.split(";")) {
-    if (segment === "") continue;
-    const [idx, inv] = segment.split(",");
-    out.push({ index: Number(idx), inverted: Number(inv) === 1 });
-  }
-  return out;
 }
 
 /** GroupAddress(XmlNode): invalid/empty values decode to address 0. */
@@ -489,41 +469,6 @@ function parseTcpNodes(external: XmlElement): TcpNodeParsed[] {
     }));
 }
 
-function parseConversions(doc: XmlDocument): {
-  filters: ParsedConversion[];
-  operations: ParsedConversion[];
-} {
-  // IntesisXML.ParseConversionsFromXML: FILTER (0) → filters, rest → operations.
-  const containerEl = doc.find(["IBOX", "Conversions"]);
-  const filters: ParsedConversion[] = [];
-  const operations: ParsedConversion[] = [];
-  if (!containerEl) return { filters, operations };
-  for (const el of childrenOf(containerEl, "Conversion")) {
-    const conv: ParsedConversion = {
-      type: parseNumberAttr(el, "Type", 0),
-      params: [
-        parseFloatLenient(parseStringAttr(el, "Param1", "0")),
-        parseFloatLenient(parseStringAttr(el, "Param2", "0")),
-        parseFloatLenient(parseStringAttr(el, "Param3", "0")),
-        parseFloatLenient(parseStringAttr(el, "Param4", "0")),
-      ],
-    };
-    (conv.type === 0 ? filters : operations).push(conv);
-  }
-  return { filters, operations };
-}
-
-function parseHeader(doc: XmlDocument): XblPipelineResult["header"] {
-  return {
-    description: doc.getAttr(["Header"], "Description") ?? "",
-    compVersion: doc.getAttr(["Header"], "CompatibilityVersion") ?? "0.0.0.0",
-    // C# uses Convert.ToBoolean ("True"/"False"); tolerate "1"/"0" too.
-    endianess: ["true", "1"].includes(
-      (doc.getAttr(["Header"], "Endianess") ?? "").toLowerCase(),
-    ),
-  };
-}
-
 function parseKeys(internal: XmlElement): [string, string, string] {
   const keys = child(internal, "Keys");
   return [
@@ -531,43 +476,6 @@ function parseKeys(internal: XmlElement): [string, string, string] {
     parseStringAttr(keys, "Key2", "0002"),
     parseStringAttr(keys, "Key3", "0003"),
   ];
-}
-
-function parseIbox(doc: XmlDocument): XblPipelineResult["ibox"] {
-  const usbEl = doc.find(["IBOX", "USBConfig"]);
-  const secEl = doc.find(["IBOX", "SecurityConfiguration"]);
-  return {
-    ip: doc.getAttr(["IBOX"], "IP") ?? "",
-    netmask: doc.getAttr(["IBOX"], "NetMask") ?? "",
-    gateway: doc.getAttr(["IBOX"], "Gateway") ?? "",
-    dhcp: parseBoolText(doc.getAttr(["IBOX"], "DHCP"), false),
-    // The gateway password is part of the compiled XBL (IBOX tag 5). The
-    // generator reads it straight from the XML — never from the UI model.
-    pwd: doc.getAttr(["IBOX"], "Pwd") ?? "",
-    name: doc.getAttr(["IBOX"], "Name") ?? "",
-    dns: doc.getAttr(["IBOX"], "DNS") ?? "",
-    dns2: doc.getAttr(["IBOX"], "DNS2") ?? "",
-    // UsbConfig(XmlNode) defaults: all flags true, levels 1.
-    usb: {
-      getLogs: parseBoolAttr(usbEl, "GetLogs", true),
-      getProject: parseBoolAttr(usbEl, "GetProject", true),
-      saveProject: parseBoolAttr(usbEl, "SaveProject", true),
-      saveFirm: parseBoolAttr(usbEl, "SaveFirm", true),
-      spons: parseBoolAttr(usbEl, "SponsEnabled", true),
-      comms: parseBoolAttr(usbEl, "CommsEnabled", true),
-      debugLevel: parseNumberAttr(usbEl, "DebugLevel", 1),
-      verboseLevel: parseNumberAttr(usbEl, "VerboseLevel", 1),
-    },
-    // SecurityConfig(XmlNode) defaults: all false, port 23. IsLow is a
-    // runtime-only property (IntesisLicense.IsLowProject) — false for
-    // IBOX_KNX_MBM.
-    security: {
-      tcpDisabled: parseBoolAttr(secEl, "TCPDisabled", false),
-      udpDisabled: parseBoolAttr(secEl, "UDPDisabled", false),
-      customPort: parseBoolAttr(secEl, "CustomPort", false),
-      port: parseNumberAttr(secEl, "Port", 23),
-    },
-  };
 }
 
 // --- PreXBLActions helpers ---------------------------------------------------
@@ -782,98 +690,6 @@ function externalIdPortIndex(port: number, rtuNodesOffset: number): number {
 }
 
 // --- conversions table --------------------------------------------------------
-
-function cloneConversion(c: ParsedConversion, isLast: boolean): ActiveConversion {
-  return { type: c.type, params: [...c.params], isLast };
-}
-
-/**
- * Port of IntesisConversion.CreateConversion(conversion, isInverted,
- * isLastConversion) (IntesisConversion.cs:134-179).
- */
-function transformConversion(
-  c: ParsedConversion,
-  isInverted: boolean,
-  isLast: boolean,
-): ActiveConversion {
-  if (!isInverted) return cloneConversion(c, isLast);
-  switch (c.type) {
-    case 1: // SCALE: swap directions
-      return { type: c.type, params: [c.params[2], c.params[3], c.params[0], c.params[1]], isLast };
-    case 2: // ARITH
-      return { type: c.type, params: [c.params[0], c.params[1], c.params[2], 1], isLast };
-    case 4: // LUT_REMAP
-      return {
-        type: c.type,
-        params: [c.params[0], Math.trunc(c.params[1]) | 8, c.params[2], 1],
-        isLast,
-      };
-    default:
-      return cloneConversion(c, isLast);
-  }
-}
-
-function conversionEquals(a: ActiveConversion, b: ActiveConversion): boolean {
-  return (
-    a.type === b.type &&
-    a.isLast === b.isLast &&
-    a.params[0] === b.params[0] &&
-    a.params[1] === b.params[1] &&
-    a.params[2] === b.params[2] &&
-    a.params[3] === b.params[3]
-  );
-}
-
-/**
- * Port of IntesisConversion.CreateConversionList (IntesisConversion.cs:220-290):
- * non-inverted filters → operations (inversion-transformed) → inverted
- * filters; the chain is deduplicated against `activeConversions`; returns the
- * chain's start index there, or 255 when empty.
- */
-function createConversionList(
-  filterIds: ConversionIdRef[],
-  operationIds: ConversionIdRef[],
-  filters: ParsedConversion[],
-  operations: ParsedConversion[],
-  activeConversions: ActiveConversion[],
-): number {
-  const chain: ActiveConversion[] = [];
-  for (const f of filterIds) {
-    if (!f.inverted) chain.push(cloneConversion(filters[f.index], false));
-  }
-  for (const o of operationIds) {
-    chain.push(transformConversion(operations[o.index], o.inverted, false));
-  }
-  for (const f of filterIds) {
-    if (f.inverted) chain.push(cloneConversion(filters[f.index], false));
-  }
-  if (chain.length === 0) return 255;
-  chain[chain.length - 1].isLast = true;
-
-  let found = -1;
-  for (let i = 0; i < activeConversions.length; i++) {
-    if (!conversionEquals(activeConversions[i], chain[0])) continue;
-    let match = true;
-    for (let j = 1; j < chain.length; j++) {
-      if (activeConversions.length > i + j && conversionEquals(activeConversions[i + j], chain[j])) {
-        continue;
-      }
-      match = false;
-      break;
-    }
-    if (match) {
-      found = i;
-      break;
-    }
-  }
-  if (found === -1) {
-    found = activeConversions.length;
-    for (let k = 0; k < chain.length; k++) {
-      activeConversions.push(cloneConversion(chain[k], k === chain.length - 1));
-    }
-  }
-  return found;
-}
 
 // --- poll records --------------------------------------------------------------
 

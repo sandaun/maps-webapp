@@ -1,15 +1,22 @@
 /**
- * verify-xbl — compares the TypeScript KNX–MBM XBL generator against a
- * reference XBL produced by the real MAPS desktop tool for the same project.
+ * verify-xbl — compares a TypeScript XBL generator against a reference XBL
+ * produced by the real MAPS desktop tool for the same project.
  *
  * Usage:
  *   pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
- *     [--mask-timestamp] [--sw-version a.b.c.d] [--now ISO-8601]
+ *     [--family knx-mbm|me-mbs] [--app-id N] [--mask-timestamp] \
+ *     [--sw-version a.b.c.d] [--now ISO-8601]
  *
  * - `project`: the MAPS project. Either the raw .ibmaps XML or a ZIP/complete
  *   blob containing exactly one .ibmaps entry.
  * - `reference`: the MAPS-generated XBL. Either a complete blob
  *   (`[4B len][XBL][4B CRC32][zip]`) or a raw XBL TLV payload.
+ * - `--family`: which generator to exercise (default `knx-mbm`). The recorded
+ *   capability key is per family (`knxMbmXblVerified` / `meMbsXblVerified`).
+ * - `--app-id`: AppId for header tag 6 (IntesisXBL.cs:149). Default is the
+ *   family's connected-device AppId (4 for KNX–MBM, 64 for ME–MBS on a 770
+ *   Air). The ME–MBS project XML only carries the project CompatibilityID
+ *   (8), never the unit's AppId, so 64 cannot be derived from the project.
  * - `--sw-version`: MAPS tool version quad written into header tag 2. The
  *   generator cannot derive it from the project XML (MAPS writes the tool's
  *   own version), so by default it is EXTRACTED from the reference header
@@ -23,20 +30,34 @@
  * Exit codes: 0 = byte-identical match; 1 = divergence; 2 = usage/setup error.
  *
  * On a full match, the result is recorded in `.local-data/capabilities.json`
- * under `knxMbmXblVerified` (see docs/knx-mbm-mvp.md, Iteració 8). Nothing
- * reads that artefact yet; the deploy UI stays disabled until a follow-up
- * iteration wires it up.
+ * under the family's capability key (see docs/knx-mbm-mvp.md, Iteració 8 /
+ * Pas 2.4). Nothing reads that artefact yet; the deploy UI stays disabled
+ * until a follow-up iteration wires it up.
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { extractIbmaps, parseCompleteBlob } from "@/core/project-format";
-import { decodeElements, generateKnxMbmXbl, type DecodedElement } from "@/gateway-families/knx-mbm";
+import { decodeElements, type DecodedElement } from "@/core/xbl";
+import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
+import { generateMeMbsXbl } from "@/gateway-families/me-mbs";
+
+interface FamilySpec {
+  generate: (projectXml: string, options: { now: Date; swVersion: [number, number, number, number]; appId?: number }) => Uint8Array;
+  capabilityKey: string;
+}
+
+const FAMILIES: Record<string, FamilySpec> = {
+  "knx-mbm": { generate: generateKnxMbmXbl, capabilityKey: "knxMbmXblVerified" },
+  "me-mbs": { generate: generateMeMbsXbl, capabilityKey: "meMbsXblVerified" },
+};
 
 interface CliOptions {
   projectPath: string;
   referencePath: string;
+  family: string;
+  appId?: number;
   maskTimestamp: boolean;
   swVersion?: [number, number, number, number];
   now?: Date;
@@ -45,7 +66,8 @@ interface CliOptions {
 function usage(): never {
   console.error(
     "Usage: pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> " +
-      "[--mask-timestamp] [--sw-version a.b.c.d] [--now ISO-8601]",
+      "[--family knx-mbm|me-mbs] [--app-id N] [--mask-timestamp] " +
+      "[--sw-version a.b.c.d] [--now ISO-8601]",
   );
   process.exit(2);
 }
@@ -65,11 +87,24 @@ function parseSwVersion(value: string): [number, number, number, number] {
 
 function parseArgs(argv: string[]): CliOptions {
   const positional: string[] = [];
-  const opts: Partial<CliOptions> = { maskTimestamp: false };
+  const opts: Partial<CliOptions> = { maskTimestamp: false, family: "knx-mbm" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--mask-timestamp") {
       opts.maskTimestamp = true;
+    } else if (arg === "--family") {
+      const value = argv[++i];
+      if (!value || !(value in FAMILIES)) {
+        fail(`invalid --family "${value ?? ""}" (expected one of: ${Object.keys(FAMILIES).join(", ")})`);
+      }
+      opts.family = value;
+    } else if (arg === "--app-id") {
+      const value = argv[++i];
+      const appId = Number(value);
+      if (!value || !Number.isInteger(appId) || appId < 0 || appId > 255) {
+        fail(`invalid --app-id "${value ?? ""}" (expected a byte 0-255)`);
+      }
+      opts.appId = appId;
     } else if (arg === "--sw-version") {
       const value = argv[++i];
       if (!value) usage();
@@ -90,6 +125,8 @@ function parseArgs(argv: string[]): CliOptions {
   return {
     projectPath: positional[0],
     referencePath: positional[1],
+    family: opts.family ?? "knx-mbm",
+    appId: opts.appId,
     maskTimestamp: opts.maskTimestamp ?? false,
     swVersion: opts.swVersion,
     now: opts.now,
@@ -165,13 +202,17 @@ function hexContext(data: Uint8Array, offset: number): string {
     .join(" ");
 }
 
-function recordCapability(input: {
-  projectSha256: string;
-  referenceSha256: string;
-  xblLength: number;
-  maskedTimestamp: boolean;
-  swVersion: string;
-}): string {
+function recordCapability(
+  capabilityKey: string,
+  input: {
+    projectSha256: string;
+    referenceSha256: string;
+    xblLength: number;
+    maskedTimestamp: boolean;
+    swVersion: string;
+    appId?: number;
+  },
+): string {
   const dir = path.join(process.cwd(), ".local-data");
   const file = path.join(dir, "capabilities.json");
   let capabilities: Record<string, unknown> = {};
@@ -182,7 +223,7 @@ function recordCapability(input: {
       fail(`.local-data/capabilities.json exists but is not valid JSON`);
     }
   }
-  capabilities["knxMbmXblVerified"] = {
+  capabilities[capabilityKey] = {
     verifiedAt: new Date().toISOString(),
     ...input,
   };
@@ -195,13 +236,18 @@ function recordCapability(input: {
 
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
+  const family = FAMILIES[opts.family];
   const projectXml = readProjectXml(opts.projectPath);
   const reference = readReferenceXbl(opts.referencePath);
   const swVersion = opts.swVersion ?? swVersionFromReference(reference);
 
   let generated: Uint8Array;
   try {
-    generated = generateKnxMbmXbl(projectXml, { now: opts.now ?? new Date(), swVersion });
+    generated = family.generate(projectXml, {
+      now: opts.now ?? new Date(),
+      swVersion,
+      appId: opts.appId,
+    });
   } catch (cause) {
     fail(`generation failed: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
@@ -230,15 +276,16 @@ function main(): void {
     process.exit(1);
   }
 
-  const file = recordCapability({
+  const file = recordCapability(family.capabilityKey, {
     projectSha256: sha256(readFileSync(opts.projectPath)),
     referenceSha256: sha256(readFileSync(opts.referencePath)),
     xblLength: generated.length,
     maskedTimestamp: opts.maskTimestamp,
     swVersion: swVersion.join("."),
+    appId: opts.appId,
   });
   console.log(`verify-xbl: MATCH — ${generated.length} bytes identical to reference.`);
-  console.log(`verify-xbl: capability recorded in ${file}`);
+  console.log(`verify-xbl: capability "${family.capabilityKey}" recorded in ${file}`);
 }
 
 main();

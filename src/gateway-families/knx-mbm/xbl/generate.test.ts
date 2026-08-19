@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SYNTHETIC_KNX_MBM_XML } from "../fixtures/synthetic-project";
-import { childByTag, decodeElements, type DecodedElement } from "./decode";
+import { childByTag, decodeElements, type DecodedElement } from "@/core/xbl";
 import { generateKnxMbmXbl } from "./generate";
 
 /**

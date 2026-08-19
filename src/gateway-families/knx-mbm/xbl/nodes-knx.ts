@@ -16,7 +16,7 @@ import {
   u16be,
   utf8,
   type XblElementSpec,
-} from "./tlv";
+} from "@/core/xbl";
 
 /**
  * DPT main number → KNX type byte (IntesisKnx.GetTypeFromDPT switch,

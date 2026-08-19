@@ -1,17 +1,27 @@
 /**
  * XBL writers for the family-independent nodes: header (tag 1) and IBOX
- * (tag 2, incl. conversions tag 7, USB tags 10/11, timezone/NTP tags 12/13,
- * DNS tag 14, security tag 15, custom ports 17/18).
+ * (tag 2, incl. conversions tag 7, link tables tag 8, remapping tag 9, USB
+ * tags 10/11, timezone/NTP tags 12/13, DNS tag 14, security tag 15, custom
+ * ports 17/18).
  *
  * Provenance: `IntesisXBL.CreateXBLHeaderNode` / `CreateXBLIBOXNode` /
- * `CreateConversionsXBLNode` / `CreateUSBConfigXBLNode` /
- * `CreateUSBAdvancedXBLNode` (temp/maps-cloud/xbl-spec/src/IntesisXBL.cs:124-333,
- * 378-423), `TimeConfiguration.GetTimeZoneXbl`/`GetNtpXbl`
+ * `CreateConversionsXBLNode` / `CreateRemappingXBLNode` /
+ * `CreateUSBConfigXBLNode` / `CreateUSBAdvancedXBLNode`
+ * (temp/maps-cloud/xbl-spec/src/IntesisXBL.cs:124-365, 378-423),
+ * `TimeConfiguration.GetTimeZoneXbl`/`GetNtpXbl`
  * (IntesisBoxMAPS/TimeConfiguration.cs:76-127), `SecurityConfig.GetSecurityXbl`/
  * `GetPortXbl` (IntesisBoxMAPS/SecurityConfig.cs:73-117).
+ *
+ * Moved from `gateway-families/knx-mbm/xbl/` in step 2.4 and generalized:
+ * - the header AppId is a parameter (it is the CONNECTED DEVICE's AppId when
+ *   one is connected — `IntesisXBL.cs:149` — e.g. 64 `ME_AC_XXX` on a 770
+ *   Air, while the project class declares 8 `ME_AC_MBS`);
+ * - the IBOX writer takes the active remap LUTs (tag 9) and a USB-availability
+ *   flag (`IntesisLicense.USBHostAvailable` — false on RT_AIR, true for
+ *   IBOX_KNX_MBM on KTS).
  */
 
-import type { XblPipelineResult } from "./pipeline";
+import type { ActiveConversion, ParsedRemapLut } from "./conversions";
 import {
   container,
   f32le,
@@ -19,12 +29,10 @@ import {
   node,
   nullTerminatedUtf8,
   u16be,
+  u32be,
   u32le,
   type XblElementSpec,
 } from "./tlv";
-
-/** AppId IBOX_KNX_MBM = 4 (IntesisBoxMAPS/AppId.cs:13). */
-export const APP_ID_KNX_MBM = 4;
 
 /**
  * MAPS version quad written into header tag 2. MAPS writes the CURRENT tool
@@ -32,9 +40,55 @@ export const APP_ID_KNX_MBM = 4;
  * project XML's ToolVersion is NOT used. It cannot be derived from the
  * project, so the generator takes it as an option and the verification
  * harness extracts it from the reference XBL. Default observed in the real
- * BACnet–MBM reference XBL: 1.2.31.0.
+ * ME–MBS and BACnet–MBM reference XBLs: 1.2.31.0.
  */
 export const DEFAULT_SW_VERSION: readonly [number, number, number, number] = [1, 2, 31, 0];
+
+/** Header fields the XBL header node needs (parsed from the XML `<Header>`). */
+export interface XblHeaderFields {
+  description: string;
+  compVersion: string;
+  endianess: boolean;
+}
+
+/** IBOX fields the XBL IBOX node needs (parsed from the XML `<IBOX>`). */
+export interface XblIboxFields {
+  ip: string;
+  netmask: string;
+  gateway: string;
+  dhcp: boolean;
+  pwd: string;
+  name: string;
+  dns: string;
+  dns2: string;
+  usb: {
+    getLogs: boolean;
+    getProject: boolean;
+    saveProject: boolean;
+    saveFirm: boolean;
+    spons: boolean;
+    comms: boolean;
+    debugLevel: number;
+    verboseLevel: number;
+  };
+  security: { tcpDisabled: boolean; udpDisabled: boolean; customPort: boolean; port: number };
+}
+
+export interface XblIboxOptions {
+  ibox: XblIboxFields;
+  activeConversions: ActiveConversion[];
+  /**
+   * Active remap LUTs → IBOX tag 9. Empty when the family's PreXBLActions
+   * leaves ActiveMappings empty (KNX–MBM); ME–MBS passes ALL the project's
+   * LUTs (`ActiveMappings = mRemappings`, IntesisProjectMbsMe_RT.cs:446).
+   */
+  activeMappings: ParsedRemapLut[];
+  /**
+   * `IntesisLicense.USBHostAvailable(appId, platform)`: gates USB tags 10/11.
+   * True for KNX–MBM (KTS), false on RT_AIR (770 Air).
+   */
+  usbAvailable: boolean;
+}
 
 /** Version quad → 4 bytes (C# IPAddress.Parse(version.ToString())). */
 function versionBytes(version: readonly [number, number, number, number]): Uint8Array {
@@ -56,11 +110,16 @@ function versionStringBytes(value: string): Uint8Array {
   return new Uint8Array(parts.slice(0, 4));
 }
 
-/** Port of IntesisXBL.CreateXBLHeaderNode (IntesisXBL.cs:124-172). */
+/**
+ * Port of IntesisXBL.CreateXBLHeaderNode (IntesisXBL.cs:124-172). `appId` is
+ * the value C# resolves at runtime: the connected device's AppId when a device
+ * is connected, otherwise the project class's ApplicationID.
+ */
 export function buildHeaderNode(
-  header: XblPipelineResult["header"],
+  header: XblHeaderFields,
   now: Date,
   swVersion: readonly [number, number, number, number],
+  appId: number,
 ): XblElementSpec {
   return container(1, [
     // HeaderDescription, max 32 UTF-8 bytes + NUL.
@@ -81,14 +140,12 @@ export function buildHeaderNode(
       ]),
     ),
     node(5, new Uint8Array([header.endianess ? 1 : 0])),
-    node(6, new Uint8Array([APP_ID_KNX_MBM])),
+    node(6, new Uint8Array([appId & 0xff])),
   ]);
 }
 
 /** Port of IntesisXBL.CreateConversionsXBLNode (IntesisXBL.cs:378-423). */
-function buildConversionsNode(
-  active: XblPipelineResult["activeConversions"],
-): XblElementSpec | null {
+function buildConversionsNode(active: ActiveConversion[]): XblElementSpec | null {
   if (active.length === 0) return null;
   const out = new Uint8Array(active.length * 17);
   active.forEach((conv, i) => {
@@ -113,9 +170,37 @@ function buildConversionsNode(
   return node(7, out);
 }
 
-function buildUsbConfigNode(usb: XblPipelineResult["ibox"]["usb"]): XblElementSpec {
-  // USBHostAvailable(IBOX_KNX_MBM, KTS) = true and IntesisOem.USBAvailable =
-  // true → the node is always emitted for KNX–MBM (IntesisXBL.cs:224-234).
+/**
+ * Port of IntesisXBL.CreateRemappingXBLNode (IntesisXBL.cs:335-366): per LUT,
+ * an 11-byte header (count, u32 BE default, 0, u32 BE invDefault, 0) followed
+ * by 10 bytes per element (u32 BE in, 0, u32 BE out, 0). C# casts the float
+ * values to uint (truncation toward zero).
+ */
+function buildRemappingNode(mappings: ParsedRemapLut[]): XblElementSpec | null {
+  if (mappings.length === 0) return null;
+  const total = mappings.reduce((n, m) => n + 11 + m.numberOfElements * 10, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  const putU32 = (value: number, at: number): void => {
+    out.set(u32be(Math.trunc(value) >>> 0), at);
+  };
+  for (const lut of mappings) {
+    out[offset] = lut.numberOfElements & 0xff;
+    putU32(lut.defaultInput, offset + 1);
+    // out[offset + 5] = 0 (already zeroed)
+    putU32(lut.invDefault, offset + 6);
+    // out[offset + 10] = 0
+    offset += 11;
+    for (let i = 0; i < lut.numberOfElements; i++) {
+      putU32(lut.inputValues[i] ?? 0, offset);
+      putU32(lut.outputValues[i] ?? 0, offset + 5);
+      offset += 10;
+    }
+  }
+  return node(9, out);
+}
+
+function buildUsbConfigNode(usb: XblIboxFields["usb"]): XblElementSpec {
   let flags = 0;
   if (usb.getLogs) flags += 1;
   if (usb.getProject) flags += 2;
@@ -124,7 +209,7 @@ function buildUsbConfigNode(usb: XblPipelineResult["ibox"]["usb"]): XblElementSp
   return node(10, new Uint8Array([flags]));
 }
 
-function buildUsbAdvancedNode(usb: XblPipelineResult["ibox"]["usb"]): XblElementSpec | null {
+function buildUsbAdvancedNode(usb: XblIboxFields["usb"]): XblElementSpec | null {
   if (!usb.getLogs) return null;
   let flags = 0;
   if (usb.spons) flags += 1;
@@ -134,9 +219,11 @@ function buildUsbAdvancedNode(usb: XblPipelineResult["ibox"]["usb"]): XblElement
 }
 
 /**
- * Timezone/NTP nodes. TimeZoneAvailable(IBOX_KNX_MBM, KTS) = false
- * (IntesisLicense.cs:875-887), so both nodes always carry the empty
- * placeholders regardless of the XML TimeConfiguration.
+ * Timezone/NTP placeholder nodes. Both families exercised so far have
+ * TimeConfiguration.Enabled=False, which takes the placeholder branch of
+ * GetTimeZoneXbl/GetNtpXbl regardless of TimeZoneAvailable. UNVERIFIED edge:
+ * with Enabled=True on RT/RT_AIR (TimeZoneAvailable=true) the real timezone
+ * table content would be emitted instead — not ported (no sample).
  */
 function buildTimeZoneNode(): XblElementSpec {
   return container(12, [
@@ -151,8 +238,8 @@ function buildNtpNode(): XblElementSpec {
 }
 
 /** Port of IntesisXBL.CreateXBLIBOXNode (IntesisXBL.cs:174-281). */
-export function buildIboxNode(p: XblPipelineResult): XblElementSpec {
-  const { ibox } = p;
+export function buildIboxNode(options: XblIboxOptions): XblElementSpec {
+  const { ibox } = options;
   const children: XblElementSpec[] = [
     node(1, ipv4Bytes(ibox.ip)),
     node(2, ipv4Bytes(ibox.netmask)),
@@ -161,14 +248,18 @@ export function buildIboxNode(p: XblPipelineResult): XblElementSpec {
     node(5, nullTerminatedUtf8(ibox.pwd, 8, 9)),
     node(6, nullTerminatedUtf8(ibox.name, 32, 33)),
   ];
-  const conversions = buildConversionsNode(p.activeConversions);
+  const conversions = buildConversionsNode(options.activeConversions);
   if (conversions) children.push(conversions);
-  // Link tables (tag 8) and remapping (tag 9) are never emitted for KNX–MBM:
-  // ProjectLinkTable stays empty and PreXBLActions leaves ActiveMappings empty
-  // (IntesisProjectKnxMbm.cs:387-389).
-  children.push(buildUsbConfigNode(ibox.usb));
-  const usbAdvanced = buildUsbAdvancedNode(ibox.usb);
-  if (usbAdvanced) children.push(usbAdvanced);
+  // Link tables (tag 8) are never emitted by the families exercised so far:
+  // PreXBLActions clears ProjectLinkTable (IntesisProjectKnxMbm.cs:387-389,
+  // IntesisProjectMbsMe_RT.cs:326).
+  const remapping = buildRemappingNode(options.activeMappings);
+  if (remapping) children.push(remapping);
+  if (options.usbAvailable) {
+    children.push(buildUsbConfigNode(ibox.usb));
+    const usbAdvanced = buildUsbAdvancedNode(ibox.usb);
+    if (usbAdvanced) children.push(usbAdvanced);
+  }
   children.push(buildTimeZoneNode());
   children.push(buildNtpNode());
   const dns = new Uint8Array(8);
@@ -177,7 +268,7 @@ export function buildIboxNode(p: XblPipelineResult): XblElementSpec {
   children.push(node(14, dns));
   const { security } = ibox;
   if (security.tcpDisabled || security.udpDisabled) {
-    // GetSecurityXbl; IsLow is false for IBOX_KNX_MBM.
+    // GetSecurityXbl; IsLow is false for the families exercised so far.
     children.push(
       container(15, [
         node(1, new Uint8Array([security.tcpDisabled ? 1 : 0])),
@@ -190,8 +281,7 @@ export function buildIboxNode(p: XblPipelineResult): XblElementSpec {
     children.push(node(17, u16be(security.port)));
     children.push(node(18, u16be(security.port)));
   }
-  // GetLedConfigXblNode is not overridden by IntesisProjectKnxMbm → null.
+  // GetLedConfigXblNode is not overridden by the ported families → null.
   // CertificatesConfig only applies with UsesCloudConection() → false.
   return container(2, children);
 }
-

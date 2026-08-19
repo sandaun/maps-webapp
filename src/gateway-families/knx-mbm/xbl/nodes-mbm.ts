@@ -28,7 +28,7 @@ import {
   u16be,
   u32be,
   type XblElementSpec,
-} from "./tlv";
+} from "@/core/xbl";
 
 /** MbmDevice.GetMyXblNodeList; RTU and TCP devices use different tags. */
 function deviceItemList(dev: EnabledDevice, isRtu: boolean): XblElementSpec[] {

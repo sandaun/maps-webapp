@@ -20,12 +20,20 @@
  */
 
 import { XmlDocument } from "@/core/project-format";
+import {
+  buildHeaderNode,
+  buildIboxNode,
+  DEFAULT_SW_VERSION,
+  serializeElements,
+  type XblElementSpec,
+} from "@/core/xbl";
 import { isKnxMbmProject } from "../detect";
-import { buildHeaderNode, buildIboxNode, DEFAULT_SW_VERSION } from "./nodes-common";
 import { buildKnxNode } from "./nodes-knx";
 import { buildMbmNode } from "./nodes-mbm";
 import { runXblPipeline } from "./pipeline";
-import { serializeElements, type XblElementSpec } from "./tlv";
+
+/** AppId IBOX_KNX_MBM = 4 (IntesisBoxMAPS/AppId.cs:13). */
+export const APP_ID_KNX_MBM = 4;
 
 export interface GenerateKnxMbmXblOptions {
   /** Generation timestamp for header tag 4. Defaults to the current time. */
@@ -35,6 +43,12 @@ export interface GenerateKnxMbmXblOptions {
    * tool that compiles the XBL; it is not derivable from the project XML.
    */
   swVersion?: readonly [number, number, number, number];
+  /**
+   * AppId for header tag 6 (IntesisXBL.cs:149): the connected device's AppId
+   * when one is connected, otherwise the project class's ApplicationID
+   * (IBOX_KNX_MBM = 4 — the default here).
+   */
+  appId?: number;
 }
 
 export function generateKnxMbmXbl(
@@ -47,8 +61,20 @@ export function generateKnxMbmXbl(
   }
   const pipeline = runXblPipeline(doc);
   const elements: XblElementSpec[] = [
-    buildHeaderNode(pipeline.header, options.now ?? new Date(), options.swVersion ?? DEFAULT_SW_VERSION),
-    buildIboxNode(pipeline),
+    buildHeaderNode(
+      pipeline.header,
+      options.now ?? new Date(),
+      options.swVersion ?? DEFAULT_SW_VERSION,
+      options.appId ?? APP_ID_KNX_MBM,
+    ),
+    // USBHostAvailable(IBOX_KNX_MBM, KTS) = true; ActiveMappings stays empty
+    // (IntesisProjectKnxMbm.cs:387-389).
+    buildIboxNode({
+      ibox: pipeline.ibox,
+      activeConversions: pipeline.activeConversions,
+      activeMappings: [],
+      usbAvailable: true,
+    }),
     buildKnxNode(pipeline.knx),
   ];
   const mbmNode = buildMbmNode(pipeline.mbm);
