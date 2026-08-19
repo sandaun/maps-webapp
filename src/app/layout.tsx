@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { CurrentProjectProvider } from "@/lib/current-project";
+import { GatewaySessionProvider } from "@/lib/gateway-session";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 
 export const metadata: Metadata = {
@@ -16,9 +17,11 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <CurrentProjectProvider>
-          <WorkspaceChromeProvider>
-            <AppShell>{children}</AppShell>
-          </WorkspaceChromeProvider>
+          <GatewaySessionProvider>
+            <WorkspaceChromeProvider>
+              <AppShell>{children}</AppShell>
+            </WorkspaceChromeProvider>
+          </GatewaySessionProvider>
         </CurrentProjectProvider>
       </body>
     </html>

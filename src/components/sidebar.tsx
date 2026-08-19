@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NAV_SECTIONS } from "@/lib/nav";
+import { useGatewaySession } from "@/lib/gateway-session";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarCollapsed, setSidebarCollapsed } = useWorkspaceChrome();
+  const { session, loading } = useGatewaySession();
+  const connected = session?.connected === true;
 
   return (
     <aside
@@ -19,17 +21,43 @@ export function Sidebar() {
         sidebarCollapsed ? "w-[56px]" : "w-[228px]",
       )}
     >
-      <div className={cn("px-4 pt-5 pb-4", sidebarCollapsed && "px-2 text-center")}>
-        <div className="font-display text-lg font-medium tracking-wide">MAPS</div>
-        {!sidebarCollapsed && (
-          <div className="font-display text-[10px] tracking-[0.18em] text-white/60">· INTESIS CLOUD</div>
-        )}
+      <div className={cn("flex h-14 shrink-0 items-center border-b border-white/10 px-2", sidebarCollapsed && "justify-center")}>
+        <button
+          type="button"
+          className="flex size-10 shrink-0 items-center justify-center rounded text-white/65 hover:bg-white/10 hover:text-white"
+          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        >
+          {sidebarCollapsed ? (
+            <PanelLeftOpen className="h-[18px] w-[18px]" aria-hidden />
+          ) : (
+            <PanelLeftClose className="h-[18px] w-[18px]" aria-hidden />
+          )}
+        </button>
+        {!sidebarCollapsed ? (
+          <div className="min-w-0 pl-1.5">
+            <div className="font-display text-lg font-medium leading-5 tracking-wide">MAPS</div>
+            <div className="font-display text-[10px] tracking-[0.18em] text-white/60">· INTESIS CLOUD</div>
+          </div>
+        ) : null}
       </div>
 
       {!sidebarCollapsed && (
-        <div className="mx-3 mb-3 rounded-md bg-white/5 px-3 py-2">
+        <div className="mx-3 my-3 rounded-md bg-white/5 px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-white/50">Gateway</div>
-          <div className="mt-0.5 text-xs text-white/80">No gateway connected</div>
+          <div className="mt-1 flex items-center gap-2 text-xs text-white/80">
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                connected ? "bg-[#28C498]" : loading ? "bg-warning" : "bg-white/30",
+              )}
+              aria-hidden
+            />
+            <span className="truncate">
+              {loading ? "Checking connection…" : connected ? session.host : "No gateway connected"}
+            </span>
+          </div>
         </div>
       )}
 
@@ -60,29 +88,13 @@ export function Sidebar() {
       </nav>
 
       {!sidebarCollapsed && (
-        <div className="mx-3 mb-2 rounded-md bg-white/5 px-3 py-2">
+        <div className="mx-3 mb-3 rounded-md bg-white/5 px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-white/50">Session</div>
-          <Badge variant="warning" className="mt-1">
-            Demo mode
-          </Badge>
+          <div className="mt-1 text-xs font-medium text-white/80">
+            {loading ? "Checking…" : connected ? `Live · ${session.encrypted ? "encrypted" : "cleartext"}` : "No active session"}
+          </div>
         </div>
       )}
-
-      <button
-        type="button"
-        className="mb-3 mx-2 flex items-center justify-center gap-2 rounded px-2 py-2 text-white/70 hover:bg-white/10 hover:text-white"
-        aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-      >
-        {sidebarCollapsed ? (
-          <ChevronRight className="h-4 w-4" aria-hidden />
-        ) : (
-          <>
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-            <span className="text-[12px]">Collapse</span>
-          </>
-        )}
-      </button>
     </aside>
   );
 }

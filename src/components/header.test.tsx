@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     issues: [] as { severity: string }[],
   },
   dirtyCount: 3,
-  listSessions: vi.fn(),
+  session: null as null | { id: string; host: string; port: number; connected: boolean },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -33,13 +33,13 @@ vi.mock("@/lib/workspace-chrome", () => ({
   }),
 }));
 
-vi.mock("@/lib/gateway-api", () => ({
-  listGatewaySessions: () => mocks.listSessions(),
+vi.mock("@/lib/gateway-session", () => ({
+  useGatewaySession: () => ({ session: mocks.session, loading: false, refresh: vi.fn() }),
 }));
 
 describe("Header", () => {
   it("shows protocol, valid, pending changes, offline and Deploy", async () => {
-    mocks.listSessions.mockResolvedValue([]);
+    mocks.session = null;
     render(<Header />);
 
     expect(screen.getByText("KNX TP")).toBeInTheDocument();
@@ -51,9 +51,7 @@ describe("Header", () => {
   });
 
   it("shows Connected when a gateway session is live", async () => {
-    mocks.listSessions.mockResolvedValue([
-      { id: "s1", host: "192.168.1.50", port: 23, connected: true },
-    ]);
+    mocks.session = { id: "s1", host: "192.168.1.50", port: 23, connected: true };
     render(<Header />);
     await waitFor(() => expect(screen.getByText("Connected · Ethernet")).toBeInTheDocument());
     expect(screen.getByText("192.168.1.50")).toBeInTheDocument();

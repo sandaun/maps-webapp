@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { sectionLabelForPath } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import type { FamilyId } from "@/lib/project-types";
-import { listGatewaySessions, type GatewaySessionStatus } from "@/lib/gateway-api";
+import { useGatewaySession } from "@/lib/gateway-session";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
 
@@ -55,23 +55,8 @@ export function Header() {
   const router = useRouter();
   const section = sectionLabelForPath(pathname);
   const { view } = useCurrentProject();
+  const { session, loading: sessionLoading } = useGatewaySession();
   const { dirtyCount } = useWorkspaceChrome();
-  const [session, setSession] = React.useState<GatewaySessionStatus | null | undefined>(undefined);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    listGatewaySessions()
-      .then((sessions) => {
-        if (cancelled) return;
-        setSession(sessions.find((s) => s.connected) ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setSession(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const errors = view?.issues.filter((i) => i.severity === "error").length ?? 0;
   const connected = session?.connected === true;
@@ -94,7 +79,7 @@ export function Header() {
           </span>
         ) : null}
         <StatusChip tone={connected ? "success" : "warning"} dot>
-          <span>{connected ? "Connected · Ethernet" : "Not connected"}</span>
+          <span>{sessionLoading ? "Checking gateway…" : connected ? "Connected · Ethernet" : "Not connected"}</span>
           {connected ? (
             <span className="font-mono text-[11px] font-medium text-[#4E9179]">{session.host}</span>
           ) : null}

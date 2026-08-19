@@ -1,6 +1,14 @@
+"use client";
+
 import { TriangleAlert } from "lucide-react";
+import { useCurrentProject } from "@/lib/current-project";
+import { useGatewaySession } from "@/lib/gateway-session";
 
 export function DemoBanner() {
+  const { view } = useCurrentProject();
+  const { session, loading } = useGatewaySession();
+  if (loading || session?.connected || view?.meta.source !== "demo") return null;
+
   return (
     <div
       role="status"
