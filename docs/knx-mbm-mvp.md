@@ -317,3 +317,16 @@ Autorització explícita de l'usuari per implementar el camí d'escriptura **nom
 - **Pantalla Deploy** (`deploy-screen.tsx`): per a me-mbs, targeta amb l'estat de cada gate ( servidor), botó "Deploy to gateway" habilitat **només** si totes passen i hi ha sessió connectada; pas de confirmació explícit ("This writes configuration to the gateway at <ip>", Confirm/Cancel), barra de progrés via SSE, resum del resultat i consell de fer Receive després per verificar. Per a knx-mmb es conserva intacta l'explicació de bloqueig (`knxMbmXblVerified`). Client: `getDeployStatus`/`deployGatewayProject` a `lib/gateway-api.ts` (miralls purs dels tipus del servidor).
 - **Tests nous (30)**: 10 al transmissor XMODEM (round-trip sender→receiver, NAK→retransmissió idèntica, CAN CAN→cancel·lat, límits de retransmissions/EOT/sincronisme, mode checksum, mode SOH) + 9 a la sessió contra el fake gateway (happy path SENDCMPLT amb args sanejats i zipLen correcte, SENDPROJ, blob malformat rebutjat abans del cable, NAK retry, CAN, `CMPLTFILE:ERR`, comanda refusada, sessió en clar) + 8 al servei de deploy (happy path amb XBL regenerat — comparat amb timestamp maskat —, reús de la swVersion del blob original, cada gate bloquejant: família 422, capability 403 incloent entrades falsificades, appId 409, sessió desconeguda) + 6 a la pantalla (knx-mbm bloquejat, me-mbs sense sessió, gates OK → confirmació → cancel·lar, gate fallida, confirm → POST → resum amb consell de Receive). Total: **298 tests verds (34 fitxers)**, `typecheck` i `lint` verds.
 - **Pendent (prova en viu, fora d'aquest pas)**: deploy real contra la 770 Air (192.168.2.130) amb autorització de l'usuari: connectar → pantalla Deploy → confirmar → verificar amb Receive que el gateway executa la nova configuració. Risc conegut: la capçalera XBL porta el timestamp de generació actual (camp volàtil documentat); la `swVersion` surt del blob original quan el projecte es va rebre del gateway.
+
+#### Pas 2.6 — prova en viu del deploy (2026-08-19, autorització expressa)
+
+Cicle complet executat contra la 770 Air real (192.168.2.130, AppId 64):
+
+1. Receive del projecte des de la unitat (blob complet desat, família me-mbs detectada).
+2. Patch d'una descripció de senyal (marcador de test).
+3. Gates de deploy verificats via API (família + capability + AppId de sessió).
+4. **Deploy real**: SENDCMPLT + XMODEM-1K, 20.657 B (XBL regenerat de 8.205 B + ZIP), acceptat per la unitat (`CMPLTFILE:OK`).
+5. **Receive de verificació**: la descripció modificada era present al dispositiu — el cicle editar→regenerar XBL→deploy→executar queda demostrat amb hardware real.
+6. **Restauració**: segon deploy amb la descripció original i receive final confirmant la unitat exactament com estava.
+
+El camí d'escriptura queda disponible només per a projectes me-mbs amb tots els gates en verd i confirmació explícita a la UI. KNX–MBM segueix sense deploy (XBL no verificat per aquella família).
