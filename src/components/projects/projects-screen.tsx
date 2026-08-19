@@ -125,14 +125,14 @@ export function ProjectsScreen() {
         </div>
         <div className="flex gap-2">
           <Button
-            className="h-9 rounded-[4px] px-4 text-[13px] font-bold"
+            className="h-9 rounded-[4px] px-4 text-[13px] font-medium"
             onClick={() => router.push("/projects/new")}
           >
             New project
           </Button>
           <Button
             variant="secondary"
-            className="h-9 rounded-[4px] px-4 text-[13px] font-bold"
+            className="h-9 rounded-[4px] px-4 text-[13px] font-medium"
             disabled={busy}
             onClick={handleReceive}
           >
@@ -182,7 +182,7 @@ export function ProjectsScreen() {
                     onClick={() => openProject(project.id)}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-semibold text-[#244f68]">
+                      <span className="block truncate text-[13px] font-medium text-[#244f68]">
                         {project.name}
                       </span>
                       <span className="mt-0.5 block truncate font-mono text-[11px] text-fg-subtle">
@@ -200,7 +200,7 @@ export function ProjectsScreen() {
                     <span>
                       <span
                         className={cn(
-                          "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold",
+                          "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
                           localChanges
                             ? "border-warning-border bg-warning-bg text-warning-text"
                             : "border-success-border bg-success-bg text-success",
@@ -260,10 +260,10 @@ export function ProjectsScreen() {
             <div className="mt-3 flex items-center gap-2.5">
               <span className="flex size-[26px] items-center justify-center rounded-full bg-[#496777] text-[10.5px] font-semibold text-white">LU</span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-semibold">Local user</span>
+                <span className="block text-[12.5px] font-medium">Local user</span>
                 <span className="block text-[11px] text-fg-muted">This device</span>
               </span>
-              <span className="rounded-full bg-[#EDF3F7] px-2 py-0.5 text-[11px] font-bold text-[#617684]">Admin</span>
+              <span className="rounded-full bg-[#EDF3F7] px-2 py-0.5 text-[11px] font-medium text-[#617684]">Admin</span>
             </div>
           </section>
         </aside>

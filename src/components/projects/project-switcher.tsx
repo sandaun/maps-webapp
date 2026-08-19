@@ -45,7 +45,7 @@ export function ProjectSwitcher() {
         onClick={() => setOpen((value) => !value)}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] font-semibold leading-[1.25] text-white">
+          <span className="block truncate text-[12.5px] font-medium leading-[1.25] text-white">
             {view?.meta.name ?? "No project loaded"}
           </span>
           <span className="mt-0.5 block truncate text-[10.5px] leading-[1.25] text-white/50">
@@ -100,7 +100,7 @@ export function ProjectSwitcher() {
                       aria-hidden
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12.5px] font-semibold text-hms-blue">{project.name}</span>
+                      <span className="block truncate text-[12.5px] font-medium text-hms-blue">{project.name}</span>
                       <span className="mt-0.5 block truncate font-mono text-[11px] text-fg-subtle">
                         {FAMILY_LABELS[project.family]}
                       </span>
@@ -114,7 +114,7 @@ export function ProjectSwitcher() {
             </div>
             <Link
               href="/projects"
-              className="block border-t border-border px-4 py-3 text-[12.5px] font-semibold text-hms-accent hover:bg-row-hover"
+              className="block border-t border-border px-4 py-3 text-[12.5px] font-medium text-hms-accent hover:bg-row-hover"
               onClick={() => setOpen(false)}
             >
               All projects and sites →
