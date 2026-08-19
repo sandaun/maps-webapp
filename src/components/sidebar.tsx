@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelLeftClose, PanelLeftOpen, Wifi, WifiOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleDot, Wifi, WifiOff } from "lucide-react";
 import { NAV_SECTIONS } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
@@ -35,26 +35,31 @@ export function Sidebar() {
         sidebarCollapsed ? "w-[56px]" : "w-[228px]",
       )}
     >
-      <div className={cn("flex h-14 shrink-0 items-center border-b border-white/10 px-2", sidebarCollapsed && "justify-center")}>
+      <div className="flex h-14 shrink-0 items-center border-b border-white/10 px-3">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-white text-hms-blue" aria-hidden>
+          <CircleDot className="size-[17px]" strokeWidth={2} />
+        </span>
+        {!sidebarCollapsed ? (
+          <div className="min-w-0 flex-1 pl-2.5">
+            <div className="font-display text-[13px] font-semibold leading-4 tracking-[0.12em]">MAPS</div>
+            <div className="font-display text-[8.5px] leading-3 tracking-[0.16em] text-white/55">INTESIS · CLOUD</div>
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
         <button
           type="button"
-          className="flex size-10 shrink-0 items-center justify-center rounded text-white/65 hover:bg-white/10 hover:text-white"
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm text-white/55 hover:bg-white/10 hover:text-white"
           aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
         >
           {sidebarCollapsed ? (
-            <PanelLeftOpen className="h-[18px] w-[18px]" aria-hidden />
+            <ChevronRight className="size-3.5" strokeWidth={1.75} aria-hidden />
           ) : (
-            <PanelLeftClose className="h-[18px] w-[18px]" aria-hidden />
+            <ChevronLeft className="size-3.5" strokeWidth={1.75} aria-hidden />
           )}
         </button>
-        {!sidebarCollapsed ? (
-          <div className="min-w-0 pl-1.5">
-            <div className="font-display text-lg font-medium leading-5 tracking-wide">MAPS</div>
-            <div className="font-display text-[10px] tracking-[0.18em] text-white/60">· INTESIS CLOUD</div>
-          </div>
-        ) : null}
       </div>
 
       {!sidebarCollapsed && (
