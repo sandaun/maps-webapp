@@ -75,7 +75,7 @@ export const KNX_GROUP_LABELS: Record<BandId, string> = {
 
 export const ME_GROUP_LABELS: Record<BandId, string> = {
   project: "PROJECT",
-  bms: "ME",
+  bms: "MITSUBISHI ELECTRIC",
   gateway: "GATEWAY",
   device: "MODBUS",
 };
