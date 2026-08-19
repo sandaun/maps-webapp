@@ -2,17 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Wifi, WifiOff } from "lucide-react";
 import { NAV_SECTIONS } from "@/lib/nav";
+import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
+import { FAMILY_LABELS } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
+
+const PROJECT_SOURCE_LABELS = {
+  gateway: "Gateway project",
+  file: "Imported project",
+  demo: "Demo project",
+} as const;
 
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarCollapsed, setSidebarCollapsed } = useWorkspaceChrome();
+  const { view } = useCurrentProject();
   const { session, loading } = useGatewaySession();
   const connected = session?.connected === true;
+  const gateway = session?.gateway;
+  const gatewayTitle = gateway?.name ?? gateway?.appName ?? gateway?.platform ?? "Intesis gateway";
+  const gatewayDetails = [...new Set([gateway?.appName, gateway?.platform])]
+    .filter((value): value is string => !!value && value !== gatewayTitle);
+  const gatewayIp = gateway?.ip ?? session?.host;
 
   return (
     <aside
@@ -44,24 +58,29 @@ export function Sidebar() {
       </div>
 
       {!sidebarCollapsed && (
-        <div className="mx-3 my-3 rounded-md bg-white/5 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-white/50">Gateway</div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-white/80">
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                connected ? "bg-[#28C498]" : loading ? "bg-warning" : "bg-white/30",
-              )}
-              aria-hidden
-            />
-            <span className="truncate">
-              {loading ? "Checking connection…" : connected ? session.host : "No gateway connected"}
-            </span>
+        <div className="mx-3 my-3 rounded-md border border-white/10 bg-white/[.06] px-3 py-2.5" aria-label="Current workspace">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-white/45">Current project</div>
+          <div className="mt-1 truncate text-[13px] font-semibold text-white/90">
+            {view?.meta.name ?? "No project loaded"}
           </div>
+          {view ? (
+            <>
+              <div className="mt-0.5 truncate text-[11px] text-white/60">{FAMILY_LABELS[view.family]}</div>
+              <div className="mt-2 inline-flex rounded border border-white/10 bg-black/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white/55">
+                {PROJECT_SOURCE_LABELS[view.meta.source]}
+              </div>
+            </>
+          ) : (
+            <div className="mt-0.5 text-[11px] text-white/50">Open or receive a project</div>
+          )}
         </div>
       )}
 
-      <nav className="flex-1 space-y-0.5 px-2" aria-label="Main">
+      {!sidebarCollapsed ? (
+        <div className="px-5 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-white/35">Workspace</div>
+      ) : null}
+
+      <nav className="flex-1 space-y-0.5 px-2" aria-label="Workspace navigation">
         {NAV_SECTIONS.map((section) => {
           const active = pathname.startsWith(section.href);
           const Icon = section.icon;
@@ -87,12 +106,68 @@ export function Sidebar() {
         })}
       </nav>
 
-      {!sidebarCollapsed && (
-        <div className="mx-3 mb-3 rounded-md bg-white/5 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-white/50">Session</div>
-          <div className="mt-1 text-xs font-medium text-white/80">
-            {loading ? "Checking…" : connected ? `Live · ${session.encrypted ? "encrypted" : "cleartext"}` : "No active session"}
+      {sidebarCollapsed ? (
+        <div
+          className={cn(
+            "mx-2 mb-3 flex size-10 items-center justify-center rounded border border-white/10 bg-white/[.06]",
+            connected ? "text-[#43D3A8]" : "text-white/35",
+          )}
+          title={loading ? "Checking gateway…" : connected ? `Connected to ${gatewayIp}` : "No gateway connected"}
+        >
+          {connected ? <Wifi className="h-4 w-4" aria-hidden /> : <WifiOff className="h-4 w-4" aria-hidden />}
+        </div>
+      ) : (
+        <div className="mx-3 mb-3 rounded-md border border-white/10 bg-white/[.06] px-3 py-2.5" aria-label="Gateway status">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                connected ? "bg-[#43D3A8] shadow-[0_0_0_3px_rgba(67,211,168,.12)]" : loading ? "bg-warning" : "bg-white/30",
+              )}
+              aria-hidden
+            />
+            <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/60">
+              {loading ? "Checking gateway" : connected ? "Gateway connected" : "Gateway offline"}
+            </span>
           </div>
+
+          {loading ? (
+            <div className="mt-2 text-[11px] text-white/50">Reading live session…</div>
+          ) : connected ? (
+            <>
+              <div className="mt-2 truncate text-[13px] font-semibold text-white/90">{gatewayTitle}</div>
+              {gatewayDetails.length > 0 ? (
+                <div className="mt-0.5 truncate text-[10px] text-white/55">{gatewayDetails.join(" · ")}</div>
+              ) : null}
+              <dl className="mt-2 grid grid-cols-[34px_minmax(0,1fr)] gap-x-2 gap-y-1 text-[10px]">
+                <dt className="text-white/35">IP</dt>
+                <dd className="truncate font-mono text-white/70">{gatewayIp}</dd>
+                {gateway?.appVersion ? (
+                  <>
+                    <dt className="text-white/35">App</dt>
+                    <dd className="truncate font-mono text-white/70">{gateway.appVersion}</dd>
+                  </>
+                ) : null}
+                {gateway?.serial ? (
+                  <>
+                    <dt className="text-white/35">S/N</dt>
+                    <dd className="truncate font-mono text-white/70">{gateway.serial}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </>
+          ) : (
+            <>
+              <div className="mt-2 text-[12px] font-medium text-white/75">No gateway connected</div>
+              <div className="mt-0.5 text-[10px] leading-4 text-white/45">
+                {view?.meta.source === "demo"
+                  ? "Demo project · local data only"
+                  : view
+                    ? "Project open · connect to work live"
+                    : "Connect a gateway to start"}
+              </div>
+            </>
+          )}
         </div>
       )}
     </aside>

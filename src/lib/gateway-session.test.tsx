@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewaySessionProvider, useGatewaySession } from "./gateway-session";
 
@@ -21,19 +21,34 @@ describe("GatewaySessionProvider", () => {
     mocks.listSessions.mockReset();
   });
 
-  it("loads the connected session and refreshes after session changes", async () => {
-    mocks.listSessions.mockResolvedValue([
-      { id: "s1", host: "192.168.100.35", port: 23, connected: true },
-    ]);
+  it("updates immediately from connect and disconnect events", async () => {
+    mocks.listSessions.mockResolvedValueOnce([]);
     render(
       <GatewaySessionProvider>
         <SessionProbe />
       </GatewaySessionProvider>,
     );
 
+    expect(await screen.findByText("None")).toBeInTheDocument();
+    mocks.listSessions.mockReturnValue(new Promise(() => {}));
+    const session = {
+      id: "s1",
+      host: "192.168.100.35",
+      port: 23,
+      connected: true,
+      encrypted: true,
+      busy: false,
+      connectedAt: "2026-08-19T17:00:00.000Z",
+    };
+
+    window.dispatchEvent(
+      new CustomEvent("maps:gateway-sessions-changed", { detail: { session } }),
+    );
     expect(await screen.findByText("192.168.100.35")).toBeInTheDocument();
-    mocks.listSessions.mockResolvedValue([]);
-    window.dispatchEvent(new Event("maps:gateway-sessions-changed"));
-    await waitFor(() => expect(screen.getByText("None")).toBeInTheDocument());
+
+    window.dispatchEvent(
+      new CustomEvent("maps:gateway-sessions-changed", { detail: { disconnectedId: "s1" } }),
+    );
+    expect(await screen.findByText("None")).toBeInTheDocument();
   });
 });

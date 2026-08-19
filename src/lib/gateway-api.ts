@@ -3,9 +3,14 @@ import type { ProjectMeta } from "./project-types";
 
 export const GATEWAY_SESSIONS_CHANGED_EVENT = "maps:gateway-sessions-changed";
 
-function notifyGatewaySessionsChanged(): void {
+export interface GatewaySessionsChangedDetail {
+  session?: GatewaySessionStatus;
+  disconnectedId?: string;
+}
+
+function notifyGatewaySessionsChanged(detail: GatewaySessionsChangedDetail): void {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(GATEWAY_SESSIONS_CHANGED_EVENT));
+    window.dispatchEvent(new CustomEvent(GATEWAY_SESSIONS_CHANGED_EVENT, { detail }));
   }
 }
 
@@ -107,7 +112,7 @@ export async function connectGateway(host: string, password: string): Promise<Ga
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host, password }),
   });
-  notifyGatewaySessionsChanged();
+  notifyGatewaySessionsChanged({ session: data.session });
   return data.session;
 }
 
@@ -126,7 +131,7 @@ export async function getGatewaySession(id: string): Promise<GatewaySessionStatu
 
 export async function disconnectGateway(id: string): Promise<void> {
   await request(`/api/gateway/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-  notifyGatewaySessionsChanged();
+  notifyGatewaySessionsChanged({ disconnectedId: id });
 }
 
 /** Fresh `INFO?` query (read-only). */
