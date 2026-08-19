@@ -22,6 +22,7 @@ describe("LocalProjectStore", () => {
     name: "Project 1",
     description: "",
     source: "file" as const,
+    family: "knx-mbm" as const,
     updatedAt: "2026-08-17T00:00:00.000Z",
   };
 

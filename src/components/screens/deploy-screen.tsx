@@ -9,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
  * Deploy screen: export the project file and inspect round-trip capability.
- * Deploying a modified project stays disabled until the `knxMbmXblVerified`
- * capability exists (byte-exact XBL verification against a real KNX–MBM
- * fixture, which is not available yet).
+ * Deploying a modified project stays disabled: for KNX–MBM until the
+ * `knxMbmXblVerified` capability exists (byte-exact XBL verification against
+ * a real KNX–MBM fixture, which is not available yet); for ME–MBS the
+ * `meMbsXblVerified` verification exists but the gateway-write path is not
+ * wired into the UI (pending an explicit product decision).
  */
 export function DeployScreen() {
   return <ScreenGate>{(view) => <DeployContent {...view} />}</ScreenGate>;
@@ -19,11 +21,18 @@ export function DeployScreen() {
 
 function DeployContent({
   meta,
+  family,
   hasCompleteBlob,
 }: {
   meta: { id: string; name: string };
+  family: "knx-mbm" | "me-mbs";
   hasCompleteBlob: boolean;
 }) {
+  const capability = family === "me-mbs" ? "meMbsXblVerified" : "knxMbmXblVerified";
+  const explanation =
+    family === "me-mbs"
+      ? "The XBL generator for this family is byte-exact verified against a real fixture, but sending a modified project to a gateway stays disabled until the write path is explicitly enabled."
+      : "That path is blocked until the capability exists: a byte-exact verification of the generated XBL against a real KNX–MBM fixture, which is not available yet.";
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -74,18 +83,16 @@ function DeployContent({
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-fg-muted">
-            Deploying a modified project requires regenerating the binary XBL configuration. That
-            path is blocked until the <code>knxMbmXblVerified</code> capability exists: a
-            byte-exact verification of the generated XBL against a real KNX–MBM fixture, which is
-            not available yet. Until then, no modified project can be sent to a gateway from this
-            app.
+            Deploying a modified project requires regenerating the binary XBL configuration.{" "}
+            {explanation} Until then, no modified project can be sent to a gateway from this app.
+            The blocking capability for this family is <code>{capability}</code>.
           </p>
           <div className="flex items-center gap-2">
             <button
               type="button"
               disabled
               className="inline-flex h-7 cursor-not-allowed items-center justify-center gap-2 rounded bg-hms-muted px-3 text-xs font-medium text-fg-subtle"
-              title="Blocked: knxMbmXblVerified capability not available"
+              title={`Blocked: gateway writes disabled (${capability})`}
             >
               <Ban className="h-3.5 w-3.5" aria-hidden />
               Deploy modified project (blocked)

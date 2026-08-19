@@ -11,21 +11,14 @@ import {
   type LegacyColumnDef,
 } from "@tanstack/react-table/legacy";
 import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
-import type { KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
-import { nodeForPort, type MbmConfig } from "@/protocols/modbus/master/nodes";
-import {
-  BYTE_ORDER_LABELS,
-  FORMAT_LABELS,
-  isBitFunction,
-} from "@/protocols/modbus/master/types";
-import { formatGroupAddress } from "@/protocols/knx/address";
-import { formatDpt } from "@/protocols/knx/dpt";
-import type { ProjectView } from "@/lib/project-types";
+import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
+import { describeSpec } from "@/protocols/me";
+import { READ_WRITE } from "@/protocols/modbus/slave";
+import { FORMAT_LABELS } from "@/protocols/modbus/master/types";
 import { usePatch } from "@/lib/current-project";
-import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
-import { SignalDrawer } from "@/components/screens/signal-drawer";
-import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
-import { Badge } from "@/components/ui/badge";
+import type { ProjectView } from "@/lib/project-types";
+import { ScreenIssues } from "@/components/screens/screen-gate";
+import { MeMbsSignalDrawer } from "@/components/screens/signal-drawer-me-mbs";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -35,67 +28,58 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 100;
 
-const READ_LABELS: Record<number, string> = {
-  [-1]: "—",
-  1: "Coils",
-  2: "Discrete inputs",
-  3: "Holding registers",
-  4: "Input registers",
+const ACCESS_LABELS: Record<number, string> = {
+  [READ_WRITE.READ]: "Read",
+  [READ_WRITE.TRIGGER]: "Trigger",
+  [READ_WRITE.READWRITE]: "Read–write",
 };
 
-const WRITE_LABELS: Record<number, string> = {
-  [-1]: "—",
-  5: "Single coil",
-  6: "Single register",
-  15: "Multiple coils",
-  16: "Multiple registers",
-};
+type View = Extract<ProjectView, { family: "me-mbs" }>;
 
 interface SignalRow {
-  signal: KnxMbmSignal;
-  groupAddress: string;
-  dpt: string;
-  nodeLabel: string;
-  deviceLabel: string;
-  /** Lowercased haystack for the text search. */
+  signal: MeMbsSignal;
+  /** Desktop-tool description of the AC parameter (spec table). */
+  acParameter: string;
+  /** "Controller-wide" or "C1 · G3 — Office". */
+  scopeLabel: string;
   searchText: string;
 }
 
-function nodeLabel(mbm: MbmConfig, port: number): string {
-  const ref = nodeForPort(mbm, port);
-  if (!ref) return "—";
-  if (ref.kind === "rtu") return `RTU ${port + 1}`;
-  const node = ref.node as MbmConfig["tcpNodes"][number];
-  return `TCP ${port - mbm.rtuNodes.length + 1} · ${node.ip}:${node.port}`;
+function scopeLabel(project: MeMbsProject, signal: MeMbsSignal): string {
+  const { g50Index, groupIndex, unitId } = signal.me;
+  if (groupIndex < 0) return unitId >= 0 ? `C${g50Index + 1} · unit ${unitId}` : "Controller-wide";
+  const group = project.me.controllers[g50Index]?.groups.find((g) => g.index === groupIndex);
+  const base = `C${g50Index + 1} · G${groupIndex + 1}`;
+  return group?.description ? `${base} — ${group.description}` : base;
 }
 
-function deviceLabel(mbm: MbmConfig, signal: KnxMbmSignal): string {
-  if (signal.modbus.isBroadcast) return "Broadcast";
-  const ref = nodeForPort(mbm, signal.modbus.port);
-  if (!ref) return "—";
-  const device = ref.node.devices.find((d) => d.index === signal.modbus.deviceIndex);
-  return device ? device.name : "—";
+function acParameter(project: MeMbsProject, signal: MeMbsSignal): string {
+  const { groupIndex, signalSpecIndex } = signal.me;
+  const group = project.me.controllers[signal.me.g50Index]?.groups.find(
+    (g) => g.index === groupIndex,
+  );
+  const info = describeSpec(signalSpecIndex, {
+    general: groupIndex < 0 && signal.me.unitId < 0,
+    fanSpeeds: group?.fanSpeeds ?? 4,
+    temperatureMode: project.me.temperatureMode,
+  });
+  return info?.description ?? `Spec ${signalSpecIndex}`;
 }
 
-function toRow(mbm: MbmConfig, signal: KnxMbmSignal): SignalRow {
-  const groupAddress = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
-  const dpt = formatDpt(signal.knx.dpt);
-  const node = nodeLabel(mbm, signal.modbus.port);
-  const device = deviceLabel(mbm, signal);
+function toRow(project: MeMbsProject, signal: MeMbsSignal): SignalRow {
+  const ac = acParameter(project, signal);
+  const scope = scopeLabel(project, signal);
   return {
     signal,
-    groupAddress,
-    dpt,
-    nodeLabel: node,
-    deviceLabel: device,
+    acParameter: ac,
+    scopeLabel: scope,
     searchText: [
       signal.id,
       signal.description,
-      groupAddress,
-      dpt,
-      node,
-      device,
+      ac,
+      scope,
       signal.modbus.address,
+      signal.modbus.slaveIndex,
     ]
       .join(" ")
       .toLowerCase(),
@@ -104,23 +88,17 @@ function toRow(mbm: MbmConfig, signal: KnxMbmSignal): SignalRow {
 
 const columnHelper = legacyCreateColumnHelper<SignalRow>();
 
-export function SignalsScreen() {
-  return (
-    <ScreenGate>
-      {(view) => (view.family === "me-mbs" ? <MeMbsSignalsView view={view} /> : <SignalsView view={view} />)}
-    </ScreenGate>
-  );
-}
-
-function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
+/** Signals table for a Mitsubishi Electric AC ↔ Modbus Slave project. */
+export function MeMbsSignalsView({ view }: { view: View }) {
   const applyPatches = usePatch();
-  const { mbm, signals } = view.project;
+  const { project } = view;
+  const { signals } = project;
   const [search, setSearch] = React.useState("");
   const [activeFilter, setActiveFilter] = React.useState<"all" | "active" | "inactive">("all");
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
-  const rows = React.useMemo(() => signals.map((s) => toRow(mbm, s)), [mbm, signals]);
+  const rows = React.useMemo(() => signals.map((s) => toRow(project, s)), [project, signals]);
   const activeCount = React.useMemo(() => signals.filter((s) => s.active).length, [signals]);
 
   const columns = React.useMemo<LegacyColumnDef<SignalRow, any>[]>(
@@ -156,72 +134,30 @@ function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" 
         header: "Description",
         cell: (ctx) => ctx.getValue() || <span className="text-fg-subtle">—</span>,
       }),
-      columnHelper.accessor((row) => row.groupAddress, {
-        id: "groupAddress",
-        header: "Group address",
-        cell: (ctx) => <span className="font-mono">{ctx.getValue()}</span>,
+      columnHelper.accessor((row) => row.acParameter, {
+        id: "acParameter",
+        header: "AC parameter",
       }),
-      columnHelper.accessor((row) => row.dpt, {
-        id: "dpt",
-        header: "DPT",
-        cell: (ctx) => <span className="font-mono">{ctx.getValue()}</span>,
-      }),
-      columnHelper.accessor((row) => row.signal.knx.flags, {
-        id: "flags",
-        header: "Flags",
-        cell: (ctx) => {
-          const flags = ctx.getValue();
-          const entries = [
-            ["U", flags.u],
-            ["T", flags.t],
-            ["Ri", flags.ri],
-            ["W", flags.w],
-            ["R", flags.r],
-          ] as const;
-          return (
-            <span className="flex gap-1">
-              {entries.map(([label, on]) => (
-                <Badge key={label} variant={on ? "default" : "muted"} className={cn(!on && "opacity-50")}>
-                  {label}
-                </Badge>
-              ))}
-            </span>
-          );
-        },
-      }),
-      columnHelper.accessor((row) => row.nodeLabel, { id: "node", header: "Node" }),
-      columnHelper.accessor((row) => row.deviceLabel, { id: "device", header: "Device" }),
-      columnHelper.accessor((row) => row.signal.modbus.readFunc, {
-        id: "readFunc",
-        header: "Read",
-        cell: (ctx) => {
-          const fn = ctx.getValue();
-          return fn < 0 ? "—" : `${fn} · ${READ_LABELS[fn] ?? "?"}`;
-        },
-      }),
-      columnHelper.accessor((row) => row.signal.modbus.writeFunc, {
-        id: "writeFunc",
-        header: "Write",
-        cell: (ctx) => {
-          const fn = ctx.getValue();
-          return fn < 0 ? "—" : `${fn} · ${WRITE_LABELS[fn] ?? "?"}`;
-        },
+      columnHelper.accessor((row) => row.scopeLabel, {
+        id: "scope",
+        header: "Controller / group",
       }),
       columnHelper.accessor((row) => row.signal.modbus.address, {
         id: "address",
         header: "Register",
         cell: (ctx) => <span className="font-mono">{ctx.getValue()}</span>,
       }),
+      columnHelper.accessor((row) => row.signal.modbus.readWrite, {
+        id: "access",
+        header: "Access",
+        cell: (ctx) => ACCESS_LABELS[ctx.getValue()] ?? "?",
+      }),
       columnHelper.accessor((row) => row.signal.modbus.format, {
         id: "format",
-        header: "Format / byte order",
+        header: "Format",
         cell: (ctx) => {
           const modbus = ctx.row.original.signal.modbus;
-          const format = FORMAT_LABELS[modbus.format] ?? "?";
-          const order = isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)
-            ? ""
-            : ` / ${BYTE_ORDER_LABELS[modbus.byteOrder] ?? "?"}`;
-          return `${format}${order}`;
+          return `${FORMAT_LABELS[modbus.format] ?? "?"} ${modbus.lenBits}-bit`;
         },
       }),
     ],
@@ -268,7 +204,7 @@ function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" 
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" aria-hidden />
             <Input
               aria-label="Search signals"
-              placeholder="Search name, group address, device, register…"
+              placeholder="Search name, AC parameter, group, register…"
               className="w-80 pl-8"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -373,10 +309,10 @@ function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" 
       </div>
 
       {selected && (
-        <SignalDrawer
+        <MeMbsSignalDrawer
           key={selected.id}
           signal={selected}
-          project={view.project}
+          project={project}
           onClose={() => setSelectedId(null)}
           onRemoved={() => setSelectedId(null)}
         />

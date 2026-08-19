@@ -4,13 +4,14 @@ import * as React from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import {
+  gatewayFamily,
   getGatewaySession,
-  isKnxMbmGateway,
   listGatewaySessions,
   queryGatewayInfo,
   type GatewayInfoSummary,
   type GatewaySessionStatus,
 } from "@/lib/gateway-api";
+import { FAMILY_LABELS } from "@/lib/project-types";
 import { useSessionEvents } from "@/lib/use-session-events";
 import { GatewayInfoTable } from "@/components/gateway-info-table";
 import { SessionLog, TransferProgressBar } from "@/components/session-log";
@@ -106,9 +107,10 @@ export function DiagnosticsScreen() {
                 label="Family"
                 value={
                   session.gateway
-                    ? isKnxMbmGateway(session.gateway)
-                      ? "KNX ↔ Modbus Master"
-                      : "Different gateway family"
+                    ? (() => {
+                        const family = gatewayFamily(session.gateway);
+                        return family ? FAMILY_LABELS[family] : "Different gateway family";
+                      })()
                     : "Unknown"
                 }
               />

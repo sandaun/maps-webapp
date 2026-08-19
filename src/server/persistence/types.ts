@@ -1,3 +1,5 @@
+import type { FamilyId } from "../projects/families";
+
 /**
  * Persistence boundaries for the local single-user MVP. The domain and UI
  * depend on these interfaces only; the filesystem adapters live in
@@ -13,6 +15,8 @@ export interface ProjectMeta {
   name: string;
   description: string;
   source: ProjectSource;
+  /** Gateway family of the stored project (see `server/projects/families`). */
+  family: FamilyId;
   /** Original `.ibmaps` entry name inside the ZIP, when known. */
   fileName?: string;
   updatedAt: string; // ISO

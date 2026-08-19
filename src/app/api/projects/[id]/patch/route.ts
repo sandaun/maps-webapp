@@ -13,7 +13,8 @@ const flagsSchema = z
     w: z.boolean(),
     r: z.boolean(),
   })
-  .partial();
+  .partial()
+  .strict();
 
 const knxPatchSchema = z
   .object({
@@ -23,8 +24,10 @@ const knxPatchSchema = z
     flags: flagsSchema,
     priority: z.number().int().min(0).max(3),
   })
-  .partial();
+  .partial()
+  .strict();
 
+// KNX–MBM Modbus Master endpoint patch.
 const modbusPatchSchema = z
   .object({
     port: z.number().int().min(-1),
@@ -39,7 +42,36 @@ const modbusPatchSchema = z
     numOfBits: z.number().int(),
     address: z.number().int().min(0).max(65535),
   })
-  .partial();
+  .partial()
+  .strict();
+
+// ME–MBS Modbus Slave endpoint patch (same `modbus` key, different shape).
+const mbsPatchSchema = z
+  .object({
+    address: z.number().int().min(0).max(65535),
+    bit: z.number().int(),
+    lenBits: z.number().int(),
+    format: z.number().int(),
+    readWrite: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    stringLength: z.number().int(),
+    slaveIndex: z.number().int().min(-1),
+  })
+  .partial()
+  .strict();
+
+// ME–MBS Mitsubishi Electric endpoint patch.
+const mePatchSchema = z
+  .object({
+    g50Index: z.number().int().min(0).max(1),
+    groupIndex: z.number().int().min(-1).max(49),
+    unitId: z.number().int().min(-1),
+    isIndoor: z.boolean(),
+    isStatus: z.boolean(),
+    signalIndex: z.number().int().min(-1),
+    signalSpecIndex: z.number().int().min(-1),
+  })
+  .partial()
+  .strict();
 
 const nodeLocatorSchema = z.object({
   kind: z.enum(["rtu", "tcp"]),
@@ -84,6 +116,75 @@ const devicePatchSchema = z
   })
   .partial();
 
+// --- ME–MBS config patches -----------------------------------------------------
+
+const mbsConfigPatchSchema = z
+  .object({
+    media: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    byteOrder: z.number().int().min(0).max(3),
+    updateCOV: z.boolean(),
+    commErrorTout: z.number().int().min(0).max(3600),
+    registerBase: z.union([z.literal(0), z.literal(1)]),
+  })
+  .partial()
+  .strict();
+
+const mbsRtuConfigPatchSchema = z
+  .object({
+    connectionType: z.number().int().min(0),
+    baudrate: z.number().int().min(1200).max(115200),
+    dataBits: z.number().int().min(5).max(8),
+    parity: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    stopBits: z.union([z.literal(1), z.literal(2)]),
+    slaveNumber: z.number().int().min(1).max(247),
+  })
+  .partial()
+  .strict();
+
+const mbsTcpConfigPatchSchema = z
+  .object({
+    port: z.number().int().min(1).max(65535),
+    keepAlive: z.number().int().min(0),
+  })
+  .partial()
+  .strict();
+
+const meScalarsPatchSchema = z
+  .object({
+    pollPeriod: z.number().int().min(0),
+    ansTimeout: z.number().int().min(0),
+    controllerTout: z.number().int().min(0),
+    writeMaxBurst: z.number().int().min(0),
+  })
+  .partial()
+  .strict();
+
+const meControllerPatchSchema = z
+  .object({
+    description: z.string().max(128),
+    enabled: z.boolean(),
+    ip: z.string().max(45),
+    port: z.number().int().min(1).max(65535),
+    model: z.number().int().min(0).max(3),
+    compatibility: z.union([z.literal(0), z.literal(1)]),
+    addErrorSignals: z.boolean(),
+  })
+  .partial()
+  .strict();
+
+const meGroupPatchSchema = z
+  .object({
+    enabled: z.boolean(),
+    description: z.string().max(128),
+    type: z.number().int().min(0).max(6),
+    fanSpeeds: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+    dualSetPoint: z.boolean(),
+    urc: z.boolean(),
+    capacity: z.number().int().min(-1),
+  })
+  .partial()
+  .strict();
+
 const patchSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("setGeneralInfo"),
@@ -105,14 +206,17 @@ const patchSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("updateSignal"),
     id: z.number().int().min(0),
-    patch: z.object({
-      active: z.boolean().optional(),
-      description: z.string().max(128).optional(),
-      knx: knxPatchSchema.optional(),
-      modbus: modbusPatchSchema.optional(),
-      idxOperations: z.string().max(1024).optional(),
-      idxFilters: z.string().max(1024).optional(),
-    }),
+    patch: z
+      .object({
+        active: z.boolean().optional(),
+        description: z.string().max(128).optional(),
+        knx: knxPatchSchema.optional(),
+        modbus: z.union([modbusPatchSchema, mbsPatchSchema]).optional(),
+        me: mePatchSchema.optional(),
+        idxOperations: z.string().max(1024).optional(),
+        idxFilters: z.string().max(1024).optional(),
+      })
+      .strict(),
   }),
   z.object({ type: z.literal("addRtuNode") }),
   z.object({ type: z.literal("addTcpNode") }),
@@ -138,6 +242,21 @@ const patchSchema = z.discriminatedUnion("type", [
     type: z.literal("removeDevice"),
     locator: nodeLocatorSchema,
     deviceIndex: z.number().int().min(0),
+  }),
+  z.object({ type: z.literal("updateMbsConfig"), patch: mbsConfigPatchSchema }),
+  z.object({ type: z.literal("updateRtuConfig"), patch: mbsRtuConfigPatchSchema }),
+  z.object({ type: z.literal("updateTcpConfig"), patch: mbsTcpConfigPatchSchema }),
+  z.object({ type: z.literal("updateMeScalars"), patch: meScalarsPatchSchema }),
+  z.object({
+    type: z.literal("updateController"),
+    controllerIndex: z.number().int().min(0).max(1),
+    patch: meControllerPatchSchema,
+  }),
+  z.object({
+    type: z.literal("updateGroup"),
+    controllerIndex: z.number().int().min(0).max(1),
+    groupIndex: z.number().int().min(0).max(49),
+    patch: meGroupPatchSchema,
   }),
 ]);
 

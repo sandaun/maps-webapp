@@ -14,6 +14,7 @@ import {
 import type { NodeLocator, ProjectView } from "@/lib/project-types";
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
+import { MeMbsDevicesView } from "@/components/screens/devices-screen-me-mbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,12 +27,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export function DevicesScreen() {
   return (
     <ScreenGate>
-      {(view) => <DevicesSections key={view.meta.updatedAt} view={view} />}
+      {(view) =>
+        view.family === "me-mbs" ? (
+          <MeMbsDevicesView view={view} />
+        ) : (
+          <DevicesSections key={view.meta.updatedAt} view={view} />
+        )
+      }
     </ScreenGate>
   );
 }
 
-function DevicesSections({ view }: { view: ProjectView }) {
+function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
   const { save, error } = useSave();
   const { rtuNodes, tcpNodes } = view.project.mbm;
 

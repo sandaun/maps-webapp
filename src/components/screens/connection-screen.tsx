@@ -6,7 +6,7 @@ import { Cable, Download, Plug, PlugZap, RefreshCw, Search } from "lucide-react"
 import {
   connectGateway,
   disconnectGateway,
-  isKnxMbmGateway,
+  gatewayFamily,
   listGatewaySessions,
   queryGatewayInfo,
   receiveGatewayProject,
@@ -15,6 +15,7 @@ import {
   type GatewayInfoSummary,
   type GatewaySessionStatus,
 } from "@/lib/gateway-api";
+import { FAMILY_LABELS } from "@/lib/project-types";
 import { useCurrentProject } from "@/lib/current-project";
 import { useSessionEvents } from "@/lib/use-session-events";
 import { GatewayInfoTable } from "@/components/gateway-info-table";
@@ -135,7 +136,7 @@ export function ConnectionScreen() {
       setProjectId(meta.id);
       setReceivedName(meta.name);
     } catch (err) {
-      // Includes the server-side rejection of non-KNX–MBM projects.
+      // Includes the server-side rejection of unsupported project families.
       setReceiveError(errorMessage(err, "Receive failed"));
     } finally {
       setReceiving(false);
@@ -143,7 +144,7 @@ export function ConnectionScreen() {
   }
 
   if (session) {
-    const compatible = info ? isKnxMbmGateway(info) : true;
+    const family = info ? gatewayFamily(info) : null;
     return (
       <div className="space-y-4">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -158,8 +159,8 @@ export function ConnectionScreen() {
                   {session.encrypted ? "Encrypted" : "Cleartext fallback"}
                 </Badge>
                 {info && (
-                  <Badge variant={compatible ? "default" : "warning"}>
-                    {compatible ? "KNX ↔ Modbus Master" : "Different gateway family"}
+                  <Badge variant={family ? "default" : "warning"}>
+                    {family ? FAMILY_LABELS[family] : "Different gateway family"}
                   </Badge>
                 )}
               </CardTitle>
@@ -241,8 +242,8 @@ export function ConnectionScreen() {
             <div>
               <CardTitle>Discovered gateways</CardTitle>
               <p className="text-xs text-fg-muted">
-                UDP scan (port 23) — KNX ↔ Modbus Master units are highlighted. Broadcast does not
-                leave NAT/WSL networks; add direct IPs if nothing answers.
+                UDP scan (port 23) — units of the supported families are highlighted. Broadcast does
+                not leave NAT/WSL networks; add direct IPs if nothing answers.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -279,11 +280,11 @@ export function ConnectionScreen() {
             {gateways !== null && gateways.length > 0 && (
               <ul className="divide-y divide-border" aria-label="Discovered gateways">
                 {gateways.map((gw) => {
-                  const compatible = isKnxMbmGateway(gw.info, gw.raw);
+                  const family = gatewayFamily(gw.info, gw.raw);
                   return (
                     <li
                       key={gw.address}
-                      className={compatible ? "py-2.5" : "py-2.5 opacity-60"}
+                      className={family ? "py-2.5" : "py-2.5 opacity-60"}
                     >
                       <div className="flex items-center gap-3">
                         <div className="min-w-0 flex-1">
@@ -291,7 +292,11 @@ export function ConnectionScreen() {
                             <span className="truncate text-sm font-medium text-text-body">
                               {gw.info.name ?? "Intesis gateway"}
                             </span>
-                            {!compatible && <Badge variant="muted">Different family</Badge>}
+                            {family ? (
+                              <Badge variant="default">{FAMILY_LABELS[family]}</Badge>
+                            ) : (
+                              <Badge variant="muted">Different family</Badge>
+                            )}
                           </div>
                           <div className="mt-0.5 font-mono text-xs text-fg-muted">
                             {gw.address}
@@ -301,7 +306,7 @@ export function ConnectionScreen() {
                             {gw.info.mac ? ` · ${gw.info.mac}` : ""}
                           </div>
                         </div>
-                        {compatible && (
+                        {family && (
                           <Button
                             size="sm"
                             variant="secondary"

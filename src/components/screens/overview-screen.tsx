@@ -4,7 +4,9 @@ import * as React from "react";
 import { Download, FileUp, FlaskConical, RefreshCw } from "lucide-react";
 import { exportProjectUrl, listProjects, loadDemoProject, openProjectFile } from "@/lib/api";
 import { useCurrentProject } from "@/lib/current-project";
-import type { ProjectMeta, ProjectSource } from "@/lib/project-types";
+import { FAMILY_LABELS, type ProjectMeta, type ProjectSource } from "@/lib/project-types";
+import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
+import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
 import { NoProjectState } from "@/components/no-project";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -73,9 +75,6 @@ export function OverviewScreen() {
 
   const { meta, project, issues, hasCompleteBlob } = view;
   const activeSignals = project.signals.filter((s) => s.active).length;
-  const deviceCount =
-    project.mbm.rtuNodes.reduce((n, node) => n + node.devices.length, 0) +
-    project.mbm.tcpNodes.reduce((n, node) => n + node.devices.length, 0);
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
   const infoCount = issues.filter((i) => i.severity === "info").length;
@@ -85,11 +84,12 @@ export function OverviewScreen() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex flex-wrap items-center gap-2">
               Project
               <Badge variant={meta.source === "demo" ? "warning" : "muted"}>
                 {SOURCE_LABEL[meta.source]}
               </Badge>
+              <Badge variant="default">{FAMILY_LABELS[meta.family]}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
@@ -113,13 +113,11 @@ export function OverviewScreen() {
             <CardTitle>Contents</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="space-y-1 text-sm">
-              <CountRow label="Signals (active / total)" value={`${activeSignals} / ${project.signals.length}`} />
-              <CountRow label="RTU nodes" value={String(project.mbm.rtuNodes.length)} />
-              <CountRow label="TCP nodes" value={String(project.mbm.tcpNodes.length)} />
-              <CountRow label="Modbus devices" value={String(deviceCount)} />
-              <CountRow label="Conversions" value={String(project.conversions.length)} />
-            </dl>
+            {view.family === "me-mbs" ? (
+              <MeMbsCounts project={view.project} activeSignals={activeSignals} />
+            ) : (
+              <KnxMbmCounts project={view.project} activeSignals={activeSignals} />
+            )}
           </CardContent>
         </Card>
 
@@ -212,5 +210,46 @@ function CountRow({ label, value }: { label: string; value: string }) {
       <dt className="text-fg-muted">{label}</dt>
       <dd className="font-mono font-medium text-text-body">{value}</dd>
     </div>
+  );
+}
+
+function KnxMbmCounts({
+  project,
+  activeSignals,
+}: {
+  project: KnxMbmProject;
+  activeSignals: number;
+}) {
+  const deviceCount =
+    project.mbm.rtuNodes.reduce((n, node) => n + node.devices.length, 0) +
+    project.mbm.tcpNodes.reduce((n, node) => n + node.devices.length, 0);
+  return (
+    <dl className="space-y-1 text-sm">
+      <CountRow label="Signals (active / total)" value={`${activeSignals} / ${project.signals.length}`} />
+      <CountRow label="RTU nodes" value={String(project.mbm.rtuNodes.length)} />
+      <CountRow label="TCP nodes" value={String(project.mbm.tcpNodes.length)} />
+      <CountRow label="Modbus devices" value={String(deviceCount)} />
+      <CountRow label="Conversions" value={String(project.conversions.length)} />
+    </dl>
+  );
+}
+
+function MeMbsCounts({
+  project,
+  activeSignals,
+}: {
+  project: MeMbsProject;
+  activeSignals: number;
+}) {
+  const groups = project.me.controllers.flatMap((c) => c.groups);
+  const enabledGroups = groups.filter((g) => g.enabled).length;
+  return (
+    <dl className="space-y-1 text-sm">
+      <CountRow label="Signals (active / total)" value={`${activeSignals} / ${project.signals.length}`} />
+      <CountRow label="Controllers" value={String(project.me.controllers.length)} />
+      <CountRow label="Groups (enabled / total)" value={`${enabledGroups} / ${groups.length}`} />
+      <CountRow label="Virtual slaves" value={String(project.mbs.slaves.length)} />
+      <CountRow label="Conversions" value={String(project.conversions.length)} />
+    </dl>
   );
 }

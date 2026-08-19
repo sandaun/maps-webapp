@@ -6,89 +6,67 @@ import {
   parseCompleteBlob,
   XmlDocument,
 } from "@/core/project-format";
-import {
-  addDevice,
-  addRtuNode,
-  addSignal,
-  addTcpNode,
-  isKnxMbmProject,
-  projectFromXml,
-  removeDevice,
-  removeNode,
-  removeSignal,
-  setGatewayInfo,
-  setGeneralInfo,
-  setKnxExtendedAddresses,
-  setKnxPhysicalAddress,
-  updateDevice,
-  updateRtuNode,
-  updateSignal,
-  updateTcpNode,
-  validateProject,
-  type KnxMbmProject,
-  type NodeLocator,
-  type SignalPatch,
-} from "@/gateway-families/knx-mbm";
+import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
+import { projectFromXml as knxMbmProjectFromXml } from "@/gateway-families/knx-mbm";
+import type { MeMbsProject } from "@/gateway-families/me-mbs";
+import { projectFromXml as meMbsProjectFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import type { ValidationIssue } from "@/core/validation/issue";
-import {
-  MAX_RTU_NODES,
-  MAX_TCP_NODES,
-  type MbmDevice,
-  type MbmRtuNode,
-  type MbmTcpNode,
-} from "@/protocols/modbus/master";
 import { getProjectStore } from "../persistence";
 import type { ProjectMeta, ProjectSource } from "../persistence/types";
+import { ProjectServiceError } from "./errors";
+import {
+  detectFamily,
+  familyById,
+  supportedFamiliesText,
+  type FamilyId,
+  type ProjectPatch,
+} from "./families";
 
-export interface ProjectView {
+export { ProjectServiceError } from "./errors";
+export type {
+  DevicePatch,
+  FamilyId,
+  KnxMbmPatch,
+  MeMbsPatch,
+  ProjectPatch,
+  RtuNodePatch,
+  TcpNodePatch,
+} from "./families";
+
+interface ProjectViewBase {
   meta: ProjectMeta;
-  project: KnxMbmProject;
   issues: ValidationIssue[];
   /** Whether the original gateway "complete" blob is available for round-trip. */
   hasCompleteBlob: boolean;
 }
 
-/** Editable node/device fields (topology itself changes via add/remove ops). */
-export type RtuNodePatch = Partial<Omit<MbmRtuNode, "devices">>;
-export type TcpNodePatch = Partial<Omit<MbmTcpNode, "devices">>;
-export type DevicePatch = Partial<Omit<MbmDevice, "index">>;
-
-/** Patch operations accepted by the API (validated with zod at the edge). */
-export type ProjectPatch =
-  | { type: "setGeneralInfo"; name?: string; description?: string }
-  | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
-  | { type: "setKnxPhysicalAddress"; address: number }
-  | { type: "setKnxExtendedAddresses"; enabled: boolean }
-  | { type: "addSignal" }
-  | { type: "removeSignal"; id: number }
-  | { type: "updateSignal"; id: number; patch: SignalPatch }
-  | { type: "addRtuNode" }
-  | { type: "addTcpNode" }
-  | { type: "removeNode"; locator: NodeLocator }
-  | { type: "updateRtuNode"; nodeIndex: number; patch: RtuNodePatch }
-  | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatch }
-  | { type: "addDevice"; locator: NodeLocator }
-  | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatch }
-  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number };
+/** Family-discriminated project view: `family` selects the model type. */
+export type ProjectView =
+  | (ProjectViewBase & { family: "knx-mbm"; project: KnxMbmProject })
+  | (ProjectViewBase & { family: "me-mbs"; project: MeMbsProject });
 
 export async function listProjects(): Promise<ProjectMeta[]> {
-  return getProjectStore().list();
+  const store = getProjectStore();
+  const metas = await store.list();
+  // Backfill the family field for projects stored before it existed.
+  return Promise.all(metas.map((meta) => withFamily(store, meta)));
 }
 
 export async function getProjectView(id: string): Promise<ProjectView> {
   const store = getProjectStore();
-  const meta = await store.get(id);
-  if (!meta) throw new ProjectServiceError(404, `Project "${id}" not found`);
+  const stored = await store.get(id);
+  if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
   const xml = await store.readXml(id);
   const doc = XmlDocument.parse(xml);
-  const project = projectFromXml(doc);
-  return {
-    meta,
-    project,
-    issues: validateProject(project),
-    hasCompleteBlob: await store.hasCompleteBlob(id),
-  };
+  const meta = await withFamily(store, stored, doc);
+  const hasCompleteBlob = await store.hasCompleteBlob(id);
+  if (meta.family === "me-mbs") {
+    const project = meMbsProjectFromXml(doc);
+    return { family: "me-mbs", meta, project, issues: familyById("me-mbs").validate(project), hasCompleteBlob };
+  }
+  const project = knxMbmProjectFromXml(doc);
+  return { family: "knx-mbm", meta, project, issues: familyById("knx-mbm").validate(project), hasCompleteBlob };
 }
 
 /** Open a local .ibmaps XML text as a project. */
@@ -97,13 +75,17 @@ export async function openIbmaps(
   opts: { id: string; name?: string; source?: ProjectSource },
 ): Promise<ProjectMeta> {
   const doc = XmlDocument.parse(xml);
-  if (!isKnxMbmProject(doc)) {
+  const family = detectFamily(doc);
+  if (!family) {
     throw new ProjectServiceError(
       422,
-      "The file is not a KNX ↔ Modbus Master project (IN-KNX-MBM).",
+      `The file is not a supported project. Supported families: ${supportedFamiliesText()}.`,
     );
   }
-  return persistNewProject(opts.id, xml, { name: opts.name ?? opts.id, source: opts.source ?? "file" });
+  return persistNewProject(opts.id, xml, family.id, {
+    name: opts.name ?? opts.id,
+    source: opts.source ?? "file",
+  });
 }
 
 /** Open a gateway "complete" blob: validates length/CRC32/ZIP and extracts the XML. */
@@ -120,7 +102,7 @@ export async function openCompleteBlob(
 
 /** Explicit demo project from the synthetic fixture — always labelled demo. */
 export async function loadDemoProject(): Promise<ProjectMeta> {
-  return persistNewProject("demo", SYNTHETIC_KNX_MBM_XML, {
+  return persistNewProject("demo", SYNTHETIC_KNX_MBM_XML, "knx-mbm", {
     name: "Demo project (synthetic)",
     source: "demo",
   });
@@ -130,8 +112,18 @@ export async function applyPatches(id: string, patches: ProjectPatch[]): Promise
   const store = getProjectStore();
   const xml = await store.readXml(id);
   const doc = XmlDocument.parse(xml);
+  const family = detectFamily(doc);
+  if (!family) {
+    throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+  }
   for (const patch of patches) {
-    applyPatch(doc, patch);
+    if (!family.accepts(patch)) {
+      throw new ProjectServiceError(
+        409,
+        `Patch "${patch.type}" does not apply to a ${family.displayName} project.`,
+      );
+    }
+    family.applyPatch(doc, patch);
   }
   const serialized = doc.serialize();
   await store.writeXml(id, serialized);
@@ -153,69 +145,29 @@ export async function exportCompleteBlob(id: string): Promise<Uint8Array> {
   return zip;
 }
 
-function applyPatch(doc: XmlDocument, patch: ProjectPatch): void {
-  switch (patch.type) {
-    case "setGeneralInfo":
-      setGeneralInfo(doc, patch);
-      break;
-    case "setGatewayInfo":
-      setGatewayInfo(doc, patch);
-      break;
-    case "setKnxPhysicalAddress":
-      setKnxPhysicalAddress(doc, patch.address);
-      break;
-    case "setKnxExtendedAddresses":
-      setKnxExtendedAddresses(doc, patch.enabled);
-      break;
-    case "addSignal":
-      addSignal(doc);
-      break;
-    case "removeSignal":
-      removeSignal(doc, patch.id);
-      break;
-    case "updateSignal":
-      updateSignal(doc, patch.id, patch.patch);
-      break;
-    case "addRtuNode": {
-      const count = doc.findAll(["ExternalProtocol", "RtuNodes", "RtuNode"]).length;
-      if (count >= MAX_RTU_NODES) {
-        throw new ProjectServiceError(409, `RTU node limit reached (${MAX_RTU_NODES}).`);
-      }
-      addRtuNode(doc);
-      break;
-    }
-    case "addTcpNode": {
-      const count = doc.findAll(["ExternalProtocol", "TCPNodes", "TCPNode"]).length;
-      if (count >= MAX_TCP_NODES) {
-        throw new ProjectServiceError(409, `TCP node limit reached (${MAX_TCP_NODES}).`);
-      }
-      addTcpNode(doc);
-      break;
-    }
-    case "removeNode":
-      removeNode(doc, patch.locator);
-      break;
-    case "updateRtuNode":
-      updateRtuNode(doc, patch.nodeIndex, patch.patch);
-      break;
-    case "updateTcpNode":
-      updateTcpNode(doc, patch.nodeIndex, patch.patch);
-      break;
-    case "addDevice":
-      addDevice(doc, patch.locator);
-      break;
-    case "updateDevice":
-      updateDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.patch);
-      break;
-    case "removeDevice":
-      removeDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex });
-      break;
-  }
+/**
+ * Return the meta with its family guaranteed: stored metas from before the
+ * family field existed are backfilled by detection (they could only have been
+ * KNX–MBM, which is also the fallback when detection fails) and re-persisted.
+ */
+async function withFamily(
+  store: ReturnType<typeof getProjectStore>,
+  meta: ProjectMeta,
+  doc?: XmlDocument,
+): Promise<ProjectMeta> {
+  const family = meta.family as FamilyId | undefined;
+  if (family) return meta;
+  const parsed = doc ?? XmlDocument.parse(await store.readXml(meta.id));
+  const detected = detectFamily(parsed)?.id ?? "knx-mbm";
+  const upgraded = { ...meta, family: detected };
+  await store.upsert(upgraded);
+  return upgraded;
 }
 
 async function persistNewProject(
   id: string,
   xml: string,
+  family: FamilyId,
   opts: { name: string; source: ProjectSource },
 ): Promise<ProjectMeta> {
   const store = getProjectStore();
@@ -224,19 +176,10 @@ async function persistNewProject(
     name: opts.name,
     description: XmlDocument.parse(xml).getAttr([], "ProjectDescription") ?? "",
     source: opts.source,
+    family,
     updatedAt: new Date().toISOString(),
   };
   await store.writeXml(id, xml);
   await store.upsert(meta);
   return meta;
-}
-
-export class ProjectServiceError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ProjectServiceError";
-  }
 }

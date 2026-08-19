@@ -53,14 +53,30 @@ export type SessionEvent =
 
 /** KNX ↔ Modbus Master AppId (`IBOX_KNX_MBM = 4`, see docs/knx-mbm-mvp.md §1). */
 export const KNX_MBM_APP_ID = 4;
+/** ME AC ↔ Modbus Slave unit AppId (`ME_AC_XXX = 64` — 770 Air, see docs/ac-me-mbs-analisi.md §1). */
+export const ME_MBS_APP_ID = 64;
 
-/** True when a discovered/session gateway belongs to the KNX–MBM family. */
-export function isKnxMbmGateway(info: GatewayInfoSummary, raw?: Record<string, string>): boolean {
-  if (info.appId === KNX_MBM_APP_ID) return true;
+/**
+ * Family of a discovered/session gateway, or null when unsupported.
+ * Detection by AppId first, then by name patterns.
+ */
+export function gatewayFamily(
+  info: GatewayInfoSummary,
+  raw?: Record<string, string>,
+): "knx-mbm" | "me-mbs" | null {
+  if (info.appId === KNX_MBM_APP_ID) return "knx-mbm";
+  if (info.appId === ME_MBS_APP_ID) return "me-mbs";
   const haystack = [info.appName, info.platform, ...Object.values(raw ?? {})]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
-  return /IN-KNX-MBM|KNXMBM/i.test(haystack);
+  if (/IN-KNX-MBM|KNXMBM/i.test(haystack)) return "knx-mbm";
+  if (/IN770AIR|IN770MIT|IN-ME-AC-MBS/i.test(haystack)) return "me-mbs";
+  return null;
+}
+
+/** True when a discovered/session gateway belongs to the KNX–MBM family. */
+export function isKnxMbmGateway(info: GatewayInfoSummary, raw?: Record<string, string>): boolean {
+  return gatewayFamily(info, raw) === "knx-mbm";
 }
 
 /** UDP/23 discovery scan. Optional unicast targets for NAT/WSL setups. */
