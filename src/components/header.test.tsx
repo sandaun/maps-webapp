@@ -42,11 +42,12 @@ describe("Header", () => {
     mocks.listSessions.mockResolvedValue([]);
     render(<Header />);
 
-    expect(screen.getByText("KNX ↔ Modbus Master")).toBeInTheDocument();
+    expect(screen.getByText("KNX TP")).toBeInTheDocument();
+    expect(screen.getByText("MODBUS MASTER")).toBeInTheDocument();
     expect(screen.getByText("Valid")).toBeInTheDocument();
     expect(screen.getByText("3 changes pending")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deploy" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Offline")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Deploy" })).toHaveClass("h-[34px]", "rounded-[4px]");
+    await waitFor(() => expect(screen.getByText("Not connected")).toBeInTheDocument());
   });
 
   it("shows Connected when a gateway session is live", async () => {
@@ -54,6 +55,7 @@ describe("Header", () => {
       { id: "s1", host: "192.168.1.50", port: 23, connected: true },
     ]);
     render(<Header />);
-    await waitFor(() => expect(screen.getByText("Connected · 192.168.1.50")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Connected · Ethernet")).toBeInTheDocument());
+    expect(screen.getByText("192.168.1.50")).toBeInTheDocument();
   });
 });

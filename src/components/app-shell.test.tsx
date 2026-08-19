@@ -51,7 +51,7 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/Demo mode/);
     expect(screen.getByText("No gateway connected")).toBeInTheDocument();
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
     expect(screen.getByText("content")).toBeInTheDocument();
   });
 
