@@ -11,7 +11,7 @@ import type { MbmDevice, MbmRtuNode, MbmTcpNode } from "@/protocols/modbus/maste
  * and kept structurally identical; client code must never import the server.
  */
 
-export type ProjectSource = "gateway" | "file" | "demo";
+export type ProjectSource = "gateway" | "file" | "template" | "demo";
 
 /** Gateway families this build can open (mirror of `server/projects/families`). */
 export type FamilyId = "knx-mbm" | "me-mbs";

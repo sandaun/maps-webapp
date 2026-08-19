@@ -57,6 +57,13 @@ export function Header() {
   const { view } = useCurrentProject();
   const { session, loading: sessionLoading } = useGatewaySession();
   const { dirtyCount } = useWorkspaceChrome();
+  const projectsArea = pathname.startsWith("/projects");
+  const breadcrumb =
+    pathname === "/projects/new"
+      ? ["Projects", "New project"]
+      : projectsArea
+        ? ["Local workspace", "Projects"]
+        : ["MAPS Web", section];
 
   const errors = view?.issues.filter((i) => i.severity === "error").length ?? 0;
   const connected = session?.connected === true;
@@ -65,12 +72,12 @@ export function Header() {
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-white px-5">
       <nav aria-label="Breadcrumb" className="text-sm text-fg-muted">
-        <span className="font-display font-medium text-text-body">MAPS Web</span>
+        <span className="font-display font-medium text-text-body">{breadcrumb[0]}</span>
         <span className="mx-2 text-fg-subtle">/</span>
-        <span>{section}</span>
+        <span>{breadcrumb[1]}</span>
       </nav>
 
-      <div className="flex items-center gap-3.5">
+      {!projectsArea ? <div className="flex items-center gap-3.5">
         {protocols ? (
           <span className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[4px] border border-border bg-[#F7F8F9] px-2.5 py-[5px]">
             <span className="font-mono text-[11px] font-semibold text-bms-text">{protocols[0]}</span>
@@ -103,7 +110,7 @@ export function Header() {
           <Upload className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           Deploy
         </Button>
-      </div>
+      </div> : null}
     </header>
   );
 }

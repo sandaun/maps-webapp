@@ -11,6 +11,7 @@ import { projectFromXml as knxMbmProjectFromXml } from "@/gateway-families/knx-m
 import type { MeMbsProject } from "@/gateway-families/me-mbs";
 import { projectFromXml as meMbsProjectFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
+import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { getProjectStore } from "../persistence";
 import type { ProjectMeta, ProjectSource } from "../persistence/types";
@@ -106,6 +107,16 @@ export async function loadDemoProject(): Promise<ProjectMeta> {
     name: "Demo project (synthetic)",
     source: "demo",
   });
+}
+
+/** Create a local project from one of the supported family templates. */
+export async function createTemplateProject(
+  family: FamilyId,
+  name: string,
+): Promise<ProjectMeta> {
+  const id = `project-${Date.now().toString(36)}`;
+  const xml = family === "me-mbs" ? SYNTHETIC_ME_MBS_XML : SYNTHETIC_KNX_MBM_XML;
+  return persistNewProject(id, xml, family, { name, source: "template" });
 }
 
 export async function applyPatches(id: string, patches: ProjectPatch[]): Promise<ProjectView> {

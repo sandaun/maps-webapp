@@ -17,6 +17,7 @@ const SOURCE_LABEL: Record<ProjectSource, string> = {
   demo: "Demo",
   file: "File",
   gateway: "Gateway",
+  template: "Template",
 };
 
 function formatUpdatedAt(iso: string): string {

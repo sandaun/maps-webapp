@@ -6,15 +6,9 @@ import { ChevronLeft, ChevronRight, CircleDot, Wifi, WifiOff } from "lucide-reac
 import { NAV_SECTIONS } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
-import { FAMILY_LABELS } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
-
-const PROJECT_SOURCE_LABELS = {
-  gateway: "Gateway project",
-  file: "Imported project",
-  demo: "Demo project",
-} as const;
+import { ProjectSwitcher } from "@/components/projects/project-switcher";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -31,7 +25,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 flex flex-col bg-hms-blue text-white transition-[width]",
+        "fixed inset-y-0 left-0 z-50 flex flex-col bg-hms-blue text-white transition-[width]",
         sidebarCollapsed ? "w-[56px]" : "w-[228px]",
       )}
     >
@@ -57,8 +51,8 @@ export function Sidebar() {
               <CircleDot className="size-[17px]" strokeWidth={2} />
             </span>
             <div className="min-w-0 flex-1 pl-2.5">
-              <div className="font-display text-[13px] font-semibold leading-4 tracking-[0.12em]">MAPS</div>
-              <div className="font-display text-[8.5px] leading-3 tracking-[0.16em] text-white/55">INTESIS · CLOUD</div>
+              <div className="font-display text-[16px] font-medium leading-4 tracking-[0.06em]">MAPS</div>
+              <div className="font-display text-[9.5px] leading-3 tracking-[0.14em] text-white/55">INTESIS · CLOUD</div>
             </div>
             <button
               type="button"
@@ -73,27 +67,10 @@ export function Sidebar() {
         )}
       </div>
 
-      {!sidebarCollapsed && (
-        <div className="mx-3 my-3 rounded-md border border-white/10 bg-white/[.06] px-3 py-2.5" aria-label="Current workspace">
-          <div className="text-[10px] uppercase tracking-[0.14em] text-white/45">Current project</div>
-          <div className="mt-1 truncate text-[13px] font-semibold text-white/90">
-            {view?.meta.name ?? "No project loaded"}
-          </div>
-          {view ? (
-            <>
-              <div className="mt-0.5 truncate text-[11px] text-white/60">{FAMILY_LABELS[view.family]}</div>
-              <div className="mt-2 inline-flex rounded border border-white/10 bg-black/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white/55">
-                {PROJECT_SOURCE_LABELS[view.meta.source]}
-              </div>
-            </>
-          ) : (
-            <div className="mt-0.5 text-[11px] text-white/50">Open or receive a project</div>
-          )}
-        </div>
-      )}
+      {!sidebarCollapsed && <ProjectSwitcher />}
 
       {!sidebarCollapsed ? (
-        <div className="px-5 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-white/35">Workspace</div>
+        <div className="px-5 pb-1.5 text-[10px] uppercase tracking-[0.11em] text-white/40">Gateway workspace</div>
       ) : null}
 
       <nav className="flex-1 space-y-0.5 px-2" aria-label="Workspace navigation">
