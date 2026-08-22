@@ -8,6 +8,7 @@ import type { ProjectPatchInput, SignalPatchInput } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { SelectBox } from "@/components/ui/select-box";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { BAND_STYLE, COL_HEADER_H, GROUP_HEADER_H, ROW_HEIGHT, type BandId, type GridColumn } from "./types";
 import { createCellSaveQueue, type CellStatus } from "./cell-queue";
@@ -16,6 +17,7 @@ export interface SignalsGridProps<R> {
   rows: R[];
   columns: GridColumn<R>[];
   groupLabels: Record<BandId, string>;
+  compactGroupLabels?: Record<BandId, string>;
   rowId: (row: R) => number;
   rowActive: (row: R) => boolean;
   rowError?: (row: R) => boolean;
@@ -26,6 +28,8 @@ export interface SignalsGridProps<R> {
   applyPatches: (patches: ProjectPatchInput[]) => Promise<unknown>;
   tabOrder: string[];
   widthStorageKey: string;
+  compact?: boolean;
+  onToggleCompact?: () => void;
   fitRows?: R[];
   focusId?: number;
 }
@@ -34,6 +38,14 @@ function editorSeed<R>(col: GridColumn<R>, row: R): string {
   if (col.getEditorValue) return col.getEditorValue(row);
   const text = col.getText(row);
   return text === "—" ? "" : text;
+}
+
+function displayedHeader<R>(col: GridColumn<R>, compact: boolean): string {
+  return compact && col.headerShort ? col.headerShort : col.header;
+}
+
+function headerTooltip<R>(col: GridColumn<R>): string {
+  return col.headerHint ?? col.header;
 }
 
 const widthListeners = new Map<string, Set<() => void>>();
@@ -89,6 +101,7 @@ export function SignalsGrid<R>({
   rows,
   columns,
   groupLabels,
+  compactGroupLabels,
   rowId,
   rowActive,
   rowError,
@@ -99,6 +112,8 @@ export function SignalsGrid<R>({
   applyPatches,
   tabOrder,
   widthStorageKey,
+  compact = false,
+  onToggleCompact,
   fitRows,
   focusId,
 }: SignalsGridProps<R>) {
@@ -110,9 +125,10 @@ export function SignalsGrid<R>({
   const [status, setStatus] = React.useState<Record<string, CellStatus>>({});
   const [tooltip, setTooltip] = React.useState<{ text: string; left: number; top: number } | null>(null);
   const inputRef = React.useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const widthsKey = compact ? `${widthStorageKey}:compact` : widthStorageKey;
   const widthSnapshot = React.useSyncExternalStore(
-    React.useCallback((listener) => subscribeToWidths(widthStorageKey, listener), [widthStorageKey]),
-    React.useCallback(() => readWidthsSnapshot(widthStorageKey), [widthStorageKey]),
+    React.useCallback((listener) => subscribeToWidths(widthsKey, listener), [widthsKey]),
+    React.useCallback(() => readWidthsSnapshot(widthsKey), [widthsKey]),
     readWidthsServerSnapshot,
   );
   const widths = React.useMemo(() => parseStoredWidths(widthSnapshot), [widthSnapshot]);
@@ -135,11 +151,16 @@ export function SignalsGrid<R>({
   }, [columns, widthOf]);
 
   const lastFrozenId = frozen.at(-1)?.id;
+  const bandLabel = React.useCallback(
+    (id: BandId) => (compact && compactGroupLabels ? compactGroupLabels[id] : groupLabels[id]),
+    [compact, compactGroupLabels, groupLabels],
+  );
 
   const groups = (["project", "bms", "gateway", "device"] as BandId[])
     .map((id) => ({
       id,
-      label: groupLabels[id],
+      label: bandLabel(id),
+      hint: groupLabels[id],
       width: columns.filter((c) => c.group === id).reduce((s, c) => s + widthOf(c), 0),
       frozen: id === "project",
     }))
@@ -477,7 +498,8 @@ export function SignalsGrid<R>({
   }
 
   function clampWidth(col: GridColumn<R>, width: number) {
-    return Math.max(col.minWidth ?? 52, Math.min(col.maxWidth ?? 600, Math.round(width)));
+    const min = compact ? 52 : (col.minWidth ?? 52);
+    return Math.max(min, Math.min(col.maxWidth ?? 600, Math.round(width)));
   }
 
   function measureText(el: HTMLSpanElement, font: string, text: string, fallbackPx: number): number {
@@ -494,7 +516,7 @@ export function SignalsGrid<R>({
     const family = getComputedStyle(document.body).fontFamily;
     const headerFont = `600 10.5px "JetBrains Mono", ${family}`;
     const cellFont = col.mono ? `400 12px "JetBrains Mono", ${family}` : `400 12px ${family}`;
-    const header = col.header.trim().toUpperCase();
+    const header = displayedHeader(col, compact).trim().toUpperCase();
     const headerWidth = header
       ? measureText(probe, headerFont, header, 10.5) + Math.max(0, header.length - 1) * 10.5 * 0.06
       : 0;
@@ -536,12 +558,12 @@ export function SignalsGrid<R>({
 
     const onMove = (moveEvent: PointerEvent) => {
       latestWidth = clampWidth(col, startWidth + moveEvent.clientX - startX);
-      writeStoredWidths(widthStorageKey, { ...widths, [col.id]: latestWidth });
+      writeStoredWidths(widthsKey, { ...widths, [col.id]: latestWidth });
     };
     const onUp = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
-      writeStoredWidths(widthStorageKey, { ...widths, [col.id]: latestWidth });
+      writeStoredWidths(widthsKey, { ...widths, [col.id]: latestWidth });
     };
 
     document.addEventListener("pointermove", onMove);
@@ -550,7 +572,7 @@ export function SignalsGrid<R>({
 
   function autoFit(col: GridColumn<R>) {
     const source = fitRows ?? rows;
-    writeStoredWidths(widthStorageKey, {
+    writeStoredWidths(widthsKey, {
       ...widths,
       [col.id]: withProbe((probe) => fittedWidth(col, probe, source)),
     });
@@ -559,7 +581,7 @@ export function SignalsGrid<R>({
   const resetWidths = React.useCallback(() => {
     const source = fitRows ?? rows;
     writeStoredWidths(
-      widthStorageKey,
+      widthsKey,
       withProbe((probe) => {
         const next: Record<string, number> = {};
         for (const col of columns) {
@@ -568,22 +590,31 @@ export function SignalsGrid<R>({
         }
         const family = getComputedStyle(document.body).fontFamily;
         for (const id of ["project", "bms", "gateway", "device"] as BandId[]) {
-          const label = groupLabels[id];
+          const label = bandLabel(id);
           const members = columns.filter((col) => col.group === id);
           if (members.length === 0) continue;
           const labelWidth =
             measureText(probe, `600 10.5px "JetBrains Mono", ${family}`, label, 10.5) +
             Math.max(0, label.length - 1) * 10.5 * 0.07 +
             24 +
-            (id === "project" ? 96 : 0);
+            (id === "project" ? 148 : 0);
           const sum = members.reduce((s, col) => s + (next[col.id] ?? col.width), 0);
-          const grow = [...members].reverse().find((col) => col.resizable !== false);
+          const grow =
+            [...members].reverse().find((col) => col.resizable !== false) ?? members.at(-1);
           if (grow && labelWidth > sum) next[grow.id] = (next[grow.id] ?? grow.width) + (labelWidth - sum);
         }
         return next;
       }),
     );
-  }, [columns, fitRows, groupLabels, rows, widthStorageKey]);
+  }, [bandLabel, columns, compact, compactGroupLabels, fitRows, groupLabels, rows, widthsKey]);
+
+  const prevCompact = React.useRef<boolean | undefined>(undefined);
+  React.useEffect(() => {
+    const was = prevCompact.current;
+    prevCompact.current = compact;
+    if (!compact || was !== false) return;
+    resetWidths();
+  }, [compact, resetWidths]);
 
   function showTooltip(
     event: React.MouseEvent<HTMLSpanElement> | React.FocusEvent<HTMLSpanElement>,
@@ -619,15 +650,41 @@ export function SignalsGrid<R>({
                 zIndex: g.frozen ? 21 : undefined,
               }}
             >
-              <span className="min-w-0 truncate">{g.label}</span>
+              <span className="min-w-0 truncate">
+                {compact && g.label !== g.hint ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="truncate">{g.label}</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{g.hint}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  g.label
+                )}
+              </span>
               {g.frozen ? (
-                <button
-                  type="button"
-                  className="ml-auto shrink-0 rounded px-1.5 py-0.5 font-sans text-[10px] font-normal normal-case tracking-normal text-fg-subtle hover:bg-black/5 hover:text-fg"
-                  onClick={resetWidths}
-                >
-                  Reset widths
-                </button>
+                <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                  {onToggleCompact ? (
+                    <button
+                      type="button"
+                      aria-pressed={compact}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 font-sans text-[10px] font-normal normal-case tracking-normal hover:bg-black/5",
+                        compact ? "text-hms-accent hover:text-hms-accent-hover" : "text-fg-subtle hover:text-fg",
+                      )}
+                      onClick={onToggleCompact}
+                    >
+                      Compact
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded px-1.5 py-0.5 font-sans text-[10px] font-normal normal-case tracking-normal text-fg-subtle hover:bg-black/5 hover:text-fg"
+                    onClick={resetWidths}
+                  >
+                    Reset widths
+                  </button>
+                </div>
               ) : null}
             </div>
           ))}
@@ -653,24 +710,35 @@ export function SignalsGrid<R>({
                   indeterminate={somePageOn && !allPageOn}
                   onCheckedChange={() => onTogglePage()}
                 />
+              ) : compact ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="min-w-0 truncate">{displayedHeader(col, true)}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{headerTooltip(col)}</TooltipContent>
+                </Tooltip>
               ) : (
                 col.header
               )}
               {col.resizable !== false ? (
-                <button
-                  type="button"
-                  aria-label={`Resize ${col.header || col.id} column`}
-                  title="Drag to resize · Double-click to fit"
-                  className="absolute inset-y-0 right-0 z-10 flex w-3 cursor-col-resize touch-none items-center justify-center border-0 border-l border-border/70 bg-table-header/90 p-0 text-fg-subtle hover:border-hms-accent hover:bg-hms-accent/15 hover:text-hms-accent focus-visible:outline-2 focus-visible:outline-hms-accent"
-                  onPointerDown={(event) => resizeStart(event, col)}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    autoFit(col);
-                  }}
-                >
-                  <GripVertical className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Resize ${col.header || col.id} column`}
+                      className="absolute inset-y-0 right-0 z-10 flex w-3 cursor-col-resize touch-none items-center justify-center border-0 border-l border-border/70 bg-table-header/90 p-0 text-fg-subtle hover:border-hms-accent hover:bg-hms-accent/15 hover:text-hms-accent focus-visible:outline-2 focus-visible:outline-hms-accent"
+                      onPointerDown={(event) => resizeStart(event, col)}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        autoFit(col);
+                      }}
+                    >
+                      <GripVertical className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Drag to resize · Double-click to fit</TooltipContent>
+                </Tooltip>
               ) : null}
             </div>
           ))}

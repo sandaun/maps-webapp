@@ -13,6 +13,7 @@ import {
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import { ADDRESS_MODES } from "@/protocols/modbus/slave";
 import type { ProjectView } from "@/lib/project-types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 import { UndoToast } from "@/components/signals/undo-toast";
 import { SignalsScreen } from "./signals-screen";
@@ -82,8 +83,10 @@ vi.mock("@/lib/current-project", () => ({
 function renderSignals() {
   return render(
     <WorkspaceChromeProvider>
-      <SignalsScreen />
-      <UndoToast />
+      <TooltipProvider delayDuration={0}>
+        <SignalsScreen />
+        <UndoToast />
+      </TooltipProvider>
     </WorkspaceChromeProvider>,
   );
 }
@@ -110,6 +113,28 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByRole("button", { name: /All/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check table" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import / export" })).toBeInTheDocument();
+  });
+
+  it("abbreviates column headers in compact mode and refits widths", async () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    const ga = screen.getByRole("button", { name: "Resize Group address column" }).parentElement;
+    expect(ga).toHaveStyle({ width: "118px" });
+    expect(screen.getByText("Group address")).toBeInTheDocument();
+    expect(screen.getByText("Direction")).toBeInTheDocument();
+    expect(screen.getByText("GATEWAY")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    expect(screen.getByText("GA")).toBeInTheDocument();
+    expect(screen.getByText("DV")).toBeInTheDocument();
+    expect(screen.getByText("GW")).toBeInTheDocument();
+    expect(screen.getByText("DIR")).toBeInTheDocument();
+    expect(screen.queryByText("Group address")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(Number.parseInt(ga?.style.width ?? "0", 10)).toBeLessThan(118);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    expect(screen.getByText("Group address")).toBeInTheDocument();
+    expect(ga).toHaveStyle({ width: "118px" });
   });
 
   it("filters rows with the text search", () => {
@@ -148,7 +173,7 @@ describe("SignalsScreen (knx-mbm)", () => {
     renderSignals();
 
     const reset = screen.getByRole("button", { name: "Reset widths" });
-    expect(reset.parentElement?.textContent).toContain("PROJECT SIGNAL");
+    expect(reset.parentElement?.parentElement?.textContent).toContain("PROJECT SIGNAL");
 
     const flagsHandle = screen.getByRole("button", { name: "Resize Flags column" });
     const flagsHeader = flagsHandle.parentElement;

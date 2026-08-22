@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Lato, Saira } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { CurrentProjectProvider } from "@/lib/current-project";
 import { GatewaySessionProvider } from "@/lib/gateway-session";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
@@ -44,7 +45,9 @@ export default function RootLayout({
         <CurrentProjectProvider>
           <GatewaySessionProvider>
             <WorkspaceChromeProvider>
-              <AppShell>{children}</AppShell>
+              <TooltipProvider delayDuration={300}>
+                <AppShell>{children}</AppShell>
+              </TooltipProvider>
             </WorkspaceChromeProvider>
           </GatewaySessionProvider>
         </CurrentProjectProvider>

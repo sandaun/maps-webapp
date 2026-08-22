@@ -14,8 +14,9 @@ import {
   SignalsToolbar,
 } from "@/components/signals/signals-toolbar";
 import { SignalsWorkspace } from "@/components/signals/signals-workspace";
-import { ME_COLUMN_GROUPS, ME_GROUP_LABELS } from "@/components/signals/types";
+import { ME_COLUMN_GROUPS, ME_GROUP_LABELS, ME_GROUP_LABELS_COMPACT } from "@/components/signals/types";
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
+import { useGridCompact } from "@/components/signals/use-grid-compact";
 import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { columnGroupsFor } from "@/components/signals/column-groups";
@@ -45,6 +46,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const visibility = useColumnVisibility("signals-hidden:me-mbs:v1");
+  const { compact, toggle: toggleCompact } = useGridCompact();
 
   const rows = React.useMemo(() => signals.map((s) => toMeRow(project, s)), [project, signals]);
   const allColumns = React.useMemo(() => meMbsColumns(project), [project]);
@@ -153,6 +155,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           rows={pageRows}
           columns={columns}
           groupLabels={ME_GROUP_LABELS}
+          compactGroupLabels={ME_GROUP_LABELS_COMPACT}
           rowId={rowId}
           rowActive={(row) => row.signal.active}
           rowError={(row) => errorIds.has(row.signal.id)}
@@ -163,6 +166,8 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           applyPatches={applyPatches}
           tabOrder={ME_TAB_ORDER}
           widthStorageKey="signals-grid-widths:me-mbs:v1"
+          compact={compact}
+          onToggleCompact={toggleCompact}
           fitRows={rows}
           focusId={signalId}
         />

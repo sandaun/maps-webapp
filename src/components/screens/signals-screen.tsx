@@ -16,8 +16,9 @@ import { SignalsGrid } from "@/components/signals/signals-grid";
 import { SignalsPageChrome } from "@/components/signals/signals-page";
 import { ColumnPicker, SignalsFooter, SignalsToolbar } from "@/components/signals/signals-toolbar";
 import { SignalsWorkspace } from "@/components/signals/signals-workspace";
-import { KNX_COLUMN_GROUPS, KNX_GROUP_LABELS } from "@/components/signals/types";
+import { KNX_COLUMN_GROUPS, KNX_GROUP_LABELS, KNX_GROUP_LABELS_COMPACT } from "@/components/signals/types";
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
+import { useGridCompact } from "@/components/signals/use-grid-compact";
 import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
 
 export function SignalsScreen() {
@@ -66,6 +67,7 @@ function SignalsView({
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const visibility = useColumnVisibility("signals-hidden:knx-mbm:v1");
+  const { compact, toggle: toggleCompact } = useGridCompact();
 
   const rows = React.useMemo(() => signals.map((s) => toKnxRow(mbm, s)), [mbm, signals]);
   const allColumns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
@@ -187,6 +189,7 @@ function SignalsView({
           rows={pageRows}
           columns={columns}
           groupLabels={KNX_GROUP_LABELS}
+          compactGroupLabels={KNX_GROUP_LABELS_COMPACT}
           rowId={rowId}
           rowActive={(row) => row.signal.active}
           rowError={(row) => errorIds.has(row.signal.id)}
@@ -197,6 +200,8 @@ function SignalsView({
           applyPatches={applyPatches}
           tabOrder={KNX_TAB_ORDER}
           widthStorageKey="signals-grid-widths:knx-mbm:v1"
+          compact={compact}
+          onToggleCompact={toggleCompact}
           fitRows={rows}
           focusId={signalId}
         />

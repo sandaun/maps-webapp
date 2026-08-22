@@ -14,6 +14,10 @@ export interface GridColumn<R> {
   id: string;
   group: BandId;
   header: string;
+  /** Compact label in the grid header. Full `header` stays in pickers and a11y. */
+  headerShort?: string;
+  /** Extra hover text. Defaults to `header`. */
+  headerHint?: string;
   width: number;
   minWidth?: number;
   maxWidth?: number;
@@ -73,11 +77,25 @@ export const KNX_GROUP_LABELS: Record<BandId, string> = {
   device: "MODBUS MASTER · DEVICE SIDE",
 };
 
+export const KNX_GROUP_LABELS_COMPACT: Record<BandId, string> = {
+  project: "PROJECT SIGNAL",
+  bms: "BMS",
+  gateway: "GW",
+  device: "DEVICE",
+};
+
 export const ME_GROUP_LABELS: Record<BandId, string> = {
   project: "PROJECT SIGNAL",
   bms: "MITSUBISHI ELECTRIC AC",
   gateway: "GATEWAY",
   device: "MODBUS SLAVE",
+};
+
+export const ME_GROUP_LABELS_COMPACT: Record<BandId, string> = {
+  project: "PROJECT SIGNAL",
+  bms: "ME AC",
+  gateway: "GW",
+  device: "MBS",
 };
 
 export const KNX_COLUMN_GROUPS: { id: BandId; label: string; color: string }[] = [
