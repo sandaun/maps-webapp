@@ -16,6 +16,9 @@ const PROTOCOL_LABELS: Record<FamilyId, readonly [string, string]> = {
   "me-mbs": ["MITSUBISHI ELECTRIC AC", "MODBUS SLAVE"],
 };
 
+const CHIP =
+  "inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-[4px] border px-2.5 text-xs font-medium leading-none";
+
 function StatusChip({
   tone,
   dot = false,
@@ -28,7 +31,8 @@ function StatusChip({
   onClick?: () => void;
 }) {
   const className = cn(
-    "inline-flex shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[4px] border px-2.5 py-[5px] text-xs font-medium leading-none",
+    CHIP,
+    "gap-[7px]",
     tone === "success" && "border-success-border bg-success-bg text-success",
     tone === "warning" && "border-warning-border bg-warning-bg text-warning-text",
     tone === "error" && "border-error-border bg-error-bg text-error",
@@ -89,10 +93,10 @@ export function Header() {
 
       {!projectsArea ? <div className="flex items-center gap-3.5">
         {protocols ? (
-          <span className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[4px] border border-border bg-[#F7F8F9] px-2.5 py-[5px]">
-            <span className="font-mono text-[11px] font-semibold text-bms-text">{protocols[0]}</span>
-            <ArrowLeftRight className="h-3.5 w-3.5 text-fg-subtle" strokeWidth={1.5} aria-hidden />
-            <span className="font-mono text-[11px] font-semibold text-device-text">{protocols[1]}</span>
+          <span className={cn(CHIP, "gap-1.5 border-border bg-[#F7F8F9]")}>
+            <span className="font-mono text-[11px] font-semibold leading-none text-bms-text">{protocols[0]}</span>
+            <ArrowLeftRight className="size-3 text-fg-subtle" strokeWidth={1.5} aria-hidden />
+            <span className="font-mono text-[11px] font-semibold leading-none text-device-text">{protocols[1]}</span>
           </span>
         ) : null}
         <StatusChip tone={connected ? "success" : "warning"} dot>
