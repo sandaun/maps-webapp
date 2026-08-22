@@ -54,8 +54,8 @@ describe("AppShell", () => {
     expect(screen.getByText("MAPS")).toBeInTheDocument();
     expect(screen.getByText("INTESIS · CLOUD")).toBeInTheDocument();
     expect(screen.getByText("Office demo")).toBeInTheDocument();
-    expect(screen.getByText("Demo project")).toBeInTheDocument();
-    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByText("KNX ↔ Modbus Master")).toBeInTheDocument();
+    expect(screen.getByText("Gateway workspace")).toBeInTheDocument();
 
     for (const label of [
       "Connection",

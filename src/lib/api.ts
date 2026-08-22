@@ -49,6 +49,19 @@ export async function loadDemoProject(): Promise<ProjectMeta> {
   return data.project;
 }
 
+/** Create a local project from a supported protocol-pair template. */
+export async function createTemplateProject(
+  family: ProjectMeta["family"],
+  name: string,
+): Promise<ProjectMeta> {
+  const data = await request<{ project: ProjectMeta }>("/api/projects/templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ family, name }),
+  });
+  return data.project;
+}
+
 /** Upload a local `.ibmaps` XML (or gateway "complete" blob) as a project. */
 export async function openProjectFile(file: File): Promise<ProjectMeta> {
   const form = new FormData();

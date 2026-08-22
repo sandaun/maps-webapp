@@ -7,7 +7,7 @@ import type { FamilyId } from "../projects/families";
  * touching the domain.
  */
 
-export type ProjectSource = "gateway" | "file" | "demo";
+export type ProjectSource = "gateway" | "file" | "template" | "demo";
 
 export interface ProjectMeta {
   /** Filesystem-safe id (slug or uuid). */
