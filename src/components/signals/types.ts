@@ -67,15 +67,27 @@ export const GROUP_HEADER_H = 29;
 export const COL_HEADER_H = 31;
 
 export const KNX_GROUP_LABELS: Record<BandId, string> = {
-  project: "PROJECT",
-  bms: "KNX",
+  project: "PROJECT SIGNAL",
+  bms: "KNX TP · BMS SIDE",
   gateway: "GATEWAY",
-  device: "MODBUS",
+  device: "MODBUS MASTER · DEVICE SIDE",
 };
 
 export const ME_GROUP_LABELS: Record<BandId, string> = {
-  project: "PROJECT",
-  bms: "MITSUBISHI ELECTRIC",
+  project: "PROJECT SIGNAL",
+  bms: "MITSUBISHI ELECTRIC AC",
   gateway: "GATEWAY",
-  device: "MODBUS",
+  device: "MODBUS SLAVE",
 };
+
+export const KNX_COLUMN_GROUPS: { id: BandId; label: string; color: string }[] = [
+  { id: "bms", label: "KNX TP · BMS SIDE", color: "#8A5A12" },
+  { id: "gateway", label: "GATEWAY", color: "var(--color-hms-blue)" },
+  { id: "device", label: "MODBUS MASTER · DEVICE SIDE", color: "#1268B3" },
+];
+
+export const ME_COLUMN_GROUPS: { id: BandId; label: string; color: string }[] = [
+  { id: "bms", label: "MITSUBISHI ELECTRIC AC", color: "#8A5A12" },
+  { id: "gateway", label: "GATEWAY", color: "var(--color-hms-blue)" },
+  { id: "device", label: "MODBUS SLAVE", color: "#1268B3" },
+];

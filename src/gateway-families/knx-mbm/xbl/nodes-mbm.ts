@@ -57,7 +57,7 @@ function devicesNode(devices: EnabledDevice[], tag: number): XblElementSpec {
   const items =
     devices.length > 0
       ? devices.map((d) => deviceItemList(d, true))
-      : [deviceItemList({ slave: 1, base: 0, timeout: 1000, enabled: true, firstIndex: 65535, lastIndex: 0, errExternalId: -1 }, true)];
+      : [deviceItemList({ slave: 1, base: 0, timeout: 1000, enabled: true, name: "", firstIndex: 65535, lastIndex: 0, errExternalId: -1 }, true)];
   return container(tag, [array(items)]);
 }
 

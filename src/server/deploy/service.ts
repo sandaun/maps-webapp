@@ -4,7 +4,7 @@ import { decodeElements, DEFAULT_SW_VERSION } from "@/core/xbl";
 import { APP_ID_ME_AC_XXX, generateMeMbsXbl } from "@/gateway-families/me-mbs";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
-import { getProjectView } from "../projects/service";
+import { getProjectView, snapshotDeploy } from "../projects/service";
 import { defaultCapabilitiesPath, hasMeMbsXblVerified } from "./capabilities";
 
 /**
@@ -186,6 +186,8 @@ export async function deployProject(
     name: view.meta.name,
     comments: "maps-webapp deploy",
   });
+
+  await snapshotDeploy(projectId);
 
   return {
     projectId,

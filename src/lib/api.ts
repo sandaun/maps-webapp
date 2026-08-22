@@ -76,3 +76,34 @@ export async function openProjectFile(file: File): Promise<ProjectMeta> {
 export function exportProjectUrl(id: string): string {
   return `/api/projects/${encodeURIComponent(id)}/export`;
 }
+
+export interface ProjectHistoryEntry {
+  id: string;
+  at: string;
+  tag: string;
+  text: string;
+  who: string;
+}
+
+export async function importSignalsXlsx(projectId: string, file: File): Promise<ProjectView> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<ProjectView>(`/api/projects/${encodeURIComponent(projectId)}/import/xlsx`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function listProjectHistory(projectId: string): Promise<ProjectHistoryEntry[]> {
+  const data = await request<{ history: ProjectHistoryEntry[] }>(
+    `/api/projects/${encodeURIComponent(projectId)}/history`,
+  );
+  return data.history;
+}
+
+export async function restoreProjectHistory(projectId: string, entryId: string): Promise<ProjectView> {
+  return request<ProjectView>(
+    `/api/projects/${encodeURIComponent(projectId)}/history/${encodeURIComponent(entryId)}/restore`,
+    { method: "POST" },
+  );
+}

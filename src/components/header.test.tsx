@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Header } from "./header";
 
@@ -10,11 +10,12 @@ const mocks = vi.hoisted(() => ({
   },
   dirtyCount: 3,
   session: null as null | { id: string; host: string; port: number; connected: boolean },
+  push: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/signals",
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mocks.push }),
 }));
 
 vi.mock("@/lib/current-project", () => ({
@@ -48,6 +49,14 @@ describe("Header", () => {
     expect(screen.getByText("3 changes pending")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deploy" })).toHaveClass("h-[34px]", "rounded-[4px]");
     await waitFor(() => expect(screen.getByText("Not connected")).toBeInTheDocument());
+  });
+
+  it("opens Validation from the Valid chip", async () => {
+    mocks.push.mockReset();
+    mocks.session = null;
+    render(<Header />);
+    fireEvent.click(screen.getByRole("button", { name: "Valid" }));
+    expect(mocks.push).toHaveBeenCalledWith("/signals?tab=validation");
   });
 
   it("shows Connected when a gateway session is live", async () => {

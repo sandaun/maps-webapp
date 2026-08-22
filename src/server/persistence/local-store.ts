@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type {
   ProjectFileStore,
+  ProjectHistoryEntry,
+  ProjectHistoryStore,
   ProjectMeta,
   ProjectRepository,
 } from "./types";
@@ -13,7 +15,7 @@ import type {
  * one folder per project: `meta.json`, `project.ibmaps`, `complete.bin`.
  * All writes are atomic (write tmp + rename) and project ids are sanitized.
  */
-export class LocalProjectStore implements ProjectRepository, ProjectFileStore {
+export class LocalProjectStore implements ProjectRepository, ProjectFileStore, ProjectHistoryStore {
   constructor(private readonly rootDir: string) {}
 
   // --- ProjectRepository ---------------------------------------------------
@@ -71,6 +73,51 @@ export class LocalProjectStore implements ProjectRepository, ProjectFileStore {
     await rm(this.projectDir(projectId), { recursive: true, force: true });
   }
 
+  // --- history -------------------------------------------------------------
+
+  async listHistory(projectId: string): Promise<ProjectHistoryEntry[]> {
+    const file = this.historyIndexPath(projectId);
+    if (!existsSync(file)) return [];
+    const parsed = JSON.parse(await readFile(file, "utf8")) as ProjectHistoryEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  async snapshotHistory(
+    projectId: string,
+    input: { tag: string; text: string; who: string },
+  ): Promise<ProjectHistoryEntry> {
+    const xml = await this.readXml(projectId);
+    const entry: ProjectHistoryEntry = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      at: new Date().toISOString(),
+      tag: input.tag,
+      text: input.text,
+      who: input.who,
+    };
+    await this.atomicWrite(this.historyXmlPath(projectId, entry.id), xml);
+    const next = [entry, ...(await this.listHistory(projectId))].slice(0, 50);
+    const keep = new Set(next.map((e) => this.safeId(e.id)));
+    const dir = this.historyDir(projectId);
+    if (existsSync(dir)) {
+      const files = await readdir(dir);
+      for (const name of files) {
+        if (!name.endsWith(".ibmaps")) continue;
+        const id = name.replace(/\.ibmaps$/, "");
+        if (!keep.has(id)) await rm(path.join(dir, name), { force: true });
+      }
+    }
+    await this.atomicWrite(this.historyIndexPath(projectId), JSON.stringify(next, null, 2));
+    return entry;
+  }
+
+  async restoreHistory(projectId: string, entryId: string): Promise<void> {
+    const entries = await this.listHistory(projectId);
+    const found = entries.find((e) => e.id === entryId);
+    if (!found) throw new Error(`History entry "${entryId}" not found`);
+    const xml = await readFile(this.historyXmlPath(projectId, found.id), "utf8");
+    await this.writeXml(projectId, xml);
+  }
+
   // --- internals -----------------------------------------------------------
 
   /** Ids are reduced to a safe charset before touching the filesystem. */
@@ -92,6 +139,18 @@ export class LocalProjectStore implements ProjectRepository, ProjectFileStore {
 
   private metaPath(id: string): string {
     return this.projectFile(id, "meta.json");
+  }
+
+  private historyDir(id: string): string {
+    return path.join(this.projectDir(id), "history");
+  }
+
+  private historyIndexPath(id: string): string {
+    return path.join(this.historyDir(id), "index.json");
+  }
+
+  private historyXmlPath(id: string, entryId: string): string {
+    return path.join(this.historyDir(id), `${this.safeId(entryId)}.ibmaps`);
   }
 
   private async atomicWrite(file: string, content: string | Buffer): Promise<void> {

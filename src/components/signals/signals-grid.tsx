@@ -26,6 +26,7 @@ export interface SignalsGridProps<R> {
   applyPatches: (patches: ProjectPatchInput[]) => Promise<unknown>;
   tabOrder: string[];
   widthStorageKey: string;
+  focusId?: number;
 }
 
 function editorSeed<R>(col: GridColumn<R>, row: R): string {
@@ -107,6 +108,7 @@ export function SignalsGrid<R>({
   applyPatches,
   tabOrder,
   widthStorageKey,
+  focusId,
 }: SignalsGridProps<R>) {
   const chrome = useWorkspaceChrome();
   const { bumpDirty, pushUndo } = chrome;
@@ -627,7 +629,13 @@ export function SignalsGrid<R>({
           return (
             <div
               key={id}
-              className={cn("flex", err && "bg-row-error", !active && "opacity-[.45]")}
+              ref={focusId === id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+              className={cn(
+                "flex",
+                err && "bg-row-error",
+                focusId === id && "bg-row-open",
+                !active && "opacity-[.45]",
+              )}
               style={{ height: ROW_HEIGHT }}
             >
               {columns.map((col) => renderCell(row, col, rowIndex, isSelected))}

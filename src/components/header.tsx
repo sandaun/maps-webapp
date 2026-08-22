@@ -20,20 +20,22 @@ function StatusChip({
   tone,
   dot = false,
   children,
+  onClick,
 }: {
   tone: "success" | "warning" | "error";
   dot?: boolean;
   children: React.ReactNode;
+  onClick?: () => void;
 }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[4px] border px-2.5 py-[5px] text-xs font-bold leading-none",
-        tone === "success" && "border-success-border bg-success-bg text-success",
-        tone === "warning" && "border-warning-border bg-warning-bg text-warning-text",
-        tone === "error" && "border-error-border bg-error-bg text-error",
-      )}
-    >
+  const className = cn(
+    "inline-flex shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[4px] border px-2.5 py-[5px] text-xs font-medium leading-none",
+    tone === "success" && "border-success-border bg-success-bg text-success",
+    tone === "warning" && "border-warning-border bg-warning-bg text-warning-text",
+    tone === "error" && "border-error-border bg-error-bg text-error",
+    onClick && "cursor-pointer",
+  );
+  const inner = (
+    <>
       {dot ? (
         <span
           className={cn(
@@ -46,8 +48,16 @@ function StatusChip({
         />
       ) : null}
       {children}
-    </span>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick}>
+        {inner}
+      </button>
+    );
+  }
+  return <span className={className}>{inner}</span>;
 }
 
 export function Header() {
@@ -93,9 +103,13 @@ export function Header() {
         </StatusChip>
         {view ? (
           errors > 0 ? (
-            <StatusChip tone="error" dot>{errors} errors</StatusChip>
+            <StatusChip tone="error" dot onClick={() => router.push("/signals?tab=validation")}>
+              {errors} errors
+            </StatusChip>
           ) : (
-            <StatusChip tone="success" dot>Valid</StatusChip>
+            <StatusChip tone="success" dot onClick={() => router.push("/signals?tab=validation")}>
+              Valid
+            </StatusChip>
           )
         ) : null}
         <StatusChip tone={dirtyCount > 0 ? "warning" : "success"}>
@@ -104,7 +118,7 @@ export function Header() {
             : "Up to date"}
         </StatusChip>
         <Button
-          className="h-[34px] rounded-[4px] px-[15px] text-[13px] font-bold"
+          className="h-[34px] rounded-[4px] px-[15px] text-[13px] font-medium"
           onClick={() => router.push("/deploy")}
         >
           <Upload className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />

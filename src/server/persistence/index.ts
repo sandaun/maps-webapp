@@ -1,9 +1,10 @@
 import "server-only";
 import path from "node:path";
 import { LocalProjectStore } from "./local-store";
-import type { ProjectFileStore, ProjectRepository } from "./types";
+import type { ProjectFileStore, ProjectHistoryStore, ProjectRepository } from "./types";
+export type { ProjectHistoryEntry } from "./types";
 
-export interface ProjectStore extends ProjectRepository, ProjectFileStore {}
+export interface ProjectStore extends ProjectRepository, ProjectFileStore, ProjectHistoryStore {}
 
 let instance: LocalProjectStore | undefined;
 

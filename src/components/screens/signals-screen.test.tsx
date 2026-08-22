@@ -20,6 +20,8 @@ import { SignalsScreen } from "./signals-screen";
 const mocks = vi.hoisted(() => ({
   applyPatches: vi.fn(),
   view: null as ProjectView | null,
+  routerPush: vi.fn(),
+  searchParams: new URLSearchParams(),
 }));
 
 function buildKnxView(): ProjectView {
@@ -58,6 +60,12 @@ function buildMeView(): ProjectView {
   };
 }
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/signals",
+  useRouter: () => ({ push: mocks.routerPush }),
+  useSearchParams: () => mocks.searchParams,
+}));
+
 vi.mock("@/lib/current-project", () => ({
   useCurrentProject: () => ({
     projectId: mocks.view?.meta.id ?? null,
@@ -82,6 +90,8 @@ function renderSignals() {
 
 beforeEach(() => {
   mocks.applyPatches.mockReset();
+  mocks.routerPush.mockReset();
+  mocks.searchParams = new URLSearchParams();
   window.localStorage.clear();
 });
 
@@ -95,8 +105,11 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("1/0/3")).toBeInTheDocument();
     expect(screen.getByText("9.001")).toBeInTheDocument();
     expect(screen.getAllByText("RTU 1")).toHaveLength(2);
-    expect(screen.getByText("2 active / 2")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Signal map" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText((_, el) => el?.textContent === "2 shown · 2 active of 2")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Signal map/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: /All/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check table" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import / export" })).toBeInTheDocument();
   });
 
   it("filters rows with the text search", () => {
@@ -262,16 +275,37 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("102 signals selected")).toBeInTheDocument();
   });
 
-  it("switches to Validation and Import & export tabs", () => {
+  it("switches to Validation and Import & export tabs", async () => {
     mocks.view = buildKnxView();
     renderSignals();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
-    expect(screen.getByRole("tab", { name: "Validation" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: /Validation/ }));
+    expect(screen.getByRole("tab", { name: /Validation/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Configuration validation")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Import & export" }));
-    expect(screen.getByRole("button", { name: "Import project" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Export project" })).toBeInTheDocument();
+    expect(screen.getByText("Import signals from XLSX")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Whole project/ })).toBeInTheDocument();
+  });
+
+  it("opens the column picker and hides a column", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    expect(screen.getByRole("button", { name: "GROUP ADDRESS" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "GROUP ADDRESS" }));
+    expect(screen.queryByText("1/0/3")).not.toBeInTheDocument();
+  });
+
+  it("Check table shows a banner then opens Validation", async () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Check table" }));
+    expect(screen.getByText(/Checking the signal table/)).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByText("Configuration validation")).toBeInTheDocument(),
+      { timeout: 1500 },
+    );
   });
 
   it("undos the last inline save from the toast", async () => {
@@ -314,7 +348,7 @@ describe("SignalsScreen (me-mbs)", () => {
     fireEvent.mouseEnter(screen.getAllByText("→")[0]);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Control · trigger");
     expect(screen.queryByRole("button", { name: "Add signal" })).not.toBeInTheDocument();
-    expect(screen.getByText("9 active / 9")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "9 shown · 9 active of 9")).toBeInTheDocument();
   });
 
   it("keeps generated ME descriptions and fixed register addresses read-only", () => {
