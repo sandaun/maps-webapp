@@ -37,7 +37,7 @@ export function projectColumns<R>(access: {
       group: "project",
       header: "Description",
       width: 280,
-      minWidth: 140,
+      minWidth: 200,
       maxWidth: 520,
       frozen: true,
       kind: descriptionEditable ? "text" : "none",

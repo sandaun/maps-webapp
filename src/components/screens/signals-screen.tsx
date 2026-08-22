@@ -197,6 +197,7 @@ function SignalsView({
           applyPatches={applyPatches}
           tabOrder={KNX_TAB_ORDER}
           widthStorageKey="signals-grid-widths:knx-mbm:v1"
+          fitRows={rows}
           focusId={signalId}
         />
       </div>

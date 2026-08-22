@@ -26,6 +26,7 @@ export interface SignalsGridProps<R> {
   applyPatches: (patches: ProjectPatchInput[]) => Promise<unknown>;
   tabOrder: string[];
   widthStorageKey: string;
+  fitRows?: R[];
   focusId?: number;
 }
 
@@ -84,16 +85,6 @@ function writeStoredWidths(key: string, widths: Record<string, number>) {
   for (const listener of widthListeners.get(key) ?? []) listener();
 }
 
-function clearStoredWidths(key: string) {
-  widthMemory.set(key, "{}");
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Defaults still apply to this render.
-  }
-  for (const listener of widthListeners.get(key) ?? []) listener();
-}
-
 export function SignalsGrid<R>({
   rows,
   columns,
@@ -108,6 +99,7 @@ export function SignalsGrid<R>({
   applyPatches,
   tabOrder,
   widthStorageKey,
+  fitRows,
   focusId,
 }: SignalsGridProps<R>) {
   const chrome = useWorkspaceChrome();
@@ -371,7 +363,7 @@ export function SignalsGrid<R>({
                 key={flag}
                 type="button"
                 className={cn(
-                  "rounded px-0.5 font-mono text-[10px] font-semibold",
+                  "shrink-0 rounded px-0.5 font-mono text-[10px] font-semibold",
                   flags[flag] ? "bg-hms-accent text-white" : "bg-hms-muted text-fg-subtle",
                 )}
                 aria-label={`Flag ${flag.toUpperCase()} signal ${id}`}
@@ -488,6 +480,53 @@ export function SignalsGrid<R>({
     return Math.max(col.minWidth ?? 52, Math.min(col.maxWidth ?? 600, Math.round(width)));
   }
 
+  function measureText(el: HTMLSpanElement, font: string, text: string, fallbackPx: number): number {
+    el.style.font = font;
+    el.textContent = text;
+    const width = el.offsetWidth;
+    return width > 0 ? width : text.length * fallbackPx * 0.85;
+  }
+
+  function fittedWidth(col: GridColumn<R>, probe: HTMLSpanElement, source: R[]): number {
+    const slack = 18;
+    const cellPad = 20 + slack;
+    const headerPad = cellPad + (col.resizable === false ? 0 : 16);
+    const family = getComputedStyle(document.body).fontFamily;
+    const headerFont = `600 10.5px "JetBrains Mono", ${family}`;
+    const cellFont = col.mono ? `400 12px "JetBrains Mono", ${family}` : `400 12px ${family}`;
+    const header = col.header.trim().toUpperCase();
+    const headerWidth = header
+      ? measureText(probe, headerFont, header, 10.5) + Math.max(0, header.length - 1) * 10.5 * 0.06
+      : 0;
+    let contentWidth = 0;
+    if (col.kind === "flags") {
+      contentWidth = (["U", "T", "Ri", "W", "R"] as const).reduce((sum, label, index) => {
+        return sum + measureText(probe, cellFont, label, 10) + 6 + (index > 0 ? 2 : 0);
+      }, 0);
+    } else if (col.kind === "switch") {
+      contentWidth = 36;
+    } else {
+      for (const row of source) {
+        contentWidth = Math.max(contentWidth, measureText(probe, cellFont, col.getText(row), 12));
+      }
+    }
+    return clampWidth(col, Math.max(headerWidth + headerPad, contentWidth + cellPad));
+  }
+
+  function withProbe<T>(fn: (probe: HTMLSpanElement) => T): T {
+    const probe = document.createElement("span");
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.style.whiteSpace = "nowrap";
+    probe.style.left = "-9999px";
+    document.body.appendChild(probe);
+    try {
+      return fn(probe);
+    } finally {
+      probe.remove();
+    }
+  }
+
   function resizeStart(event: React.PointerEvent, col: GridColumn<R>) {
     event.preventDefault();
     event.stopPropagation();
@@ -510,21 +549,41 @@ export function SignalsGrid<R>({
   }
 
   function autoFit(col: GridColumn<R>) {
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (context) context.font = "500 12px Inter, ui-sans-serif, system-ui, sans-serif";
-    const texts = [col.header, ...rows.map((row) => col.getText(row))];
-    const measured = texts.reduce(
-      (max, text) => Math.max(max, context?.measureText(text).width ?? text.length * 7),
-      0,
-    );
-    const nextWidth = clampWidth(col, measured + (col.kind === "none" ? 24 : 42));
-    writeStoredWidths(widthStorageKey, { ...widths, [col.id]: nextWidth });
+    const source = fitRows ?? rows;
+    writeStoredWidths(widthStorageKey, {
+      ...widths,
+      [col.id]: withProbe((probe) => fittedWidth(col, probe, source)),
+    });
   }
 
-  function resetWidths() {
-    clearStoredWidths(widthStorageKey);
-  }
+  const resetWidths = React.useCallback(() => {
+    const source = fitRows ?? rows;
+    writeStoredWidths(
+      widthStorageKey,
+      withProbe((probe) => {
+        const next: Record<string, number> = {};
+        for (const col of columns) {
+          if (col.resizable === false) continue;
+          next[col.id] = fittedWidth(col, probe, source);
+        }
+        const family = getComputedStyle(document.body).fontFamily;
+        for (const id of ["project", "bms", "gateway", "device"] as BandId[]) {
+          const label = groupLabels[id];
+          const members = columns.filter((col) => col.group === id);
+          if (members.length === 0) continue;
+          const labelWidth =
+            measureText(probe, `600 10.5px "JetBrains Mono", ${family}`, label, 10.5) +
+            Math.max(0, label.length - 1) * 10.5 * 0.07 +
+            24 +
+            (id === "project" ? 96 : 0);
+          const sum = members.reduce((s, col) => s + (next[col.id] ?? col.width), 0);
+          const grow = [...members].reverse().find((col) => col.resizable !== false);
+          if (grow && labelWidth > sum) next[grow.id] = (next[grow.id] ?? grow.width) + (labelWidth - sum);
+        }
+        return next;
+      }),
+    );
+  }, [columns, fitRows, groupLabels, rows, widthStorageKey]);
 
   function showTooltip(
     event: React.MouseEvent<HTMLSpanElement> | React.FocusEvent<HTMLSpanElement>,
@@ -546,10 +605,10 @@ export function SignalsGrid<R>({
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
         <div className="min-w-max">
         <div className="sticky top-0 z-20 flex" style={{ height: GROUP_HEADER_H }}>
-          {groups.map((g, groupIndex) => (
+          {groups.map((g) => (
             <div
               key={g.id}
-              className="relative flex shrink-0 items-center border-b border-r px-2.5 font-mono text-[10.5px] font-semibold tracking-[0.07em]"
+              className="relative flex shrink-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-r px-2.5 font-mono text-[10.5px] font-semibold tracking-[0.07em]"
               style={{
                 width: g.width,
                 background: BAND_STYLE[g.id].bg,
@@ -560,16 +619,11 @@ export function SignalsGrid<R>({
                 zIndex: g.frozen ? 21 : undefined,
               }}
             >
-              {g.label}
-              {groupIndex === 0 ? (
-                <span className="ml-auto font-sans text-[9.5px] font-normal normal-case tracking-normal text-fg-subtle">
-                  ⋮ drag column edges
-                </span>
-              ) : null}
-              {groupIndex === groups.length - 1 ? (
+              <span className="min-w-0 truncate">{g.label}</span>
+              {g.frozen ? (
                 <button
                   type="button"
-                  className="ml-auto rounded px-1.5 py-0.5 font-sans text-[10px] font-normal normal-case tracking-normal text-fg-subtle hover:bg-black/5 hover:text-fg"
+                  className="ml-auto shrink-0 rounded px-1.5 py-0.5 font-sans text-[10px] font-normal normal-case tracking-normal text-fg-subtle hover:bg-black/5 hover:text-fg"
                   onClick={resetWidths}
                 >
                   Reset widths
@@ -582,7 +636,7 @@ export function SignalsGrid<R>({
           {columns.map((col) => (
             <div
               key={col.id}
-              className="relative flex shrink-0 items-center border-b border-border px-2.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-fg-muted"
+              className="relative flex shrink-0 items-center overflow-hidden whitespace-nowrap border-b border-border px-2.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-fg-muted"
               style={{
                 width: widthOf(col),
                 position: col.frozen ? "sticky" : undefined,

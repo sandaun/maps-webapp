@@ -143,6 +143,35 @@ describe("SignalsScreen (knx-mbm)", () => {
     });
   });
 
+  it("keeps Reset widths on the frozen band and fits columns to their text", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    const reset = screen.getByRole("button", { name: "Reset widths" });
+    expect(reset.parentElement?.textContent).toContain("PROJECT SIGNAL");
+
+    const flagsHandle = screen.getByRole("button", { name: "Resize Flags column" });
+    const flagsHeader = flagsHandle.parentElement;
+    expect(flagsHeader).toHaveStyle({ width: "118px" });
+
+    fireEvent(flagsHandle, new MouseEvent("pointerdown", { bubbles: true, clientX: 200 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 120 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+    expect(flagsHeader).toHaveStyle({ width: "110px" });
+
+    fireEvent.click(reset);
+    expect(Number.parseInt(flagsHeader?.style.width ?? "0", 10)).toBeGreaterThanOrEqual(110);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Slave column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeGreaterThanOrEqual(68);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Description column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeGreaterThanOrEqual(200);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Node column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeLessThan(160);
+  });
+
   it("toggles a signal active state via a patch", async () => {
     mocks.applyPatches.mockResolvedValue(buildKnxView());
     mocks.view = buildKnxView();

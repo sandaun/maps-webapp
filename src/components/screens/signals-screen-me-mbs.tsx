@@ -163,6 +163,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           applyPatches={applyPatches}
           tabOrder={ME_TAB_ORDER}
           widthStorageKey="signals-grid-widths:me-mbs:v1"
+          fitRows={rows}
           focusId={signalId}
         />
       </div>
