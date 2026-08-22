@@ -123,12 +123,14 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("Group address")).toBeInTheDocument();
     expect(screen.getByText("Direction")).toBeInTheDocument();
     expect(screen.getByText("GATEWAY")).toBeInTheDocument();
+    expect(screen.getByText("3 · Holding registers")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Compact" }));
     expect(screen.getByText("GA")).toBeInTheDocument();
     expect(screen.getByText("DV")).toBeInTheDocument();
     expect(screen.getByText("GW")).toBeInTheDocument();
     expect(screen.getByText("DIR")).toBeInTheDocument();
     expect(screen.queryByText("Group address")).not.toBeInTheDocument();
+    expect(screen.queryByText("3 · Holding registers")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(Number.parseInt(ga?.style.width ?? "0", 10)).toBeLessThan(118);
     });

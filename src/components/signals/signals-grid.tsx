@@ -44,6 +44,10 @@ function displayedHeader<R>(col: GridColumn<R>, compact: boolean): string {
   return compact && col.headerShort ? col.headerShort : col.header;
 }
 
+function displayedCell<R>(col: GridColumn<R>, row: R, compact: boolean): string {
+  return compact && col.getCompactText ? col.getCompactText(row) : col.getText(row);
+}
+
 function headerTooltip<R>(col: GridColumn<R>): string {
   return col.headerHint ?? col.header;
 }
@@ -480,16 +484,20 @@ export function SignalsGrid<R>({
           <span
             className="min-w-0 flex-1 truncate"
             tabIndex={col.getTitle ? 0 : undefined}
-            onMouseEnter={(event) =>
-              showTooltip(event, col.getTitle?.(row) ?? col.getText(row), !!col.getTitle)
-            }
+            onMouseEnter={(event) => {
+              const shown = displayedCell(col, row, compact);
+              const full = col.getTitle?.(row) ?? col.getText(row);
+              showTooltip(event, full, !!col.getTitle || shown !== full);
+            }}
             onMouseLeave={() => setTooltip(null)}
-            onFocus={(event) =>
-              showTooltip(event, col.getTitle?.(row) ?? col.getText(row), !!col.getTitle)
-            }
+            onFocus={(event) => {
+              const shown = displayedCell(col, row, compact);
+              const full = col.getTitle?.(row) ?? col.getText(row);
+              showTooltip(event, full, !!col.getTitle || shown !== full);
+            }}
             onBlur={() => setTooltip(null)}
           >
-            {col.getText(row)}
+            {displayedCell(col, row, compact)}
           </span>
           {renderStatus(key)}
         </>
@@ -529,7 +537,7 @@ export function SignalsGrid<R>({
       contentWidth = 36;
     } else {
       for (const row of source) {
-        contentWidth = Math.max(contentWidth, measureText(probe, cellFont, col.getText(row), 12));
+        contentWidth = Math.max(contentWidth, measureText(probe, cellFont, displayedCell(col, row, compact), 12));
       }
     }
     return clampWidth(col, Math.max(headerWidth + headerPad, contentWidth + cellPad));

@@ -11,6 +11,22 @@ const ACCESS_LABELS: Record<number, string> = {
   [READ_WRITE.READWRITE]: "Control + status",
 };
 
+const ACCESS_COMPACT: Record<number, string> = {
+  [READ_WRITE.READ]: "St",
+  [READ_WRITE.TRIGGER]: "Ctrl",
+  [READ_WRITE.READWRITE]: "C+S",
+};
+
+const FORMAT_COMPACT: Record<number, string> = {
+  [-1]: "—",
+  0: "U",
+  1: "C2",
+  2: "C1",
+  3: "F",
+  4: "BF",
+  5: "Str",
+};
+
 const DIRECTION_LABELS: Record<number, { arrow: string; title: string }> = {
   [READ_WRITE.READ]: { arrow: "←", title: "Status · read only" },
   [READ_WRITE.TRIGGER]: { arrow: "→", title: "Control · trigger" },
@@ -90,6 +106,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
         const c = project.me.controllers[i];
         return c?.description ? `C${i + 1} — ${c.description}` : `C${i + 1}`;
       },
+      getCompactText: (row) => `C${row.signal.me.g50Index + 1}`,
     },
     {
       id: "group",
@@ -173,6 +190,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
       maxWidth: 180,
       kind: "none",
       getText: (row) => ACCESS_LABELS[row.signal.modbus.readWrite] ?? "?",
+      getCompactText: (row) => ACCESS_COMPACT[row.signal.modbus.readWrite] ?? "?",
     },
     {
       id: "format",
@@ -184,6 +202,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
       maxWidth: 180,
       kind: "none",
       getText: (row) => FORMAT_LABELS[row.signal.modbus.format] ?? "?",
+      getCompactText: (row) => FORMAT_COMPACT[row.signal.modbus.format] ?? "?",
     },
     {
       id: "lenBits",

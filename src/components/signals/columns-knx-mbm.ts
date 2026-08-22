@@ -34,6 +34,40 @@ const WRITE_LABELS: Record<number, string> = {
   16: "16 · Multiple registers",
 };
 
+const FORMAT_COMPACT: Record<number, string> = {
+  [-1]: "—",
+  0: "U",
+  1: "C2",
+  2: "C1",
+  3: "F",
+  4: "BF",
+  5: "Str",
+};
+
+const BYTE_ORDER_COMPACT: Record<number, string> = {
+  [-1]: "—",
+  0: "BE",
+  1: "LE",
+  2: "BE↕",
+  3: "LE↕",
+};
+
+function compactFunc(code: number): string {
+  return code >= 0 ? String(code) : "—";
+}
+
+function knxNodeCompact(mbm: MbmConfig, port: number): string {
+  const ref = nodeForPort(mbm, port);
+  if (!ref) return "—";
+  if (ref.kind === "rtu") return `RTU ${port + 1}`;
+  return `TCP ${port - mbm.rtuNodes.length + 1}`;
+}
+
+function knxDeviceCompact(signal: KnxMbmSignal): string {
+  if (signal.modbus.isBroadcast) return "BC";
+  return signal.modbus.deviceIndex >= 0 ? String(signal.modbus.deviceIndex) : "—";
+}
+
 function knxDirection(signal: KnxMbmSignal): { arrow: string; title: string } {
   const reads = signal.modbus.readFunc >= 0;
   const writes = signal.modbus.writeFunc >= 0;
@@ -242,6 +276,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "select",
       bulkLabel: "Node",
       getText: (row) => row.nodeLabel,
+      getCompactText: (row) => knxNodeCompact(mbm, row.signal.modbus.port),
       getEditorValue: (row) => String(row.signal.modbus.port),
       options: () => nodeOptions(mbm),
       parse: (_row, raw) => {
@@ -267,6 +302,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "select",
       bulkLabel: "Device",
       getText: (row) => row.deviceLabel,
+      getCompactText: (row) => knxDeviceCompact(row.signal),
       getEditorValue: (row) => (row.signal.modbus.isBroadcast ? "broadcast" : String(row.signal.modbus.deviceIndex)),
       options: (row) => deviceOptions(mbm, row),
       parse: (_row, raw) => {
@@ -299,6 +335,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "select",
       bulkLabel: "Read function",
       getText: (row) => READ_LABELS[row.signal.modbus.readFunc] ?? String(row.signal.modbus.readFunc),
+      getCompactText: (row) => compactFunc(row.signal.modbus.readFunc),
       getEditorValue: (row) => String(row.signal.modbus.readFunc),
       options: () => [
         { value: "-1", label: "None" },
@@ -318,6 +355,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "select",
       bulkLabel: "Write function",
       getText: (row) => WRITE_LABELS[row.signal.modbus.writeFunc] ?? String(row.signal.modbus.writeFunc),
+      getCompactText: (row) => compactFunc(row.signal.modbus.writeFunc),
       getEditorValue: (row) => String(row.signal.modbus.writeFunc),
       options: () => [
         { value: "-1", label: "None" },
@@ -354,6 +392,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
         if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return format;
         return format;
       },
+      getCompactText: (row) => FORMAT_COMPACT[row.signal.modbus.format] ?? "?",
       getEditorValue: (row) => String(row.signal.modbus.format),
       options: () =>
         Object.entries(FORMAT_LABELS)
@@ -375,6 +414,11 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
         const modbus = row.signal.modbus;
         if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return "—";
         return BYTE_ORDER_LABELS[modbus.byteOrder] ?? "—";
+      },
+      getCompactText: (row) => {
+        const modbus = row.signal.modbus;
+        if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return "—";
+        return BYTE_ORDER_COMPACT[modbus.byteOrder] ?? "—";
       },
       getEditorValue: (row) => String(row.signal.modbus.byteOrder),
       options: () =>

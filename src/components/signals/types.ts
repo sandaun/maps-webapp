@@ -28,6 +28,8 @@ export interface GridColumn<R> {
   bulkLabel?: string;
   mono?: boolean;
   getText: (row: R) => string;
+  /** Shown in compact mode instead of `getText`. Editors and search still use the full value. */
+  getCompactText?: (row: R) => string;
   getTitle?: (row: R) => string;
   /** Value used when opening an editor (select/text). Defaults to getText. */
   getEditorValue?: (row: R) => string;
