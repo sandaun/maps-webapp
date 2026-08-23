@@ -91,7 +91,7 @@ export function Header() {
         <span>{breadcrumb[1]}</span>
       </nav>
 
-      {!projectsArea ? <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3.5">
         {protocols ? (
           <span className={cn(CHIP, "gap-1.5 border-border bg-[#F7F8F9]")}>
             <span className="font-mono text-[11px] font-semibold leading-none text-bms-text">{protocols[0]}</span>
@@ -128,7 +128,7 @@ export function Header() {
           <Upload className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           Deploy
         </Button>
-      </div> : null}
+      </div>
     </header>
   );
 }

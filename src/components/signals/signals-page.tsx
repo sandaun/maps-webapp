@@ -57,16 +57,21 @@ export function SignalsPageChrome({
             role="tab"
             aria-selected={tab === item.id}
             className={cn(
-              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors",
+              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] transition-colors",
               tab === item.id
-                ? "border-hms-accent text-hms-blue"
-                : "border-transparent text-fg-muted hover:text-text-body",
+                ? "border-hms-accent font-bold text-hms-blue"
+                : "border-transparent font-normal text-fg-muted hover:text-text-body",
             )}
             onClick={() => setTab(item.id)}
           >
             {item.label}
             {item.count !== undefined ? (
-              <span className={cn("font-mono text-[11px]", tab === item.id ? "text-hms-accent" : "text-fg-subtle")}>
+              <span
+                className={cn(
+                  "font-mono text-[11px]",
+                  tab === item.id ? "font-medium text-hms-accent" : "font-normal text-fg-subtle",
+                )}
+              >
                 {item.count}
               </span>
             ) : null}

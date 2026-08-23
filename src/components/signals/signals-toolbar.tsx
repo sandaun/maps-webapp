@@ -68,13 +68,18 @@ export function SignalsToolbar({
             className={cn(
               "flex items-center gap-1.5 rounded-[4px] border px-2.5 py-1.5 text-[12.5px]",
               on
-                ? "border-[#C9DEF0] bg-[#EAF3FB] font-medium text-hms-blue"
+                ? "border-[#C9DEF0] bg-[#EAF3FB] font-bold text-hms-blue"
                 : "border-transparent font-normal text-fg-muted hover:text-text-body",
             )}
             onClick={() => onFilter(pill.id)}
           >
             {pill.label}
-            <span className={cn("font-mono text-[11px]", on ? "text-hms-accent" : "text-fg-subtle")}>
+            <span
+              className={cn(
+                "font-mono text-[11px]",
+                on ? "font-semibold text-hms-accent" : "font-normal text-fg-subtle",
+              )}
+            >
               {pill.count}
             </span>
           </button>

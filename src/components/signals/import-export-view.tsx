@@ -11,6 +11,8 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+const HISTORY_PREVIEW_LIMIT = 4;
+
 export function ImportExportView({
   family,
   projectId,
@@ -30,6 +32,7 @@ export function ImportExportView({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [history, setHistory] = React.useState<ProjectHistoryEntry[]>([]);
+  const [historyExpanded, setHistoryExpanded] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
 
   const loadHistory = React.useCallback(() => {
@@ -97,11 +100,14 @@ export function ImportExportView({
           },
         ];
 
+  const visibleHistory = historyExpanded ? history : history.slice(0, HISTORY_PREVIEW_LIMIT);
+  const hiddenHistoryCount = history.length - visibleHistory.length;
+
   return (
-    <div className="max-w-[1000px] px-6 py-5 pb-9">
+    <div className="max-w-[1000px] px-5 py-5 pb-9">
       <div className="mb-4 grid grid-cols-1 gap-3.5 md:grid-cols-2">
         <section className="rounded-lg border border-border bg-white p-[18px]">
-          <h2 className="font-display text-[17px] font-normal text-hms-blue">Import signals from XLSX</h2>
+          <h2 className="font-display text-[17px] font-light text-hms-blue">Import signals from XLSX</h2>
           <p className="mb-3.5 mt-1.5 text-[12.5px] leading-[1.55] text-fg-muted">
             Bring in a signal table prepared offline. Rows are appended like MAPS desktop Add from Excel; virtual
             rows (data length “-”) update the matching virtual signal.
@@ -140,7 +146,7 @@ export function ImportExportView({
               if (file) void handleXlsx(file);
             }}
           >
-            <div className="text-[13px] font-medium text-hms-blue">Choose an XLSX file</div>
+            <div className="text-[13px] font-bold text-hms-blue">Choose an XLSX file</div>
             <div className="mt-1 text-[11.5px] text-fg-subtle">or drop it here · max 5 000 rows</div>
           </button>
           <div className="mt-3.5 text-[12px] text-fg-muted">
@@ -157,12 +163,12 @@ export function ImportExportView({
         </section>
 
         <section className="rounded-lg border border-border bg-white p-[18px]">
-          <h2 className="font-display text-[17px] font-normal text-hms-blue">Export</h2>
+          <h2 className="font-display text-[17px] font-light text-hms-blue">Export</h2>
           <p className="mb-3.5 mt-1.5 text-[12.5px] leading-[1.55] text-fg-muted">
             Export the current table to reuse it in another project or to hand the register map to the BMS
             integrator.
           </p>
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-[9px]">
             {exports.map((item) => (
               <a
                 key={`${item.kind}-${item.label}`}
@@ -173,7 +179,7 @@ export function ImportExportView({
                   {item.kind}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[12.5px] font-medium text-hms-blue">{item.label}</span>
+                  <span className="block text-[12.5px] font-bold text-hms-blue">{item.label}</span>
                   <span className="block text-[11.5px] text-fg-muted">{item.sub}</span>
                 </span>
                 <span className="text-[13px] text-hms-accent">↓</span>
@@ -184,39 +190,50 @@ export function ImportExportView({
       </div>
 
       <section className="rounded-lg border border-border bg-white p-[18px]">
-        <h2 className="mb-3 font-display text-[17px] font-normal text-hms-blue">Project file history</h2>
+        <h2 className="mb-3 font-display text-[17px] font-light text-hms-blue">Project file history</h2>
         {history.length === 0 ? (
           <p className="text-[12.5px] text-fg-muted">No snapshots yet. Edits and deploys appear here.</p>
         ) : (
-          history.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex items-center gap-3.5 border-t border-border py-[11px] first:border-t-0 first:pt-0"
-            >
-              <div className="w-[118px] font-mono text-[11.5px] text-fg-muted">{formatWhen(entry.at)}</div>
-              <span
-                className={cn(
-                  "rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] font-semibold",
-                  entry.tag === "draft"
-                    ? "bg-warning-bg text-warning-text"
-                    : "bg-hms-muted text-hms-blue",
-                )}
+          <>
+            {visibleHistory.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center gap-3.5 border-t border-border py-[11px]"
               >
-                {entry.tag}
-              </span>
-              <div className="min-w-0 flex-1 text-[12.5px] text-text-body">{entry.text}</div>
-              <div className="text-[12px] text-fg-muted">{entry.who}</div>
+                <div className="w-[118px] font-mono text-[11.5px] text-fg-muted">{formatWhen(entry.at)}</div>
+                <span
+                  className={cn(
+                    "rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+                    entry.tag === "draft"
+                      ? "bg-warning-bg text-warning-text"
+                      : "bg-hms-muted text-hms-blue",
+                  )}
+                >
+                  {entry.tag}
+                </span>
+                <div className="min-w-0 flex-1 text-[12.5px] text-text-body">{entry.text}</div>
+                <div className="text-[12px] text-fg-muted">{entry.who}</div>
+                <button
+                  type="button"
+                  className="text-[12px] font-bold text-hms-accent"
+                  onClick={() => {
+                    void restoreProjectHistory(projectId, entry.id).then(onImported);
+                  }}
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+            {history.length > HISTORY_PREVIEW_LIMIT ? (
               <button
                 type="button"
-                className="text-[12px] font-medium text-hms-accent"
-                onClick={() => {
-                  void restoreProjectHistory(projectId, entry.id).then(onImported);
-                }}
+                className="mt-1 text-[12px] font-bold text-hms-accent"
+                onClick={() => setHistoryExpanded((expanded) => !expanded)}
               >
-                Restore
+                {historyExpanded ? "Show recent only" : `Show ${hiddenHistoryCount} older versions`}
               </button>
-            </div>
-          ))
+            ) : null}
+          </>
         )}
       </section>
       {error ? (

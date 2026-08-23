@@ -219,7 +219,7 @@ export function ProjectsScreen() {
 
         <aside className="space-y-4">
           <section className="rounded-[6px] border border-border bg-white p-4">
-            <h2 className="font-display text-[15px] font-medium text-hms-blue">Start from</h2>
+            <h2 className="font-display text-[15px] font-light text-hms-blue">Start from</h2>
             <div className="mt-2 divide-y divide-border">
               <Link
                 href="/projects/new"
@@ -254,7 +254,7 @@ export function ProjectsScreen() {
 
           <section className="rounded-[6px] border border-border bg-white p-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-[15px] font-medium text-hms-blue">Access</h2>
+              <h2 className="font-display text-[15px] font-light text-hms-blue">Access</h2>
               <span className="text-[11.5px] text-hms-accent">Manage</span>
             </div>
             <div className="mt-3 flex items-center gap-2.5">

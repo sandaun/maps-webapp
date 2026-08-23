@@ -109,8 +109,20 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("9.001")).toBeInTheDocument();
     expect(screen.getAllByText("RTU 1")).toHaveLength(2);
     expect(screen.getByText((_, el) => el?.textContent === "2 shown · 2 active of 2")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /Signal map/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: /All/ })).toBeInTheDocument();
+    const signalMapTab = screen.getByRole("tab", { name: /Signal map/ });
+    const validationTab = screen.getByRole("tab", { name: /Validation/ });
+    const allFilter = screen.getByRole("button", { name: /All/ });
+    const errorsFilter = screen.getByRole("button", { name: /Errors/ });
+
+    expect(signalMapTab).toHaveAttribute("aria-selected", "true");
+    expect(signalMapTab).toHaveClass("font-bold");
+    expect(validationTab).toHaveClass("font-normal");
+    expect(allFilter).toHaveClass("font-bold");
+    expect(errorsFilter).toHaveClass("font-normal");
+
+    fireEvent.click(errorsFilter);
+    expect(errorsFilter).toHaveClass("font-bold");
+    expect(allFilter).toHaveClass("font-normal");
     expect(screen.getByRole("button", { name: "Check table" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import / export" })).toBeInTheDocument();
   });
