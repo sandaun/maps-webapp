@@ -52,6 +52,22 @@ function headerTooltip<R>(col: GridColumn<R>): string {
   return col.headerHint ?? col.header;
 }
 
+function fontFromToken(
+  token: "--font-family-body" | "--font-family-technical",
+  weight: number,
+  size: number,
+): string {
+  const family = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return `${weight} ${size}px ${family}`;
+}
+
+function measureText(el: HTMLSpanElement, font: string, text: string, fallbackPx: number): number {
+  el.style.font = font;
+  el.textContent = text;
+  const width = el.offsetWidth;
+  return width > 0 ? width : text.length * fallbackPx * 0.85;
+}
+
 const widthListeners = new Map<string, Set<() => void>>();
 const widthMemory = new Map<string, string>();
 
@@ -524,43 +540,45 @@ export function SignalsGrid<R>({
     });
   }
 
-  function clampWidth(col: GridColumn<R>, width: number) {
-    const min = compact ? 52 : (col.minWidth ?? 52);
-    return Math.max(min, Math.min(col.maxWidth ?? 600, Math.round(width)));
-  }
+  const clampWidth = React.useCallback(
+    (col: GridColumn<R>, width: number) => {
+      const min = compact ? 52 : (col.minWidth ?? 52);
+      return Math.max(min, Math.min(col.maxWidth ?? 600, Math.round(width)));
+    },
+    [compact],
+  );
 
-  function measureText(el: HTMLSpanElement, font: string, text: string, fallbackPx: number): number {
-    el.style.font = font;
-    el.textContent = text;
-    const width = el.offsetWidth;
-    return width > 0 ? width : text.length * fallbackPx * 0.85;
-  }
-
-  function fittedWidth(col: GridColumn<R>, probe: HTMLSpanElement, source: R[]): number {
-    const slack = 18;
-    const cellPad = 20 + slack;
-    const headerPad = cellPad + (col.resizable === false ? 0 : 16);
-    const family = getComputedStyle(document.body).fontFamily;
-    const headerFont = `600 10.5px "JetBrains Mono", ${family}`;
-    const cellFont = col.mono ? `400 12px "JetBrains Mono", ${family}` : `400 12px ${family}`;
-    const header = displayedHeader(col, compact).trim().toUpperCase();
-    const headerWidth = header
-      ? measureText(probe, headerFont, header, 10.5) + Math.max(0, header.length - 1) * 10.5 * 0.06
-      : 0;
-    let contentWidth = 0;
-    if (col.kind === "flags") {
-      contentWidth = (["U", "T", "Ri", "W", "R"] as const).reduce((sum, label, index) => {
-        return sum + measureText(probe, cellFont, label, 10) + 6 + (index > 0 ? 2 : 0);
-      }, 0);
-    } else if (col.kind === "switch") {
-      contentWidth = 36;
-    } else {
-      for (const row of source) {
-        contentWidth = Math.max(contentWidth, measureText(probe, cellFont, displayedCell(col, row, compact), 12));
+  const fittedWidth = React.useCallback(
+    (col: GridColumn<R>, probe: HTMLSpanElement, source: R[]): number => {
+      const slack = 18;
+      const cellPad = 20 + slack;
+      const headerPad = cellPad + (col.resizable === false ? 0 : 16);
+      const headerFont = fontFromToken("--font-family-technical", 600, 10.5);
+      const cellFont = fontFromToken(
+        col.mono ? "--font-family-technical" : "--font-family-body",
+        400,
+        12,
+      );
+      const header = displayedHeader(col, compact).trim().toUpperCase();
+      const headerWidth = header
+        ? measureText(probe, headerFont, header, 10.5) + Math.max(0, header.length - 1) * 10.5 * 0.06
+        : 0;
+      let contentWidth = 0;
+      if (col.kind === "flags") {
+        contentWidth = (["U", "T", "Ri", "W", "R"] as const).reduce((sum, label, index) => {
+          return sum + measureText(probe, cellFont, label, 10) + 6 + (index > 0 ? 2 : 0);
+        }, 0);
+      } else if (col.kind === "switch") {
+        contentWidth = 36;
+      } else {
+        for (const row of source) {
+          contentWidth = Math.max(contentWidth, measureText(probe, cellFont, displayedCell(col, row, compact), 12));
+        }
       }
-    }
-    return clampWidth(col, Math.max(headerWidth + headerPad, contentWidth + cellPad));
-  }
+      return clampWidth(col, Math.max(headerWidth + headerPad, contentWidth + cellPad));
+    },
+    [clampWidth, compact],
+  );
 
   function withProbe<T>(fn: (probe: HTMLSpanElement) => T): T {
     const probe = document.createElement("span");
@@ -615,13 +633,13 @@ export function SignalsGrid<R>({
           if (col.resizable === false) continue;
           next[col.id] = fittedWidth(col, probe, source);
         }
-        const family = getComputedStyle(document.body).fontFamily;
+        const groupHeaderFont = fontFromToken("--font-family-technical", 600, 10.5);
         for (const id of ["project", "bms", "gateway", "device"] as BandId[]) {
           const label = bandLabel(id);
           const members = columns.filter((col) => col.group === id);
           if (members.length === 0) continue;
           const labelWidth =
-            measureText(probe, `600 10.5px "JetBrains Mono", ${family}`, label, 10.5) +
+            measureText(probe, groupHeaderFont, label, 10.5) +
             Math.max(0, label.length - 1) * 10.5 * 0.07 +
             24 +
             (id === "project" ? 148 : 0);
@@ -633,7 +651,7 @@ export function SignalsGrid<R>({
         return next;
       }),
     );
-  }, [bandLabel, columns, compact, compactGroupLabels, fitRows, groupLabels, rows, widthsKey]);
+  }, [bandLabel, columns, fitRows, fittedWidth, rows, widthsKey]);
 
   const prevCompact = React.useRef<boolean | undefined>(undefined);
   React.useEffect(() => {

@@ -40,8 +40,8 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${lato.variable} ${saira.variable} ${jetBrainsMono.variable}`}>
+    <html lang="en" className={`${lato.variable} ${saira.variable} ${jetBrainsMono.variable}`}>
+      <body>
         <CurrentProjectProvider>
           <GatewaySessionProvider>
             <WorkspaceChromeProvider>
