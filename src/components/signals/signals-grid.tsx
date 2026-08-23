@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { GripVertical } from "lucide-react";
 import { applyFlagChange } from "@/protocols/knx";
 import type { ProjectPatchInput, SignalPatchInput } from "@/lib/project-types";
@@ -220,6 +220,18 @@ export function SignalsGrid<R>({
     setDraft(editorSeed(col, row));
   }
 
+  function openSelectEditor(row: R, col: GridColumn<R>) {
+    flushSync(() => startEdit(row, col));
+    const select = document.querySelector<HTMLSelectElement>('select[data-grid-editor="select"]');
+    if (!select) return;
+    select.focus();
+    try {
+      select.showPicker();
+    } catch {
+      // Focusing still leaves the native select usable when showPicker is unavailable.
+    }
+  }
+
   function commitEdit(row: R, col: GridColumn<R>) {
     if (!editing || editing.field !== col.id || editing.id !== rowId(row)) return;
     setEditing(null);
@@ -326,7 +338,7 @@ export function SignalsGrid<R>({
           "box-border flex h-[31px] shrink-0 items-center overflow-hidden border-b border-row-rule px-2.5 text-[12px]",
           col.mono ? "font-mono text-hms-blue" : "font-sans text-text-body",
           editable && col.kind !== "switch" && col.kind !== "flags"
-            ? "cursor-text hover:bg-row-hover"
+            ? cn(col.kind === "select" ? "cursor-pointer" : "cursor-text", "hover:bg-row-hover")
             : "cursor-default",
           opts.extra,
         )}
@@ -437,6 +449,7 @@ export function SignalsGrid<R>({
         extra: "p-0",
         children: (
           <select
+            data-grid-editor="select"
             ref={(el) => {
               inputRef.current = el;
             }}
@@ -475,9 +488,15 @@ export function SignalsGrid<R>({
       extra: cn(editable && "hover:ring-1 hover:ring-inset hover:ring-hms-accent/30"),
       role: editable ? "button" : undefined,
       tabIndex: editable ? 0 : undefined,
-      onClick: () => startEdit(row, col),
+      onClick: () => {
+        if (col.kind === "select") openSelectEditor(row, col);
+        else startEdit(row, col);
+      },
       onKeyDown: (e) => {
-        if (editable && (e.key === "Enter" || e.key === "F2")) startEdit(row, col);
+        if (!editable || (e.key !== "Enter" && e.key !== "F2")) return;
+        e.preventDefault();
+        if (col.kind === "select") openSelectEditor(row, col);
+        else startEdit(row, col);
       },
       children: (
         <>

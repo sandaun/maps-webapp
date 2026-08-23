@@ -266,6 +266,21 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
   });
 
+  it("opens a select dropdown on the first click", () => {
+    const showPicker = vi.fn();
+    Object.defineProperty(HTMLSelectElement.prototype, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("1.001"));
+
+    expect(screen.getByLabelText("Edit DPT signal 0")).toHaveFocus();
+    expect(showPicker).toHaveBeenCalledOnce();
+  });
+
   it("queues two rapid saves on the same cell so the last value is sent", async () => {
     let release!: (value: ProjectView) => void;
     const first = new Promise<ProjectView>((resolve) => {

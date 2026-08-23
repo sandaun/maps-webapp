@@ -1,6 +1,6 @@
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import { formatGroupAddress, isValidGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
-import { formatDpt, isValidDpt, parseDpt } from "@/protocols/knx/dpt";
+import { COMMON_DPT_OPTIONS, formatDpt } from "@/protocols/knx/dpt";
 import type { KnxFlags } from "@/protocols/knx/flags";
 import {
   BYTE_ORDER_LABELS,
@@ -129,6 +129,11 @@ export function toKnxRow(mbm: MbmConfig, signal: KnxMbmSignal): KnxSignalRow {
   };
 }
 
+const DPT_SELECT_OPTIONS = COMMON_DPT_OPTIONS.map((opt) => ({
+  value: String(opt.value),
+  label: opt.label,
+}));
+
 function nodeOptions(mbm: MbmConfig) {
   return [
     { value: "-1", label: "Not set" },
@@ -195,17 +200,18 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       header: "DPT",
       headerHint: "KNX datapoint type",
       width: 96,
-      kind: "text",
+      kind: "select",
       bulkLabel: "DPT",
       mono: true,
       getText: (row) => row.dpt,
-      parse: (_row, raw) => {
-        const dpt = parseDpt(raw);
-        if (dpt === undefined || !isValidDpt(dpt)) {
-          return { error: "Invalid DPT — expected e.g. 9.001 or 1.x" };
-        }
-        return { patch: { knx: { dpt } } };
+      getEditorValue: (row) => String(row.signal.knx.dpt),
+      options: (row) => {
+        const current = String(row.signal.knx.dpt);
+        if (DPT_SELECT_OPTIONS.some((opt) => opt.value === current)) return DPT_SELECT_OPTIONS;
+        // Value outside the COMMON list (e.g. imported) — show it so the cell is not blank.
+        return [{ value: current, label: row.dpt }, ...DPT_SELECT_OPTIONS];
       },
+      parse: (_row, raw) => ({ patch: { knx: { dpt: Number(raw) } } }),
       inverseFromText: (row) => ({ knx: { dpt: row.signal.knx.dpt } }),
     },
     {
