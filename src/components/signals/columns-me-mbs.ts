@@ -101,6 +101,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
       minWidth: 90,
       maxWidth: 280,
       kind: "none",
+      textTone: "strong",
       getText: (row) => {
         const i = row.signal.me.g50Index;
         const c = project.me.controllers[i];
@@ -117,6 +118,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
       minWidth: 100,
       maxWidth: 360,
       kind: "none",
+      textTone: "strong",
       getText: (row) => row.scopeLabel,
     },
     {
@@ -166,6 +168,7 @@ export function meMbsColumns(project: MeMbsProject): GridColumn<MeSignalRow>[] {
       kind: customAddress ? "number" : "none",
       bulkLabel: customAddress ? "Register" : undefined,
       mono: true,
+      textTone: "strong",
       getText: (row) => String(row.signal.modbus.address),
       parse: customAddress
         ? (_row, raw) => {

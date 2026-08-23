@@ -224,6 +224,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "text",
       bulkLabel: "Group address",
       mono: true,
+      textTone: "strong",
       getText: (row) => row.groupAddress,
       getEditorValue: (row) => (row.signal.knx.groupAddress > 0 ? row.groupAddress : ""),
       parse: (_row, raw) => {
@@ -307,6 +308,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       maxWidth: 360,
       kind: "select",
       bulkLabel: "Device",
+      textTone: "strong",
       getText: (row) => row.deviceLabel,
       getCompactText: (row) => knxDeviceCompact(row.signal),
       getEditorValue: (row) => (row.signal.modbus.isBroadcast ? "broadcast" : String(row.signal.modbus.deviceIndex)),
@@ -441,6 +443,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       kind: "number",
       bulkLabel: "Register",
       mono: true,
+      textTone: "strong",
       getText: (row) => String(row.signal.modbus.address),
       parse: (_row, raw) => {
         const parsed = parseRegister(raw);

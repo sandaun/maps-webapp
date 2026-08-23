@@ -31,6 +31,7 @@ export function projectColumns<R>(access: {
       frozen: true,
       kind: "none",
       mono: true,
+      textTone: "subtle",
       getText: (row) => String(access.id(row)),
     },
     {
@@ -44,6 +45,7 @@ export function projectColumns<R>(access: {
       frozen: true,
       kind: descriptionEditable ? "text" : "none",
       bulkLabel: descriptionEditable ? "Description" : undefined,
+      textTone: "body",
       getText: (row) => access.description(row) || "—",
       getEditorValue: (row) => access.description(row),
       parse: descriptionEditable

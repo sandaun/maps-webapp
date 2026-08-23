@@ -105,8 +105,12 @@ describe("SignalsScreen (knx-mbm)", () => {
 
     expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
     expect(screen.getByText("Room temperature")).toBeInTheDocument();
-    expect(screen.getByText("1/0/3")).toBeInTheDocument();
-    expect(screen.getByText("9.001")).toBeInTheDocument();
+    expect(screen.getByText("Heat pump on/off").parentElement).toHaveClass("text-text-body");
+    expect(screen.getByText("1/0/3").parentElement).toHaveClass("text-hms-blue");
+    expect(screen.getByText("1/0/3").parentElement).toHaveStyle({ backgroundColor: "#FFFFFF" });
+    expect(screen.getByText("9.001").parentElement).toHaveClass("text-fg-muted");
+    expect(screen.getByText("9.001").parentElement).toHaveStyle({ backgroundColor: "#FFFFFF" });
+    expect(screen.getByRole("button", { name: "Flag U signal 0" })).toHaveClass("bg-hms-accent", "text-white");
     expect(screen.getAllByText("RTU 1")).toHaveLength(2);
     expect(screen.getByText((_, el) => el?.textContent === "2 shown · 2 active of 2")).toBeInTheDocument();
     const signalMapTab = screen.getByRole("tab", { name: /Signal map/ });
@@ -125,6 +129,19 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(allFilter).toHaveClass("font-normal");
     expect(screen.getByRole("button", { name: "Check table" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import / export" })).toBeInTheDocument();
+  });
+
+  it("uses a subtle token without fading the whole disabled row", () => {
+    const view = buildKnxView();
+    if (view.family !== "knx-mbm") throw new Error("expected KNX-MBM project");
+    view.project.signals[1].active = false;
+    mocks.view = view;
+    renderSignals();
+
+    const descriptionCell = screen.getByText("Room temperature").parentElement;
+    expect(descriptionCell).toHaveClass("text-fg-subtle");
+    expect(descriptionCell?.parentElement).not.toHaveClass("opacity-[.45]");
+    expect(screen.getByRole("button", { name: "Flag U signal 1" }).parentElement).toHaveClass("opacity-[.45]");
   });
 
   it("abbreviates column headers in compact mode and refits widths", async () => {

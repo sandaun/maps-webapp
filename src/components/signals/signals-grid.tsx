@@ -332,7 +332,8 @@ export function SignalsGrid<R>({
   function cellShell(
     col: GridColumn<R>,
     opts: {
-      selected: boolean;
+      active: boolean;
+      background: string;
       extra?: string;
       children: React.ReactNode;
       role?: React.AriaRole;
@@ -342,7 +343,13 @@ export function SignalsGrid<R>({
     },
   ) {
     const editable = col.kind !== "none";
-    const bg = opts.selected ? "var(--color-row-selected)" : BAND_STYLE[col.group].bg;
+    const textTone = opts.active ? (col.textTone ?? "muted") : "subtle";
+    const textColor = {
+      body: "text-text-body",
+      strong: "text-hms-blue",
+      muted: "text-fg-muted",
+      subtle: "text-fg-subtle",
+    }[textTone];
     return (
       <div
         key={col.id}
@@ -352,27 +359,34 @@ export function SignalsGrid<R>({
         onKeyDown={opts.onKeyDown}
         className={cn(
           "box-border flex h-[31px] shrink-0 items-center overflow-hidden border-b border-row-rule px-2.5 text-[12px]",
-          col.mono ? "font-mono text-hms-blue" : "font-sans text-text-body",
+          col.mono ? "font-mono" : "font-sans",
+          textColor,
           editable && col.kind !== "switch" && col.kind !== "flags"
             ? cn(col.kind === "select" ? "cursor-pointer" : "cursor-text", "hover:bg-row-hover")
             : "cursor-default",
           opts.extra,
         )}
-        style={{ width: widthOf(col), backgroundColor: bg, ...stickyStyle(col) }}
+        style={{ width: widthOf(col), backgroundColor: opts.background, ...stickyStyle(col) }}
       >
         {opts.children}
       </div>
     );
   }
 
-  function renderCell(row: R, col: GridColumn<R>, rowIndex: number, isSelected: boolean) {
+  function renderCell(
+    row: R,
+    col: GridColumn<R>,
+    rowIndex: number,
+    presentation: { active: boolean; background: string },
+  ) {
     const id = rowId(row);
     const key = `${id}:${col.id}`;
     const isEditing = editing?.id === id && editing.field === col.id;
+    const cellPresentation = { active: presentation.active, background: presentation.background };
 
     if (col.id === "select") {
       return cellShell(col, {
-        selected: isSelected,
+        ...cellPresentation,
         extra: "justify-center",
         children: (
           <SelectBox
@@ -386,7 +400,7 @@ export function SignalsGrid<R>({
 
     if (col.kind === "switch") {
       return cellShell(col, {
-        selected: isSelected,
+        ...cellPresentation,
         extra: "justify-center gap-1",
         children: (
           <>
@@ -407,10 +421,9 @@ export function SignalsGrid<R>({
     if (col.kind === "flags" && col.getFlags) {
       const flags = col.getFlags(row);
       return cellShell(col, {
-        selected: isSelected,
-        extra: "gap-0.5",
+        ...cellPresentation,
         children: (
-          <>
+          <div className={cn("flex items-center gap-0.5", !presentation.active && "opacity-[.45]")}>
             {(["u", "t", "ri", "w", "r"] as const).map((flag) => (
               <button
                 key={flag}
@@ -430,14 +443,14 @@ export function SignalsGrid<R>({
               </button>
             ))}
             {renderStatus(key)}
-          </>
+          </div>
         ),
       });
     }
 
     if (isEditing && (col.kind === "text" || col.kind === "number")) {
       return cellShell(col, {
-        selected: isSelected,
+        ...cellPresentation,
         extra: "p-0",
         children: (
           <input
@@ -461,7 +474,7 @@ export function SignalsGrid<R>({
 
     if (isEditing && col.kind === "select") {
       return cellShell(col, {
-        selected: isSelected,
+        ...cellPresentation,
         extra: "p-0",
         children: (
           <select
@@ -500,7 +513,7 @@ export function SignalsGrid<R>({
 
     const editable = col.kind !== "none";
     return cellShell(col, {
-      selected: isSelected,
+      ...cellPresentation,
       extra: cn(editable && "hover:ring-1 hover:ring-inset hover:ring-hms-accent/30"),
       role: editable ? "button" : undefined,
       tabIndex: editable ? 0 : undefined,
@@ -793,19 +806,22 @@ export function SignalsGrid<R>({
           const err = rowError?.(row);
           const active = rowActive(row);
           const isSelected = selected.has(id);
+          const background =
+            focusId === id
+              ? "var(--color-row-open)"
+              : isSelected
+                ? "var(--color-row-selected)"
+                : err && active
+                  ? "var(--color-row-error)"
+                  : "#FFFFFF";
           return (
             <div
               key={id}
               ref={focusId === id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-              className={cn(
-                "flex",
-                err && "bg-row-error",
-                focusId === id && "bg-row-open",
-                !active && "opacity-[.45]",
-              )}
+              className="flex"
               style={{ height: ROW_HEIGHT }}
             >
-              {columns.map((col) => renderCell(row, col, rowIndex, isSelected))}
+              {columns.map((col) => renderCell(row, col, rowIndex, { active, background }))}
             </div>
           );
         })}

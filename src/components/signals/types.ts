@@ -4,6 +4,7 @@ import type { SignalPatchInput } from "@/lib/project-types";
 export type BandId = "project" | "bms" | "gateway" | "device";
 
 export type EditorKind = "none" | "text" | "number" | "select" | "switch" | "flags";
+export type CellTextTone = "body" | "strong" | "muted" | "subtle";
 
 export interface SelectOption {
   value: string;
@@ -27,6 +28,8 @@ export interface GridColumn<R> {
   /** Shown in bulk "Edit field…"; omit to exclude from bulk. */
   bulkLabel?: string;
   mono?: boolean;
+  /** Semantic text emphasis for the rendered cell. Defaults to muted. */
+  textTone?: CellTextTone;
   getText: (row: R) => string;
   /** Shown in compact mode instead of `getText`. Editors and search still use the full value. */
   getCompactText?: (row: R) => string;
