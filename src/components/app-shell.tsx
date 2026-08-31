@@ -3,7 +3,6 @@
 import { DemoBanner } from "@/components/demo-banner";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
-import { ValidationPanel } from "@/components/validation-panel";
 import { UndoToast } from "@/components/signals/undo-toast";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
@@ -23,7 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {!projectsArea && <DemoBanner />}
         <main
           className={cn(
-            "flex min-h-0 w-full flex-1 flex-col overflow-auto pb-16",
+            "flex min-h-0 w-full flex-1 flex-col overflow-auto",
             projectsArea ? "px-[22px] pt-[22px] pb-10" : "p-6",
           )}
         >
@@ -31,7 +30,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <UndoToast />
-      <ValidationPanel />
     </div>
   );
 }

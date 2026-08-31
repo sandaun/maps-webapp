@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Header } from "./header";
 
 const mocks = vi.hoisted(() => ({
@@ -10,11 +10,13 @@ const mocks = vi.hoisted(() => ({
   },
   dirtyCount: 3,
   session: null as null | { id: string; host: string; port: number; connected: boolean },
+  pathname: "/signals",
+  push: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/signals",
-  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => mocks.pathname,
+  useRouter: () => ({ push: mocks.push }),
 }));
 
 vi.mock("@/lib/current-project", () => ({
@@ -37,6 +39,12 @@ vi.mock("@/lib/gateway-session", () => ({
   useGatewaySession: () => ({ session: mocks.session, loading: false, refresh: vi.fn() }),
 }));
 
+beforeEach(() => {
+  mocks.pathname = "/signals";
+  mocks.dirtyCount = 3;
+  mocks.session = null;
+});
+
 describe("Header", () => {
   it("shows protocol, valid, pending changes, offline and Deploy", async () => {
     mocks.session = null;
@@ -50,10 +58,30 @@ describe("Header", () => {
     await waitFor(() => expect(screen.getByText("Not connected")).toBeInTheDocument());
   });
 
+  it("opens Validation from the Valid chip", async () => {
+    mocks.push.mockReset();
+    mocks.session = null;
+    render(<Header />);
+    fireEvent.click(screen.getByRole("button", { name: "Valid" }));
+    expect(mocks.push).toHaveBeenCalledWith("/signals?tab=validation");
+  });
+
   it("shows Connected when a gateway session is live", async () => {
     mocks.session = { id: "s1", host: "192.168.1.50", port: 23, connected: true };
     render(<Header />);
     await waitFor(() => expect(screen.getByText("Connected · Ethernet")).toBeInTheDocument());
     expect(screen.getByText("192.168.1.50")).toBeInTheDocument();
+  });
+
+  it("keeps project status and deploy actions visible in Projects", () => {
+    mocks.pathname = "/projects";
+    mocks.dirtyCount = 0;
+    render(<Header />);
+
+    expect(screen.getByLabelText("Breadcrumb")).toHaveTextContent("Local workspace/Projects");
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+    expect(screen.getByText("Valid")).toBeInTheDocument();
+    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deploy" })).toBeInTheDocument();
   });
 });

@@ -29,6 +29,8 @@ export interface ProjectMeta {
   family: FamilyId;
   fileName?: string;
   updatedAt: string; // ISO
+  /** Last XLSX signal-table import, when any. */
+  lastImport?: { fileName: string; at: string; rows: number };
 }
 
 interface ProjectViewBase {

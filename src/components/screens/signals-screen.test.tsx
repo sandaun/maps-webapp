@@ -13,6 +13,7 @@ import {
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import { ADDRESS_MODES } from "@/protocols/modbus/slave";
 import type { ProjectView } from "@/lib/project-types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 import { UndoToast } from "@/components/signals/undo-toast";
 import { SignalsScreen } from "./signals-screen";
@@ -20,6 +21,8 @@ import { SignalsScreen } from "./signals-screen";
 const mocks = vi.hoisted(() => ({
   applyPatches: vi.fn(),
   view: null as ProjectView | null,
+  routerPush: vi.fn(),
+  searchParams: new URLSearchParams(),
 }));
 
 function buildKnxView(): ProjectView {
@@ -58,6 +61,12 @@ function buildMeView(): ProjectView {
   };
 }
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/signals",
+  useRouter: () => ({ push: mocks.routerPush }),
+  useSearchParams: () => mocks.searchParams,
+}));
+
 vi.mock("@/lib/current-project", () => ({
   useCurrentProject: () => ({
     projectId: mocks.view?.meta.id ?? null,
@@ -74,14 +83,18 @@ vi.mock("@/lib/current-project", () => ({
 function renderSignals() {
   return render(
     <WorkspaceChromeProvider>
-      <SignalsScreen />
-      <UndoToast />
+      <TooltipProvider delayDuration={0}>
+        <SignalsScreen />
+        <UndoToast />
+      </TooltipProvider>
     </WorkspaceChromeProvider>,
   );
 }
 
 beforeEach(() => {
   mocks.applyPatches.mockReset();
+  mocks.routerPush.mockReset();
+  mocks.searchParams = new URLSearchParams();
   window.localStorage.clear();
 });
 
@@ -92,11 +105,67 @@ describe("SignalsScreen (knx-mbm)", () => {
 
     expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
     expect(screen.getByText("Room temperature")).toBeInTheDocument();
-    expect(screen.getByText("1/0/3")).toBeInTheDocument();
-    expect(screen.getByText("9.001")).toBeInTheDocument();
+    expect(screen.getByText("Heat pump on/off").parentElement).toHaveClass("text-text-body");
+    expect(screen.getByText("1/0/3").parentElement).toHaveClass("text-hms-blue");
+    expect(screen.getByText("1/0/3").parentElement).toHaveStyle({ backgroundColor: "#FFFFFF" });
+    expect(screen.getByText("9.001").parentElement).toHaveClass("text-fg-muted");
+    expect(screen.getByText("9.001").parentElement).toHaveStyle({ backgroundColor: "#FFFFFF" });
+    expect(screen.getByRole("button", { name: "Flag U signal 0" })).toHaveClass("bg-hms-accent", "text-white");
     expect(screen.getAllByText("RTU 1")).toHaveLength(2);
-    expect(screen.getByText("2 active / 2")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Signal map" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText((_, el) => el?.textContent === "2 shown · 2 active of 2")).toBeInTheDocument();
+    const signalMapTab = screen.getByRole("tab", { name: /Signal map/ });
+    const validationTab = screen.getByRole("tab", { name: /Validation/ });
+    const allFilter = screen.getByRole("button", { name: /All/ });
+    const errorsFilter = screen.getByRole("button", { name: /Errors/ });
+
+    expect(signalMapTab).toHaveAttribute("aria-selected", "true");
+    expect(signalMapTab).toHaveClass("font-bold");
+    expect(validationTab).toHaveClass("font-normal");
+    expect(allFilter).toHaveClass("font-bold");
+    expect(errorsFilter).toHaveClass("font-normal");
+
+    fireEvent.click(errorsFilter);
+    expect(errorsFilter).toHaveClass("font-bold");
+    expect(allFilter).toHaveClass("font-normal");
+    expect(screen.getByRole("button", { name: "Check table" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import / export" })).toBeInTheDocument();
+  });
+
+  it("uses a subtle token without fading the whole disabled row", () => {
+    const view = buildKnxView();
+    if (view.family !== "knx-mbm") throw new Error("expected KNX-MBM project");
+    view.project.signals[1].active = false;
+    mocks.view = view;
+    renderSignals();
+
+    const descriptionCell = screen.getByText("Room temperature").parentElement;
+    expect(descriptionCell).toHaveClass("text-fg-subtle");
+    expect(descriptionCell?.parentElement).not.toHaveClass("opacity-[.45]");
+    expect(screen.getByRole("button", { name: "Flag U signal 1" }).parentElement).toHaveClass("opacity-[.45]");
+  });
+
+  it("abbreviates column headers in compact mode and refits widths", async () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    const ga = screen.getByRole("button", { name: "Resize Group address column" }).parentElement;
+    expect(ga).toHaveStyle({ width: "118px" });
+    expect(screen.getByText("Group address")).toBeInTheDocument();
+    expect(screen.getByText("Direction")).toBeInTheDocument();
+    expect(screen.getByText("GATEWAY")).toBeInTheDocument();
+    expect(screen.getByText("3 · Holding registers")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    expect(screen.getByText("GA")).toBeInTheDocument();
+    expect(screen.getByText("DV")).toBeInTheDocument();
+    expect(screen.getByText("GW")).toBeInTheDocument();
+    expect(screen.getByText("DIR")).toBeInTheDocument();
+    expect(screen.queryByText("Group address")).not.toBeInTheDocument();
+    expect(screen.queryByText("3 · Holding registers")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(Number.parseInt(ga?.style.width ?? "0", 10)).toBeLessThan(118);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    expect(screen.getByText("Group address")).toBeInTheDocument();
+    expect(ga).toHaveStyle({ width: "118px" });
   });
 
   it("filters rows with the text search", () => {
@@ -128,6 +197,35 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByRole("button", { name: "Resize Description column" }).parentElement).toHaveStyle({
       width: "360px",
     });
+  });
+
+  it("keeps Reset widths on the frozen band and fits columns to their text", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    const reset = screen.getByRole("button", { name: "Reset widths" });
+    expect(reset.parentElement?.parentElement?.textContent).toContain("PROJECT SIGNAL");
+
+    const flagsHandle = screen.getByRole("button", { name: "Resize Flags column" });
+    const flagsHeader = flagsHandle.parentElement;
+    expect(flagsHeader).toHaveStyle({ width: "118px" });
+
+    fireEvent(flagsHandle, new MouseEvent("pointerdown", { bubbles: true, clientX: 200 }));
+    fireEvent(document, new MouseEvent("pointermove", { bubbles: true, clientX: 120 }));
+    fireEvent(document, new MouseEvent("pointerup", { bubbles: true }));
+    expect(flagsHeader).toHaveStyle({ width: "110px" });
+
+    fireEvent.click(reset);
+    expect(Number.parseInt(flagsHeader?.style.width ?? "0", 10)).toBeGreaterThanOrEqual(110);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Slave column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeGreaterThanOrEqual(68);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Description column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeGreaterThanOrEqual(200);
+    expect(
+      Number.parseInt(screen.getByRole("button", { name: "Resize Node column" }).parentElement?.style.width ?? "0", 10),
+    ).toBeLessThan(160);
   });
 
   it("toggles a signal active state via a patch", async () => {
@@ -197,6 +295,21 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("Heat pump on/off")).toBeInTheDocument();
   });
 
+  it("opens a select dropdown on the first click", () => {
+    const showPicker = vi.fn();
+    Object.defineProperty(HTMLSelectElement.prototype, "showPicker", {
+      configurable: true,
+      value: showPicker,
+    });
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByText("1.001"));
+
+    expect(screen.getByLabelText("Edit DPT signal 0")).toHaveFocus();
+    expect(showPicker).toHaveBeenCalledOnce();
+  });
+
   it("queues two rapid saves on the same cell so the last value is sent", async () => {
     let release!: (value: ProjectView) => void;
     const first = new Promise<ProjectView>((resolve) => {
@@ -262,16 +375,37 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByText("102 signals selected")).toBeInTheDocument();
   });
 
-  it("switches to Validation and Import & export tabs", () => {
+  it("switches to Validation and Import & export tabs", async () => {
     mocks.view = buildKnxView();
     renderSignals();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
-    expect(screen.getByRole("tab", { name: "Validation" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: /Validation/ }));
+    expect(screen.getByRole("tab", { name: /Validation/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Configuration validation")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Import & export" }));
-    expect(screen.getByRole("button", { name: "Import project" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Export project" })).toBeInTheDocument();
+    expect(screen.getByText("Import signals from XLSX")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Whole project/ })).toBeInTheDocument();
+  });
+
+  it("opens the column picker and hides a column", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    expect(screen.getByRole("button", { name: "GROUP ADDRESS" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "GROUP ADDRESS" }));
+    expect(screen.queryByText("1/0/3")).not.toBeInTheDocument();
+  });
+
+  it("Check table shows a banner then opens Validation", async () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Check table" }));
+    expect(screen.getByText(/Checking the signal table/)).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByText("Configuration validation")).toBeInTheDocument(),
+      { timeout: 1500 },
+    );
   });
 
   it("undos the last inline save from the toast", async () => {
@@ -314,7 +448,7 @@ describe("SignalsScreen (me-mbs)", () => {
     fireEvent.mouseEnter(screen.getAllByText("→")[0]);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Control · trigger");
     expect(screen.queryByRole("button", { name: "Add signal" })).not.toBeInTheDocument();
-    expect(screen.getByText("9 active / 9")).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.textContent === "9 shown · 9 active of 9")).toBeInTheDocument();
   });
 
   it("keeps generated ME descriptions and fixed register addresses read-only", () => {

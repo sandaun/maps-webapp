@@ -1,31 +1,36 @@
 "use client";
 
 import * as React from "react";
+import type { ValidationIssue } from "@/core/validation/issue";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
+import { useSignalsTab } from "@/lib/signals-tabs";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
-import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
+import { ScreenGate } from "@/components/screens/screen-gate";
+import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
+import { columnGroupsFor } from "@/components/signals/column-groups";
 import { knxMbmColumns, KNX_TAB_ORDER, toKnxRow } from "@/components/signals/columns-knx-mbm";
 import { SignalsGrid } from "@/components/signals/signals-grid";
 import { SignalsPageChrome } from "@/components/signals/signals-page";
-import { SignalsPagination, SignalsToolbar, type ActiveFilter } from "@/components/signals/signals-toolbar";
+import { ColumnPicker, SignalsFooter, SignalsToolbar } from "@/components/signals/signals-toolbar";
 import { SignalsWorkspace } from "@/components/signals/signals-workspace";
-import { KNX_GROUP_LABELS } from "@/components/signals/types";
-import { usePagedSignals } from "@/components/signals/use-paged-signals";
-import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
+import { KNX_COLUMN_GROUPS, KNX_GROUP_LABELS, KNX_GROUP_LABELS_COMPACT } from "@/components/signals/types";
+import { useColumnVisibility } from "@/components/signals/use-column-visibility";
+import { useGridCompact } from "@/components/signals/use-grid-compact";
+import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
 
 export function SignalsScreen() {
   return (
     <ScreenGate>
       {(view) =>
         view.family === "me-mbs" ? (
-          <SignalsPageChrome issues={view.issues}>
+          <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="me-mbs">
             <MeMbsSignalsView view={view} />
           </SignalsPageChrome>
         ) : (
-          <SignalsPageChrome issues={view.issues}>
+          <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="knx-mbm">
             <SignalsView view={view} />
           </SignalsPageChrome>
         )
@@ -34,43 +39,67 @@ export function SignalsScreen() {
   );
 }
 
-function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
+function signalIdsOf(issues: ValidationIssue[], severity: ValidationIssue["severity"]): Set<number> {
+  const ids = new Set<number>();
+  for (const issue of issues) {
+    if (issue.severity === severity && issue.ref?.entity === "signal" && typeof issue.ref.id === "number") {
+      ids.add(issue.ref.id);
+    }
+  }
+  return ids;
+}
+
+function SignalsView({
+  view,
+  onCheckTable,
+}: {
+  view: Extract<ProjectView, { family: "knx-mbm" }>;
+  onCheckTable?: () => void;
+}) {
   const applyPatches = usePatch();
   const chrome = useWorkspaceChrome();
+  const { setTab, signalId } = useSignalsTab();
   const { mbm, signals } = view.project;
   const [search, setSearch] = React.useState("");
-  const [activeFilter, setActiveFilter] = React.useState<ActiveFilter>("all");
+  const [filter, setFilter] = React.useState<SignalMapFilter>("all");
+  const [hideDisabled, setHideDisabled] = React.useState(false);
+  const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  const visibility = useColumnVisibility("signals-hidden:knx-mbm:v1");
+  const { compact, toggle: toggleCompact } = useGridCompact();
 
   const rows = React.useMemo(() => signals.map((s) => toKnxRow(mbm, s)), [mbm, signals]);
-  const columns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
+  const allColumns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
+  const columns = React.useMemo(
+    () => allColumns.filter((col) => col.group === "project" || !visibility.isHidden(col.id)),
+    [allColumns, visibility],
+  );
   const activeCount = React.useMemo(() => signals.filter((s) => s.active).length, [signals]);
   const signalIds = React.useMemo(() => signals.map((s) => s.id), [signals]);
   const { selected: checkedIds, toggle, toggleAll, selectMany, clear } = useSignalSelection(signalIds);
 
+  const errorIds = React.useMemo(() => signalIdsOf(view.issues, "error"), [view.issues]);
+  const warnIds = React.useMemo(() => signalIdsOf(view.issues, "warning"), [view.issues]);
+
   const isActive = React.useCallback((row: (typeof rows)[number]) => row.signal.active, []);
+  const hasError = React.useCallback((row: (typeof rows)[number]) => errorIds.has(row.signal.id), [errorIds]);
+  const hasWarning = React.useCallback((row: (typeof rows)[number]) => warnIds.has(row.signal.id), [warnIds]);
   const searchText = React.useCallback((row: (typeof rows)[number]) => row.searchText, []);
   const rowId = React.useCallback((row: (typeof rows)[number]) => row.signal.id, []);
   const { page, setPage, pageRows, pageCount, visibleIds, pageIds, filtered } = usePagedSignals(
     rows,
     search,
-    activeFilter,
+    filter,
+    hideDisabled,
     isActive,
+    hasError,
+    hasWarning,
     searchText,
     rowId,
   );
 
   const byId = React.useMemo(() => new Map(signals.map((s) => [s.id, s])), [signals]);
-  const errorIds = React.useMemo(() => {
-    const ids = new Set<number>();
-    for (const issue of view.issues) {
-      if (issue.severity === "error" && issue.ref?.entity === "signal" && typeof issue.ref.id === "number") {
-        ids.add(issue.ref.id);
-      }
-    }
-    return ids;
-  }, [view.issues]);
 
   async function runPatch(patches: ProjectPatchInput[], undoLabel?: string, inverses?: ProjectPatchInput[]) {
     setActionError(null);
@@ -109,6 +138,10 @@ function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" 
     clear();
   }
 
+  const errorCount = view.issues.filter((i) => i.severity === "error").length;
+  const warnCount = view.issues.filter((i) => i.severity === "warning").length;
+  const disabledCount = signals.length - activeCount;
+
   return (
     <SignalsWorkspace
       selectedCount={checkedIds.size}
@@ -121,42 +154,68 @@ function SignalsView({ view }: { view: Extract<ProjectView, { family: "knx-mbm" 
       onEditField={() => setBulkOpen(true)}
       onSelectAllMatching={() => selectMany(visibleIds)}
     >
-      <ScreenIssues issues={view.issues} screen="signals" />
       <SignalsToolbar
         search={search}
         onSearch={setSearch}
         placeholder="Search name, group address, device, register…"
-        activeFilter={activeFilter}
-        onFilter={setActiveFilter}
+        filters={[
+          { id: "all", label: "All", count: signals.length },
+          { id: "errors", label: "Errors", count: errorCount },
+          { id: "warn", label: "Warnings", count: warnCount },
+          { id: "disabled", label: "Disabled", count: disabledCount },
+        ]}
+        activeFilter={filter}
+        onFilter={setFilter}
         onAdd={() => void runPatch([{ type: "addSignal" }])}
-        activeCount={activeCount}
-        total={signals.length}
+        columnsOpen={colsMenu}
+        onToggleColumns={() => setColsMenu((v) => !v)}
+        onImportExport={() => setTab("import")}
+        onCheckTable={() => onCheckTable?.()}
       />
+      {colsMenu ? (
+        <ColumnPicker
+          groups={columnGroupsFor(allColumns, KNX_COLUMN_GROUPS)}
+          isHidden={visibility.isHidden}
+          onToggle={visibility.toggle}
+        />
+      ) : null}
       {actionError && (
-        <p role="alert" className="rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
+        <p role="alert" className="mx-[18px] mt-2 rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
           {actionError}
         </p>
       )}
-      <SignalsGrid
-        rows={pageRows}
-        columns={columns}
-        groupLabels={KNX_GROUP_LABELS}
-        rowId={rowId}
-        rowActive={(row) => row.signal.active}
-        rowError={(row) => errorIds.has(row.signal.id)}
-        selected={checkedIds}
-        pageIds={pageIds}
-        onToggle={toggle}
-        onTogglePage={() => toggleAll(pageIds)}
-        applyPatches={applyPatches}
-        tabOrder={KNX_TAB_ORDER}
-        widthStorageKey="signals-grid-widths:knx-mbm:v1"
-      />
-      <SignalsPagination
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <SignalsGrid
+          rows={pageRows}
+          columns={columns}
+          groupLabels={KNX_GROUP_LABELS}
+          compactGroupLabels={KNX_GROUP_LABELS_COMPACT}
+          rowId={rowId}
+          rowActive={(row) => row.signal.active}
+          rowError={(row) => errorIds.has(row.signal.id)}
+          selected={checkedIds}
+          pageIds={pageIds}
+          onToggle={toggle}
+          onTogglePage={() => toggleAll(pageIds)}
+          applyPatches={applyPatches}
+          tabOrder={KNX_TAB_ORDER}
+          widthStorageKey="signals-grid-widths:knx-mbm:v1"
+          compact={compact}
+          onToggleCompact={toggleCompact}
+          fitRows={rows}
+          focusId={signalId}
+        />
+      </div>
+      <SignalsFooter
+        shown={filtered.length}
+        active={activeCount}
+        total={signals.length}
+        errors={errorCount}
+        warnings={warnCount}
+        hideDisabled={hideDisabled}
+        onToggleHideDisabled={() => setHideDisabled((v) => !v)}
         page={page}
         pageCount={pageCount}
-        filteredCount={filtered.length}
-        total={rows.length}
         onPrev={() => setPage((p) => Math.max(0, p - 1))}
         onNext={() => setPage((p) => p + 1)}
       />

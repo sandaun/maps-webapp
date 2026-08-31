@@ -74,6 +74,8 @@ export interface DeviceParsed {
   base: number;
   timeout: number;
   enabled: boolean;
+  /** Device `Name` attribute — used by poll-plan XLSX, not by XBL. */
+  name: string;
 }
 
 export interface RtuNodeParsed {
@@ -92,6 +94,8 @@ export interface RtuNodeParsed {
 export interface TcpNodeParsed {
   ip: string;
   port: number;
+  /** XML attr `Description` — poll-plan XLSX (`TCP // desc // device`). */
+  description: string;
   /** XML attr `TimeInterFrame` → C# TimeInterFrameOnSlvChg (XBL tag 3). */
   timeInterFrameOnSlaveChange: number;
   retryTimeout: number;
@@ -134,6 +138,9 @@ export interface PollRecordOut {
   indexLast: number;
   regStart: number;
   regStop: number;
+  portIndex: number;
+  deviceIndex: number;
+  function: number;
 }
 
 export interface XblPipelineResult {
@@ -184,7 +191,10 @@ export interface XblPipelineResult {
  * feeds it. Throws on malformed input (like the C# generators, which fail the
  * whole generation on parse errors).
  */
-export function runXblPipeline(doc: XmlDocument): XblPipelineResult {
+export function runXblPipeline(
+  doc: XmlDocument,
+  options?: { pollRecords?: "xml" | "always" },
+): XblPipelineResult {
   const internal = doc.find(["InternalProtocol"]);
   const external = doc.find(["ExternalProtocol"]);
   if (!internal || !external) {
@@ -275,9 +285,10 @@ export function runXblPipeline(doc: XmlDocument): XblPipelineResult {
         : 255;
   }
 
-  const pollRecords = pollRecordsEnabled
-    ? generateAllPollRecords(enabledMbm, enabledRtu, enabledTcp, pollRecordMaxReg, pollRecordMissReg)
-    : [];
+  const pollRecords =
+    pollRecordsEnabled || options?.pollRecords === "always"
+      ? generateAllPollRecords(enabledMbm, enabledRtu, enabledTcp, pollRecordMaxReg, pollRecordMissReg)
+      : [];
 
   const nodeEmitted =
     enabledRtu.length > 0 ||
@@ -430,6 +441,7 @@ function parseDevice(el: XmlElement): DeviceParsed {
     // MbmDevice(XmlNode) clamps timeout to a 100 ms minimum.
     timeout: Math.max(100, parseNumberAttr(el, "Timeout", 1000)),
     enabled: parseBoolAttr(el, "Enabled", true),
+    name: parseStringAttr(el, "Name", ""),
   };
 }
 
@@ -458,6 +470,7 @@ function parseTcpNodes(external: XmlElement): TcpNodeParsed[] {
     .map((el) => ({
       ip: parseStringAttr(el, "IP", "0.0.0.0"),
       port: parseNumberAttr(el, "Port", 502),
+      description: parseStringAttr(el, "Description", ""),
       // MbmTcpNode(XmlNode): "TimeInterFrame" feeds TimeInterFrameOnSlvChg,
       // clamped to ≥100; "TimeInterFrameNode" feeds TimeInterFrame (default 10).
       timeInterFrameOnSlaveChange: Math.max(100, parseNumberAttr(el, "TimeInterFrame", 0)),
@@ -762,7 +775,15 @@ function generateAllPollRecords(
           else if (byEnd(1, 32) !== -1) indexLast = byEnd(1, 32);
           else if (byEnd(2, 48) !== -1) indexLast = byEnd(2, 48);
           else if (byEnd(3, 64) !== -1) indexLast = byEnd(3, 64);
-          out.push({ indexFirst, indexLast, regStart: rec.regStart, regStop: rec.regStop });
+          out.push({
+            indexFirst,
+            indexLast,
+            regStart: rec.regStart,
+            regStop: rec.regStop,
+            portIndex,
+            deviceIndex: devIndex,
+            function: fn,
+          });
         }
       }
     }

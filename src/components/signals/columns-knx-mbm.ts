@@ -1,6 +1,6 @@
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import { formatGroupAddress, isValidGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
-import { formatDpt, isValidDpt, parseDpt } from "@/protocols/knx/dpt";
+import { COMMON_DPT_OPTIONS, formatDpt } from "@/protocols/knx/dpt";
 import type { KnxFlags } from "@/protocols/knx/flags";
 import {
   BYTE_ORDER_LABELS,
@@ -33,6 +33,40 @@ const WRITE_LABELS: Record<number, string> = {
   15: "15 · Multiple coils",
   16: "16 · Multiple registers",
 };
+
+const FORMAT_COMPACT: Record<number, string> = {
+  [-1]: "—",
+  0: "U",
+  1: "C2",
+  2: "C1",
+  3: "F",
+  4: "BF",
+  5: "Str",
+};
+
+const BYTE_ORDER_COMPACT: Record<number, string> = {
+  [-1]: "—",
+  0: "BE",
+  1: "LE",
+  2: "BE↕",
+  3: "LE↕",
+};
+
+function compactFunc(code: number): string {
+  return code >= 0 ? String(code) : "—";
+}
+
+function knxNodeCompact(mbm: MbmConfig, port: number): string {
+  const ref = nodeForPort(mbm, port);
+  if (!ref) return "—";
+  if (ref.kind === "rtu") return `RTU ${port + 1}`;
+  return `TCP ${port - mbm.rtuNodes.length + 1}`;
+}
+
+function knxDeviceCompact(signal: KnxMbmSignal): string {
+  if (signal.modbus.isBroadcast) return "BC";
+  return signal.modbus.deviceIndex >= 0 ? String(signal.modbus.deviceIndex) : "—";
+}
 
 function knxDirection(signal: KnxMbmSignal): { arrow: string; title: string } {
   const reads = signal.modbus.readFunc >= 0;
@@ -94,6 +128,11 @@ export function toKnxRow(mbm: MbmConfig, signal: KnxMbmSignal): KnxSignalRow {
       .toLowerCase(),
   };
 }
+
+const DPT_SELECT_OPTIONS = COMMON_DPT_OPTIONS.map((opt) => ({
+  value: String(opt.value),
+  label: opt.label,
+}));
 
 function nodeOptions(mbm: MbmConfig) {
   return [
@@ -159,28 +198,33 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "dpt",
       group: "bms",
       header: "DPT",
+      headerHint: "KNX datapoint type",
       width: 96,
-      kind: "text",
+      kind: "select",
       bulkLabel: "DPT",
       mono: true,
       getText: (row) => row.dpt,
-      parse: (_row, raw) => {
-        const dpt = parseDpt(raw);
-        if (dpt === undefined || !isValidDpt(dpt)) {
-          return { error: "Invalid DPT — expected e.g. 9.001 or 1.x" };
-        }
-        return { patch: { knx: { dpt } } };
+      getEditorValue: (row) => String(row.signal.knx.dpt),
+      options: (row) => {
+        const current = String(row.signal.knx.dpt);
+        if (DPT_SELECT_OPTIONS.some((opt) => opt.value === current)) return DPT_SELECT_OPTIONS;
+        // Value outside the COMMON list (e.g. imported) — show it so the cell is not blank.
+        return [{ value: current, label: row.dpt }, ...DPT_SELECT_OPTIONS];
       },
+      parse: (_row, raw) => ({ patch: { knx: { dpt: Number(raw) } } }),
       inverseFromText: (row) => ({ knx: { dpt: row.signal.knx.dpt } }),
     },
     {
       id: "groupAddress",
       group: "bms",
       header: "Group address",
-      width: 100,
+      headerShort: "GA",
+      width: 118,
+      minWidth: 100,
       kind: "text",
       bulkLabel: "Group address",
       mono: true,
+      textTone: "strong",
       getText: (row) => row.groupAddress,
       getEditorValue: (row) => (row.signal.knx.groupAddress > 0 ? row.groupAddress : ""),
       parse: (_row, raw) => {
@@ -198,7 +242,10 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "flags",
       group: "bms",
       header: "Flags",
-      width: 74,
+      headerHint: "KNX flags (U T Ri W R)",
+      width: 118,
+      minWidth: 110,
+      maxWidth: 160,
       kind: "flags",
       getText: (row) => {
         const f = row.signal.knx.flags;
@@ -214,11 +261,12 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
     {
       id: "direction",
       group: "gateway",
-      header: "DIR",
-      width: 72,
-      minWidth: 64,
-      maxWidth: 88,
-      resizable: false,
+      header: "Direction",
+      headerShort: "DIR",
+      headerHint: "Direction",
+      width: 112,
+      minWidth: 96,
+      maxWidth: 160,
       kind: "none",
       mono: true,
       getText: (row) => knxDirection(row.signal).arrow,
@@ -228,12 +276,14 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "node",
       group: "device",
       header: "Node",
+      headerHint: "Modbus node",
       width: 160,
       minWidth: 100,
       maxWidth: 360,
       kind: "select",
       bulkLabel: "Node",
       getText: (row) => row.nodeLabel,
+      getCompactText: (row) => knxNodeCompact(mbm, row.signal.modbus.port),
       getEditorValue: (row) => String(row.signal.modbus.port),
       options: () => nodeOptions(mbm),
       parse: (_row, raw) => {
@@ -252,12 +302,15 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "device",
       group: "device",
       header: "Device",
+      headerShort: "DV",
       width: 180,
       minWidth: 100,
       maxWidth: 360,
       kind: "select",
       bulkLabel: "Device",
+      textTone: "strong",
       getText: (row) => row.deviceLabel,
+      getCompactText: (row) => knxDeviceCompact(row.signal),
       getEditorValue: (row) => (row.signal.modbus.isBroadcast ? "broadcast" : String(row.signal.modbus.deviceIndex)),
       options: (row) => deviceOptions(mbm, row),
       parse: (_row, raw) => {
@@ -272,7 +325,9 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "slave",
       group: "device",
       header: "Slave",
-      width: 56,
+      headerShort: "Slv",
+      width: 72,
+      minWidth: 68,
       kind: "none",
       mono: true,
       getText: (row) => row.slaveLabel,
@@ -281,12 +336,14 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "readFunc",
       group: "device",
       header: "Read",
-      width: 120,
-      minWidth: 84,
+      headerHint: "Read function",
+      width: 176,
+      minWidth: 120,
       maxWidth: 240,
       kind: "select",
       bulkLabel: "Read function",
       getText: (row) => READ_LABELS[row.signal.modbus.readFunc] ?? String(row.signal.modbus.readFunc),
+      getCompactText: (row) => compactFunc(row.signal.modbus.readFunc),
       getEditorValue: (row) => String(row.signal.modbus.readFunc),
       options: () => [
         { value: "-1", label: "None" },
@@ -299,12 +356,14 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "writeFunc",
       group: "device",
       header: "Write",
-      width: 120,
-      minWidth: 84,
+      headerHint: "Write function",
+      width: 184,
+      minWidth: 120,
       maxWidth: 240,
       kind: "select",
       bulkLabel: "Write function",
       getText: (row) => WRITE_LABELS[row.signal.modbus.writeFunc] ?? String(row.signal.modbus.writeFunc),
+      getCompactText: (row) => compactFunc(row.signal.modbus.writeFunc),
       getEditorValue: (row) => String(row.signal.modbus.writeFunc),
       options: () => [
         { value: "-1", label: "None" },
@@ -317,6 +376,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "lenBits",
       group: "device",
       header: "Len",
+      headerHint: "Length (bits)",
       width: 56,
       kind: "select",
       bulkLabel: "Length (bits)",
@@ -330,6 +390,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "format",
       group: "device",
       header: "Format",
+      headerShort: "Fmt",
       width: 96,
       kind: "select",
       bulkLabel: "Format",
@@ -339,6 +400,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
         if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return format;
         return format;
       },
+      getCompactText: (row) => FORMAT_COMPACT[row.signal.modbus.format] ?? "?",
       getEditorValue: (row) => String(row.signal.modbus.format),
       options: () =>
         Object.entries(FORMAT_LABELS)
@@ -351,13 +413,20 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "byteOrder",
       group: "device",
       header: "Byte order",
-      width: 100,
+      headerShort: "BO",
+      width: 118,
+      minWidth: 100,
       kind: "select",
       bulkLabel: "Byte order",
       getText: (row) => {
         const modbus = row.signal.modbus;
         if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return "—";
         return BYTE_ORDER_LABELS[modbus.byteOrder] ?? "—";
+      },
+      getCompactText: (row) => {
+        const modbus = row.signal.modbus;
+        if (isBitFunction(modbus.readFunc) && isBitFunction(modbus.writeFunc)) return "—";
+        return BYTE_ORDER_COMPACT[modbus.byteOrder] ?? "—";
       },
       getEditorValue: (row) => String(row.signal.modbus.byteOrder),
       options: () =>
@@ -369,10 +438,12 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       id: "address",
       group: "device",
       header: "Register",
+      headerShort: "Reg",
       width: 80,
       kind: "number",
       bulkLabel: "Register",
       mono: true,
+      textTone: "strong",
       getText: (row) => String(row.signal.modbus.address),
       parse: (_row, raw) => {
         const parsed = parseRegister(raw);

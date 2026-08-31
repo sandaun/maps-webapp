@@ -55,6 +55,19 @@ describe("LocalProjectStore", () => {
     expect([...(await store.readCompleteBlob("p1"))]).toEqual([1, 2, 3]);
   });
 
+  it("snapshots and restores project xml", async () => {
+    await store.upsert(meta);
+    await store.writeXml("p1", "<Project name=\"a\" />");
+    const first = await store.snapshotHistory("p1", { tag: "draft", text: "first", who: "local" });
+    await store.writeXml("p1", "<Project name=\"b\" />");
+    await store.snapshotHistory("p1", { tag: "v1", text: "deployed", who: "local" });
+    const listed = await store.listHistory("p1");
+    expect(listed[0]?.tag).toBe("v1");
+    expect(listed[1]?.id).toBe(first.id);
+    await store.restoreHistory("p1", first.id);
+    expect(await store.readXml("p1")).toBe("<Project name=\"a\" />");
+  });
+
   it("delete removes everything", async () => {
     await store.upsert(meta);
     await store.writeXml("p1", "x");

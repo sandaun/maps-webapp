@@ -4,6 +4,7 @@ import type { SignalPatchInput } from "@/lib/project-types";
 export type BandId = "project" | "bms" | "gateway" | "device";
 
 export type EditorKind = "none" | "text" | "number" | "select" | "switch" | "flags";
+export type CellTextTone = "body" | "strong" | "muted" | "subtle";
 
 export interface SelectOption {
   value: string;
@@ -14,6 +15,10 @@ export interface GridColumn<R> {
   id: string;
   group: BandId;
   header: string;
+  /** Compact label in the grid header. Full `header` stays in pickers and a11y. */
+  headerShort?: string;
+  /** Extra hover text. Defaults to `header`. */
+  headerHint?: string;
   width: number;
   minWidth?: number;
   maxWidth?: number;
@@ -23,7 +28,11 @@ export interface GridColumn<R> {
   /** Shown in bulk "Edit field…"; omit to exclude from bulk. */
   bulkLabel?: string;
   mono?: boolean;
+  /** Semantic text emphasis for the rendered cell. Defaults to muted. */
+  textTone?: CellTextTone;
   getText: (row: R) => string;
+  /** Shown in compact mode instead of `getText`. Editors and search still use the full value. */
+  getCompactText?: (row: R) => string;
   getTitle?: (row: R) => string;
   /** Value used when opening an editor (select/text). Defaults to getText. */
   getEditorValue?: (row: R) => string;
@@ -67,15 +76,41 @@ export const GROUP_HEADER_H = 29;
 export const COL_HEADER_H = 31;
 
 export const KNX_GROUP_LABELS: Record<BandId, string> = {
-  project: "PROJECT",
-  bms: "KNX",
+  project: "PROJECT SIGNAL",
+  bms: "KNX TP · BMS SIDE",
   gateway: "GATEWAY",
-  device: "MODBUS",
+  device: "MODBUS MASTER · DEVICE SIDE",
+};
+
+export const KNX_GROUP_LABELS_COMPACT: Record<BandId, string> = {
+  project: "PROJECT SIGNAL",
+  bms: "BMS",
+  gateway: "GW",
+  device: "DEVICE",
 };
 
 export const ME_GROUP_LABELS: Record<BandId, string> = {
-  project: "PROJECT",
-  bms: "MITSUBISHI ELECTRIC",
+  project: "PROJECT SIGNAL",
+  bms: "MITSUBISHI ELECTRIC AC",
   gateway: "GATEWAY",
-  device: "MODBUS",
+  device: "MODBUS SLAVE",
 };
+
+export const ME_GROUP_LABELS_COMPACT: Record<BandId, string> = {
+  project: "PROJECT SIGNAL",
+  bms: "ME AC",
+  gateway: "GW",
+  device: "MBS",
+};
+
+export const KNX_COLUMN_GROUPS: { id: BandId; label: string; color: string }[] = [
+  { id: "bms", label: "KNX TP · BMS SIDE", color: "#8A5A12" },
+  { id: "gateway", label: "GATEWAY", color: "var(--color-hms-blue)" },
+  { id: "device", label: "MODBUS MASTER · DEVICE SIDE", color: "#1268B3" },
+];
+
+export const ME_COLUMN_GROUPS: { id: BandId; label: string; color: string }[] = [
+  { id: "bms", label: "MITSUBISHI ELECTRIC AC", color: "#8A5A12" },
+  { id: "gateway", label: "GATEWAY", color: "var(--color-hms-blue)" },
+  { id: "device", label: "MODBUS SLAVE", color: "#1268B3" },
+];

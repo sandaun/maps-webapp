@@ -16,24 +16,30 @@ const PROTOCOL_LABELS: Record<FamilyId, readonly [string, string]> = {
   "me-mbs": ["MITSUBISHI ELECTRIC AC", "MODBUS SLAVE"],
 };
 
+const CHIP =
+  "inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-[4px] border px-2.5 text-xs font-medium leading-none";
+
 function StatusChip({
   tone,
   dot = false,
   children,
+  onClick,
 }: {
   tone: "success" | "warning" | "error";
   dot?: boolean;
   children: React.ReactNode;
+  onClick?: () => void;
 }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[4px] border px-2.5 py-[5px] text-xs font-bold leading-none",
-        tone === "success" && "border-success-border bg-success-bg text-success",
-        tone === "warning" && "border-warning-border bg-warning-bg text-warning-text",
-        tone === "error" && "border-error-border bg-error-bg text-error",
-      )}
-    >
+  const className = cn(
+    CHIP,
+    "gap-[7px]",
+    tone === "success" && "border-success-border bg-success-bg text-success",
+    tone === "warning" && "border-warning-border bg-warning-bg text-warning-text",
+    tone === "error" && "border-error-border bg-error-bg text-error",
+    onClick && "cursor-pointer",
+  );
+  const inner = (
+    <>
       {dot ? (
         <span
           className={cn(
@@ -46,8 +52,16 @@ function StatusChip({
         />
       ) : null}
       {children}
-    </span>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick}>
+        {inner}
+      </button>
+    );
+  }
+  return <span className={className}>{inner}</span>;
 }
 
 export function Header() {
@@ -77,12 +91,12 @@ export function Header() {
         <span>{breadcrumb[1]}</span>
       </nav>
 
-      {!projectsArea ? <div className="flex items-center gap-3.5">
+      <div className="flex items-center gap-3.5">
         {protocols ? (
-          <span className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[4px] border border-border bg-[#F7F8F9] px-2.5 py-[5px]">
-            <span className="font-mono text-[11px] font-semibold text-bms-text">{protocols[0]}</span>
-            <ArrowLeftRight className="h-3.5 w-3.5 text-fg-subtle" strokeWidth={1.5} aria-hidden />
-            <span className="font-mono text-[11px] font-semibold text-device-text">{protocols[1]}</span>
+          <span className={cn(CHIP, "gap-1.5 border-border bg-[#F7F8F9]")}>
+            <span className="font-mono text-[11px] font-semibold leading-none text-bms-text">{protocols[0]}</span>
+            <ArrowLeftRight className="size-3 text-fg-subtle" strokeWidth={1.5} aria-hidden />
+            <span className="font-mono text-[11px] font-semibold leading-none text-device-text">{protocols[1]}</span>
           </span>
         ) : null}
         <StatusChip tone={connected ? "success" : "warning"} dot>
@@ -93,9 +107,13 @@ export function Header() {
         </StatusChip>
         {view ? (
           errors > 0 ? (
-            <StatusChip tone="error" dot>{errors} errors</StatusChip>
+            <StatusChip tone="error" dot onClick={() => router.push("/signals?tab=validation")}>
+              {errors} errors
+            </StatusChip>
           ) : (
-            <StatusChip tone="success" dot>Valid</StatusChip>
+            <StatusChip tone="success" dot onClick={() => router.push("/signals?tab=validation")}>
+              Valid
+            </StatusChip>
           )
         ) : null}
         <StatusChip tone={dirtyCount > 0 ? "warning" : "success"}>
@@ -104,13 +122,13 @@ export function Header() {
             : "Up to date"}
         </StatusChip>
         <Button
-          className="h-[34px] rounded-[4px] px-[15px] text-[13px] font-bold"
+          className="h-[34px] rounded-[4px] px-[15px] text-[13px] font-medium"
           onClick={() => router.push("/deploy")}
         >
           <Upload className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
           Deploy
         </Button>
-      </div> : null}
+      </div>
     </header>
   );
 }

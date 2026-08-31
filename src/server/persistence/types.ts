@@ -20,6 +20,26 @@ export interface ProjectMeta {
   /** Original `.ibmaps` entry name inside the ZIP, when known. */
   fileName?: string;
   updatedAt: string; // ISO
+  /** Last XLSX signal-table import, when any. */
+  lastImport?: { fileName: string; at: string; rows: number };
+}
+
+export interface ProjectHistoryEntry {
+  id: string;
+  at: string;
+  /** `draft` after an edit, `vN` after a deploy. */
+  tag: string;
+  text: string;
+  who: string;
+}
+
+export interface ProjectHistoryStore {
+  snapshotHistory(
+    projectId: string,
+    input: { tag: string; text: string; who: string },
+  ): Promise<ProjectHistoryEntry>;
+  listHistory(projectId: string): Promise<ProjectHistoryEntry[]>;
+  restoreHistory(projectId: string, entryId: string): Promise<void>;
 }
 
 export interface ProjectRepository {

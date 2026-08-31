@@ -8,7 +8,11 @@ import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthet
 import { resetProjectStoreForTests } from "../persistence";
 import {
   applyPatches,
+  exportEsf,
+  exportSignalsXlsx,
   getProjectView,
+  importSignalsXlsx,
+  listProjectHistory,
   listProjects,
   loadDemoProject,
   openCompleteBlob,
@@ -216,5 +220,23 @@ describe("project service — me-mbs family", () => {
     expect(patched.project.signals[0].description).toBe("Edited from the smoke test");
     // The rest of the document stays intact.
     expect(patched.project.signals).toHaveLength(222);
+  });
+
+  it("exports and re-imports a knx-mbm XLSX, appending rows and recording lastImport", async () => {
+    const meta = await loadDemoProject();
+    const file = await exportSignalsXlsx(meta.id);
+    const before = await getProjectView(meta.id);
+    const after = await importSignalsXlsx(meta.id, new Uint8Array(file.body), "signals.xlsx");
+    expect(after.project.signals.length).toBe(before.project.signals.length + 2);
+    expect(after.meta.lastImport?.fileName).toBe("signals.xlsx");
+    expect(after.meta.lastImport?.rows).toBe(2);
+    const history = await listProjectHistory(meta.id);
+    expect(history.some((e) => e.text.includes("Imported"))).toBe(true);
+  });
+
+  it("exports an ESF with the synthetic sending address", async () => {
+    const meta = await loadDemoProject();
+    const file = await exportEsf(meta.id);
+    expect(file.body).toContain("1.0.3\tHeat pump on/off\t1.001");
   });
 });

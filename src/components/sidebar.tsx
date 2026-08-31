@@ -29,7 +29,7 @@ export function Sidebar() {
         sidebarCollapsed ? "w-[56px]" : "w-[228px]",
       )}
     >
-      <div className={cn("flex h-14 shrink-0 items-center border-b border-white/10 px-3", sidebarCollapsed && "justify-center")}>
+      <div className={cn("flex h-14 shrink-0 items-center px-3", sidebarCollapsed && "justify-center")}>
         {sidebarCollapsed ? (
           <button
             type="button"

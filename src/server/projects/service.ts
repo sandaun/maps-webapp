@@ -14,7 +14,11 @@ import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synth
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { getProjectStore } from "../persistence";
-import type { ProjectMeta, ProjectSource } from "../persistence/types";
+import type { ProjectHistoryEntry, ProjectMeta, ProjectSource } from "../persistence/types";
+import { buildKnxEsf } from "../exports/esf-knx";
+import { buildPollPlanXlsx } from "../exports/xlsx-poll-plan";
+import { buildSignalsXlsx } from "../exports/xlsx-signals";
+import { applySignalsXlsx } from "../imports/xlsx-signals";
 import { ProjectServiceError } from "./errors";
 import {
   detectFamily,
@@ -140,6 +144,7 @@ export async function applyPatches(id: string, patches: ProjectPatch[]): Promise
   await store.writeXml(id, serialized);
   const meta = await store.get(id);
   if (meta) await store.upsert({ ...meta, updatedAt: new Date().toISOString() });
+  await snapshotDraft(id, "Edited project");
   return getProjectView(id);
 }
 
@@ -193,4 +198,100 @@ async function persistNewProject(
   await store.writeXml(id, xml);
   await store.upsert(meta);
   return meta;
+}
+
+export async function exportSignalsXlsx(
+  id: string,
+): Promise<{ filename: string; body: Buffer; contentType: string }> {
+  const view = await getProjectView(id);
+  const body = await buildSignalsXlsx(view.family, view.project);
+  return {
+    filename: `${safeDownloadName(view.meta.name)} signals.xlsx`,
+    body,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+}
+
+export async function exportEsf(id: string): Promise<{ filename: string; body: string }> {
+  const view = await getProjectView(id);
+  if (view.family !== "knx-mbm") {
+    throw new ProjectServiceError(422, "ESF export is only available for KNX ↔ Modbus Master projects.");
+  }
+  return { filename: `${safeDownloadName(view.meta.name)}.esf`, body: buildKnxEsf(view.project) };
+}
+
+export async function exportPollPlanXlsx(
+  id: string,
+): Promise<{ filename: string; body: Buffer; contentType: string }> {
+  const view = await getProjectView(id);
+  if (view.family !== "knx-mbm") {
+    throw new ProjectServiceError(422, "Poll plan export is only available for KNX ↔ Modbus Master projects.");
+  }
+  const store = getProjectStore();
+  const xml = await store.readXml(id);
+  const body = await buildPollPlanXlsx(XmlDocument.parse(xml), { projectName: view.meta.name });
+  return {
+    filename: `${safeDownloadName(view.meta.name)} poll-plan.xlsx`,
+    body,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+}
+
+export async function importSignalsXlsx(id: string, data: Uint8Array, fileName: string): Promise<ProjectView> {
+  const store = getProjectStore();
+  const stored = await store.get(id);
+  if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+  const xml = await store.readXml(id);
+  const doc = XmlDocument.parse(xml);
+  const family = detectFamily(doc);
+  if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+  const result = await applySignalsXlsx(doc, family.id, data);
+  await store.writeXml(id, doc.serialize());
+  const now = new Date().toISOString();
+  await store.upsert({
+    ...stored,
+    updatedAt: now,
+    lastImport: { fileName, at: now, rows: result.rows },
+  });
+  await snapshotDraft(id, `Imported ${fileName}`);
+  return getProjectView(id);
+}
+
+export async function listProjectHistory(id: string): Promise<ProjectHistoryEntry[]> {
+  const store = getProjectStore();
+  if (!(await store.get(id))) throw new ProjectServiceError(404, `Project "${id}" not found`);
+  return store.listHistory(id);
+}
+
+export async function restoreProjectHistory(id: string, entryId: string): Promise<ProjectView> {
+  const store = getProjectStore();
+  const stored = await store.get(id);
+  if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+  try {
+    await store.restoreHistory(id, entryId);
+  } catch (error) {
+    throw new ProjectServiceError(404, error instanceof Error ? error.message : "History entry not found");
+  }
+  await store.upsert({ ...stored, updatedAt: new Date().toISOString() });
+  return getProjectView(id);
+}
+
+export async function snapshotDeploy(id: string): Promise<void> {
+  const store = getProjectStore();
+  const existing = await store.listHistory(id);
+  let max = 0;
+  for (const entry of existing) {
+    const match = /^v(\d+)$/.exec(entry.tag);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  await store.snapshotHistory(id, { tag: `v${max + 1}`, text: "Deployed", who: "local" });
+}
+
+async function snapshotDraft(id: string, text: string): Promise<void> {
+  await getProjectStore().snapshotHistory(id, { tag: "draft", text, who: "local" });
+}
+
+function safeDownloadName(name: string): string {
+  const trimmed = name.replace(/[\\/:*?"<>|]+/g, " ").trim();
+  return trimmed || "project";
 }

@@ -41,15 +41,25 @@
   --color-row-rule: #f4f5f6;
   --color-toggle-off: #cbd1d6;
 
-  /* Self-hosted and preloaded through next/font in app/layout.tsx. */
-  --font-display: var(--font-saira), "Industry", system-ui, sans-serif;
-  --font-sans: var(--font-lato), "Carlito", system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Typography roles from the V9 reference. */
+:root {
+  --font-family-display: var(--font-saira), system-ui, sans-serif;
+  --font-family-body: var(--font-lato), "Carlito", system-ui, sans-serif;
+  --font-family-technical: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Tailwind utilities consume the same semantic roles without copying them. */
+@theme inline {
+  --font-display: var(--font-family-display);
+  --font-sans: var(--font-family-body);
+  --font-mono: var(--font-family-technical);
 }
 
 body {
   background-color: var(--color-background-app);
   color: var(--color-text-body);
-  font-family: var(--font-sans);
+  font-family: var(--font-family-body);
   font-size: 13.5px;
 }
