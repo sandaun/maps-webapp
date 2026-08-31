@@ -1,0 +1,58 @@
+name: Backmerge main into staging
+
+# After a release lands on main, staging must pick up the version bump and the
+# CHANGELOG, otherwise the next feature PR shows them as a phantom diff.
+#
+# IMPORTANT: for `pull_request` events GitHub resolves the workflow from the
+# pull request's base branch side, and release-please branches are cut from
+# main. This file therefore has to exist on `main` or it will never fire.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Fixed group with no cancellation: two releases merged back to back must be
+# backmerged one after the other, never cancelled halfway.
+concurrency:
+  group: backmerge-main-to-staging
+  cancel-in-progress: false
+
+jobs:
+  backmerge:
+    name: Backmerge
+    # Only for a release PR that was actually merged (closing a PR without
+    # merging also fires this event).
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release-please--')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout staging
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          # Full history: a shallow clone cannot compute the merge base.
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch main
+        run: git fetch origin main
+
+      - name: Merge main into staging
+        run: |
+          git merge --no-ff origin/main \
+            -m "chore: backmerge main into staging after release"
+
+      # Pushes made with GITHUB_TOKEN do not trigger further workflow runs, so
+      # this push will not start a CI run on staging. That is intentional: the
+      # merged content already passed CI on main.
+      - name: Push staging
+        run: git push origin staging

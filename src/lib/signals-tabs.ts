@@ -27,10 +27,18 @@ export function useSignalsTab() {
   const [tab, setTabState] = React.useState<SignalsTabId>(urlTab);
   const [signalId, setSignalId] = React.useState<number | undefined>(urlSignalId);
 
-  React.useEffect(() => {
+  // Re-sync with the URL whenever the query string changes (back/forward, an
+  // incoming link, or the router catching up with a setTab call). This is
+  // React's documented "adjusting state during render" pattern rather than an
+  // effect: it re-renders immediately, so the optimistic update done by setTab
+  // survives and there is no intermediate frame showing the stale tab.
+  // https://react.dev/learn/you-might-not-need-an-effect
+  const [syncedFrom, setSyncedFrom] = React.useState({ tab: urlTab, signalId: urlSignalId });
+  if (syncedFrom.tab !== urlTab || syncedFrom.signalId !== urlSignalId) {
+    setSyncedFrom({ tab: urlTab, signalId: urlSignalId });
     setTabState(urlTab);
     setSignalId(urlSignalId);
-  }, [urlTab, urlSignalId]);
+  }
 
   const setTab = React.useCallback(
     (next: SignalsTabId, opts?: { signal?: number }) => {
