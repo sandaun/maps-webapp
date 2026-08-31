@@ -1,0 +1,3 @@
+# Validate the commit message against commitlint.config.js (conventional commits).
+# $1 is the path to the file holding the message git is about to use.
+pnpm exec commitlint --edit "$1"

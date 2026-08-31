@@ -1,0 +1,3 @@
+# Run the full test suite in single-run mode (never watch) before every commit.
+# `pnpm test` maps to `vitest run`, which exits on completion instead of watching.
+pnpm test
