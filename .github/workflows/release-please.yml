@@ -1,0 +1,30 @@
+name: Release Please
+
+# Every push to main refreshes a "chore(main): release x.y.z" pull request that
+# accumulates the changelog and the version bump. Merging that PR is what
+# creates the git tag and the GitHub Release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Never let two release runs race on the same branch.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

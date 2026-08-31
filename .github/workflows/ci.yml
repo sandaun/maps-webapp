@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+# One run per branch/PR: a new push cancels the previous, still-running check.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Must run before setup-node so that `cache: pnpm` can find the store.
+      # The pnpm version comes from the `packageManager` field in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # `pnpm test` is `vitest run` — single run, never watch mode.
+      - name: Test
+        run: pnpm test
+
+      # This build needs NO environment variables today.
+      #
+      # If a public variable is ever required, add it here from a repository
+      # secret, because NEXT_PUBLIC_* values are inlined into the client bundle
+      # at build time and must be present during `next build`:
+      #
+      #   env:
+      #     NEXT_PUBLIC_EXAMPLE: ${{ secrets.NEXT_PUBLIC_EXAMPLE }}
+      #
+      # Server-only variables (GW_PASSWORD, MAPS_DATA_DIR) must NOT be added
+      # here. They are read at runtime, never at build time, and putting them in
+      # the build step risks baking a secret into the output.
+      - name: Build
+        run: pnpm build
