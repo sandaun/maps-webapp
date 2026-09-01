@@ -9,9 +9,10 @@ import type { ProjectView } from "@/lib/project-types";
 import { DeployScreen } from "./deploy-screen";
 
 /**
- * Deploy screen states (Pas 2.6): KNX–MBM stays disabled; ME–MBS enables the
- * deploy action only when the server-reported gates all pass, behind an
- * explicit confirmation step. Network access is mocked (`fetch`).
+ * Deploy screen states (Pas 2.6 / 3.4): both families share the same gated
+ * card — the deploy action is enabled only when the server-reported gates all
+ * pass, behind an explicit confirmation step; a missing capability keeps the
+ * honest disabled explanation. Network access is mocked (`fetch`).
  */
 
 const knxView: ProjectView = {
@@ -70,25 +71,41 @@ const SESSION = {
   gateway: { appId: 64, bootloader: false, noApp: false },
 };
 
-function gatesStatus(overrides: Partial<Record<"family" | "capability" | "session-appid", boolean>> = {}) {
-  const ok = (id: "family" | "capability" | "session-appid") => overrides[id] ?? true;
+const KNX_SESSION = { ...SESSION, gateway: { appId: 4, bootloader: false, noApp: false } };
+
+type GateId = "family" | "capability" | "session-appid";
+
+function gatesStatus(
+  family: "knx-mbm" | "me-mbs" = "me-mbs",
+  overrides: Partial<Record<GateId, boolean>> = {},
+) {
+  const ok = (id: GateId) => overrides[id] ?? true;
+  const capabilityKey = family === "knx-mbm" ? "knxMbmXblVerified" : "meMbsXblVerified";
   return {
-    deployable: ["family", "capability", "session-appid"].every(
-      (id) => ok(id as "family" | "capability" | "session-appid"),
-    ),
+    deployable: (["family", "capability", "session-appid"] as GateId[]).every((id) => ok(id)),
     checks: [
-      { id: "family", ok: ok("family"), detail: "Mitsubishi Electric AC ↔ Modbus Slave project" },
+      {
+        id: "family",
+        ok: ok("family"),
+        detail:
+          family === "knx-mbm"
+            ? "KNX ↔ Modbus Master project"
+            : "Mitsubishi Electric AC ↔ Modbus Slave project",
+      },
       {
         id: "capability",
         ok: ok("capability"),
         detail: ok("capability")
-          ? "XBL generator byte-exact verified (meMbsXblVerified)"
-          : "Missing verified XBL capability (meMbsXblVerified)",
+          ? `XBL generator byte-exact verified (${capabilityKey})`
+          : `Missing verified XBL capability (${capabilityKey})`,
       },
       {
         id: "session-appid",
         ok: ok("session-appid"),
-        detail: "Gateway reports AppId 64 (ME unit)",
+        detail:
+          family === "knx-mbm"
+            ? "Gateway reports AppId 4 (KNX–MBM unit)"
+            : "Gateway reports AppId 64 (ME unit)",
       },
     ],
   };
@@ -107,7 +124,7 @@ function stubFetch(opts: {
       return jsonResponse({ sessions: opts.sessions ?? [] });
     }
     if (url.includes("/deploy?projectId=")) {
-      return jsonResponse({ status: opts.status ?? gatesStatus() });
+      return jsonResponse({ status: opts.status ?? gatesStatus("me-mbs") });
     }
     if (url.endsWith("/deploy") && init?.method === "POST") {
       posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -141,16 +158,70 @@ beforeEach(() => {
 });
 
 describe("DeployScreen (knx-mbm)", () => {
-  it("keeps the deploy action disabled with the knxMbmXblVerified explanation", () => {
+  it("enables deploy when all gates pass and asks for explicit confirmation", async () => {
+    stubFetch({ sessions: [KNX_SESSION], status: gatesStatus("knx-mbm") });
     render(<DeployScreen />);
 
-    const button = screen.getByRole("button", { name: /Deploy modified project/ });
-    expect(button).toBeDisabled();
-    expect(screen.getByText(/knxMbmXblVerified/)).toBeInTheDocument();
-    expect(screen.getByText("Read-only towards gateways")).toBeInTheDocument();
+    const button = await screen.findByRole("button", { name: "Deploy to gateway" });
+    await screen.findByText("All gates pass");
+    expect(button).toBeEnabled();
+    expect(screen.getByText(/byte-exact verified \(knxMbmXblVerified\)/)).toBeInTheDocument();
+
+    fireEvent.click(button);
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("writes configuration to the gateway at 192.168.2.130");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
-  it("offers the export download and explains the missing gateway blob", () => {
+  it("keeps deploy disabled when the capability gate fails, with the honest explanation", async () => {
+    stubFetch({
+      sessions: [KNX_SESSION],
+      status: gatesStatus("knx-mbm", { capability: false }),
+    });
+    render(<DeployScreen />);
+
+    const button = await screen.findByRole("button", { name: "Deploy to gateway" });
+    await screen.findByText("Blocked by a gate");
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/Missing verified XBL capability \(knxMbmXblVerified\)/)).toBeInTheDocument();
+  });
+
+  it("keeps deploy disabled without a gateway session", async () => {
+    stubFetch({ sessions: [] });
+    render(<DeployScreen />);
+
+    expect(await screen.findByText(/No gateway session is open/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deploy to gateway" })).toBeDisabled();
+  });
+
+  it("deploys on confirm and shows the result summary with the verify hint", async () => {
+    const posts = stubFetch({
+      sessions: [KNX_SESSION],
+      status: gatesStatus("knx-mbm"),
+      deployResult: {
+        projectId: "demo",
+        sessionId: "sess-1",
+        bytes: 5000,
+        xblBytes: 3976,
+        zipBytes: 1024,
+        appId: 4,
+        swVersion: "1.2.33.0",
+      },
+    });
+    render(<DeployScreen />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Deploy to gateway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm deploy" }));
+
+    expect(await screen.findByText(/the gateway accepted the upload/)).toBeInTheDocument();
+    expect(screen.getByText(/Receive from gateway/)).toBeInTheDocument();
+    expect(posts).toEqual([{ projectId: "demo" }]);
+  });
+
+  it("offers the export download and explains the missing gateway blob", async () => {
+    stubFetch({ sessions: [] });
     render(<DeployScreen />);
 
     expect(screen.getByRole("link", { name: /Export .ibmaps/ })).toHaveAttribute(
@@ -192,7 +263,7 @@ describe("DeployScreen (me-mbs)", () => {
   });
 
   it("keeps deploy disabled when a gate fails and shows which one", async () => {
-    stubFetch({ sessions: [SESSION], status: gatesStatus({ capability: false }) });
+    stubFetch({ sessions: [SESSION], status: gatesStatus("me-mbs", { capability: false }) });
     render(<DeployScreen />);
 
     const button = await screen.findByRole("button", { name: "Deploy to gateway" });

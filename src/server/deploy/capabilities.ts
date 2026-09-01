@@ -51,7 +51,17 @@ export function isGenuineCapability(entry: unknown): boolean {
   return typeof e.xblLength === "number" && Number.isInteger(e.xblLength) && e.xblLength > 0;
 }
 
+/** True when `.local-data/capabilities.json` holds a genuine entry under `key`. */
+export function hasCapability(key: string, filePath = defaultCapabilitiesPath()): boolean {
+  return isGenuineCapability(readCapabilities(filePath)[key]);
+}
+
 /** True when `.local-data/capabilities.json` holds a genuine `meMbsXblVerified`. */
 export function hasMeMbsXblVerified(filePath = defaultCapabilitiesPath()): boolean {
-  return isGenuineCapability(readCapabilities(filePath)["meMbsXblVerified"]);
+  return hasCapability("meMbsXblVerified", filePath);
+}
+
+/** True when `.local-data/capabilities.json` holds a genuine `knxMbmXblVerified`. */
+export function hasKnxMbmXblVerified(filePath = defaultCapabilitiesPath()): boolean {
+  return hasCapability("knxMbmXblVerified", filePath);
 }

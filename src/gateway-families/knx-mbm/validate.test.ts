@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { parseGroupAddress, parseDpt } from "@/protocols/knx";
@@ -25,6 +26,20 @@ describe("validateProject", () => {
     project.signals[0].knx.flags.ri = true;
     project.signals[0].knx.flags.r = true;
     expect(codes(project)).toContain("KNX-FLAGS-RI-R");
+  });
+
+  it("skips Modbus checks for virtual signals (comm-error status, real-gateway pattern)", () => {
+    const project = validProject();
+    // Mirrors signal #0 of the real IN701KNX fixture: a gateway-generated
+    // "Comm Error" status with no Modbus endpoint (funcs/address unset).
+    project.signals[0].virtual = true;
+    project.signals[0].modbus.readFunc = -1;
+    project.signals[0].modbus.writeFunc = -1;
+    project.signals[0].modbus.address = -1;
+    const errs = validateProject(project).filter(
+      (i) => i.severity === "error" && i.ref?.entity === "signal" && i.ref?.id === 0,
+    );
+    expect(errs).toEqual([]);
   });
 
   it("requires at least one flag", () => {
@@ -104,5 +119,20 @@ describe("validateProject", () => {
       enabled: true,
     });
     expect(codes(project)).toContain("MB-SLAVE-DUP");
+  });
+});
+
+/**
+ * Real IN701KNX fixture received from a live gateway (2026-09-01). Never
+ * committed (may contain credentials) — skipped when absent.
+ */
+const REAL_IBMAPS = ".local-data/fixtures/knx-mbm-2026-09-01.ibmaps.xml";
+const hasRealFixture = existsSync(REAL_IBMAPS);
+
+describe.skipIf(!hasRealFixture)("real KNX–MBM fixture (present only in the local checkout)", () => {
+  it("parses and validates without errors (incl. virtual comm-error signals)", () => {
+    const project = projectFromXml(XmlDocument.parse(readFileSync(REAL_IBMAPS, "utf8")));
+    expect(project.signals.length).toBeGreaterThan(0);
+    expect(validateProject(project).filter((i) => i.severity === "error")).toEqual([]);
   });
 });

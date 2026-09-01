@@ -330,3 +330,27 @@ Cicle complet executat contra la 770 Air real (192.168.2.130, AppId 64):
 6. **Restauració**: segon deploy amb la descripció original i receive final confirmant la unitat exactament com estava.
 
 El camí d'escriptura queda disponible només per a projectes me-mbs amb tots els gates en verd i confirmació explícita a la UI. KNX–MBM segueix sense deploy (XBL no verificat per aquella família).
+
+### Fase 3 — pas 3.4: deploy habilitat per a la família KNX–MBM (fet, 2026-09-01)
+
+Amb el generador XBL KNX–MBM ja **verificat byte a byte** contra la fixture real `.local-data/fixtures/knx-mbm-2026-09-01.bin` (unitat IN701KNX, AppId 4, SW 1.2.33.0 — capability `knxMbmXblVerified` a `.local-data/capabilities.json`), l'usuari ha autoritzat estendre el camí de deploy a aquesta família. La prova en viu queda fora d'aquest pas (la fa l'usuari).
+
+- **Gates generalitzats per família** (`src/server/deploy/service.ts`): taula nova `DEPLOY_FAMILIES` amb un descriptor per família — `family`, `displayName`, `capabilityKey` (`knxMbmXblVerified` / `meMbsXblVerified`), `expectedAppId` (KNX–MBM: **4**, `APP_ID_KNX_MBM`; ME–MBS: **64**, `APP_ID_ME_AC_XXX`), `unitLabel` i `generateXbl` (la funció generadora verificada). `getDeployStatus` i `deployProject` resolen el descriptor a partir de `view.family`; una família sense descriptor segueix rebent **422** al gate `family` (i els gates de capability/sessió s'avaluen només amb descriptor). La resta de semàntica intacta: capability genuïna amb shape-check (403), AppId de sessió coincident (409), confirmació explícita a la UI.
+- **`capabilities.ts`**: helper genèric `hasCapability(key, path)`; `hasMeMbsXblVerified` i la nova `hasKnxMbmXblVerified` hi deleguen.
+- **Correcció latent**: la `swVersion` extreta de la capçalera del blob original es **reportava** però no es passava al generador (l'XBL regenerat sempre portava `DEFAULT_SW_VERSION`). Ara `deployProject` crida `descriptor.generateXbl(xml, { appId, swVersion })` per a les dues famílies — imprescindible perquè el round-trip KNX–MBM sigui byte-exact (la fixture porta 1.2.33.0, no la versió per defecte 1.2.31.0).
+- **Pantalla Deploy** (`deploy-screen.tsx`): la targeta bloquejada de KNX–MBM desapareix; les dues famílies comparteixen una única `GatedDeployCard` (llista de gates del servidor, confirmació "This writes configuration to the gateway at <ip>", progrés SSE, resum del resultat + consell de Receive). Els textos específics de família (clau de capability, AppId esperat) arriben del servidor via els detalls dels gates, així que l'estat deshabilitat conserva l'explicació honesta.
+- **Tests nous (+12)**: a `service.test.ts`, describe "deploy gates (knx-mbm)" — happy path amb XBL regenerat via `generateKnxMbmXbl` (comparat amb timestamp maskat, AppId 4 a la capçalera), reús de la `swVersion` del blob original (i assert de que l'XBL regenerat la porta de veritat), capability absent 403, capability de l'altra família rebutjada, entrades falsificades rebutjades, AppId 64 contra projecte knx 409, sessió desconeguda; el test de gate de família ara simula una família sense descriptor traient temporalment l'entrada de `DEPLOY_FAMILIES`; `getDeployStatus` resol el descriptor knx-mbm; i **test de round-trip byte-exact sobre la fixture real** (skip si absent): deploy-build del projecte fixture sense modificar reprodueix l'XBL de la fixture amb el timestamp maskat. A `deploy-screen.test.tsx`, la describe KNX–MBM passa a cobrir els estats habilitat/deshabilitat (gates en verd → confirmació → cancel·lar; capability fallida amb l'explicació `knxMbmXblVerified`; sense sessió; deploy complet amb POST i resum).
+- **Pendent (prova en viu, fora d'aquest pas)**: deploy real contra la unitat IN701KNX amb autorització de l'usuari: connectar → pantalla Deploy → confirmar → verificar amb Receive. Risc conegut: mateixes notes que al pas 2.6 (timestamp volàtil a la capçalera; `swVersion` del blob original quan el projecte va ser rebut del gateway).
+
+#### Pas 3.4 — prova en viu del deploy KNX–MBM (2026-09-01, autorització expressa)
+
+Cicle complet contra la IN701KNX real (192.168.2.167, AppId 4):
+
+1. Receive del projecte via l'app (família knx-mbm detectada, blob complet desat).
+2. Patch d'una descripció de senyal (marcador de test).
+3. Gates verificats via API (família + `knxMbmXblVerified` + AppId 4).
+4. **Deploy real**: SENDCMPLT + XMODEM-1K, 9.290 B (XBL regenerat de 3.976 B, swVersion 1.2.33.0 presa del blob original), acceptat per la unitat.
+5. **Receive de verificació**: la descripció modificada present al dispositiu.
+6. **Restauració**: segon deploy amb la descripció original; receive final net (la unitat va necessitar ~20 s per acceptar connexions després del deploy — la sessió es tanca mentre aplica la configuració).
+
+Amb això les dues famílies tenen el cicle complet editar→XBL→deploy→verificar demostrat amb hardware real.

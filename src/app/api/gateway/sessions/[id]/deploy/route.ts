@@ -9,9 +9,11 @@ const bodySchema = z.object({ projectId: z.string().min(1).max(200) });
 
 /**
  * Deploy (SENDCMPLT — WRITES configuration to the gateway). All gates run
- * server-side: me-mbs family only, genuine `meMbsXblVerified` capability
- * artefact, and a session whose gateway reports the ME unit AppId (64).
- * Progress is streamed over the session SSE events endpoint.
+ * server-side: the project family must have a verified deploy descriptor
+ * (knx-mbm / me-mbs), a genuine per-family capability artefact
+ * (`knxMbmXblVerified` / `meMbsXblVerified`), and a session whose gateway
+ * reports the family's unit AppId (4 / 64). Progress is streamed over the
+ * session SSE events endpoint.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

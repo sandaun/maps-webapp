@@ -11,8 +11,9 @@ A family module contains only what is specific to the combination:
 - `from-xml.ts` — XML → model mapping.
 - `xml-ops.ts` — edit operations as patches on the preserved XML document.
 - `validate.ts` — family validation rules with stable codes.
-- `xbl/` — the deterministic XBL binary generator (only in families where it
-  has been ported; currently `knx-mbm`, pending byte-level verification).
+- `xbl/` — the deterministic XBL binary generator (present in `knx-mbm` and
+  `me-mbs`; both verified byte-exact against real device captures and tested
+  with a live deploy).
 - `fixtures/` — synthetic test fixtures (marked as synthetic; no secrets).
 - `index.ts` — the family's small public API (deep imports stay out of bounds).
 
@@ -24,6 +25,9 @@ Rules:
   their own folder here when they are actually implemented. Do not create
   empty folders or speculative skeletons for them.
 - Implemented families:
-  - `knx-mbm` — KNX ↔ Modbus Master (with XBL generator).
+  - `knx-mbm` — KNX ↔ Modbus Master (IN701KNX; XBL verified, live deploy tested).
   - `me-mbs` — Mitsubishi Electric AC ↔ Modbus Slave (770 Air,
-    `IntesisProjectMbsMe_RT`; domain layer only, XBL writers pending step 2.4).
+    `IntesisProjectMbsMe_RT`; XBL verified, live deploy tested).
+
+To add a new family, follow the step-by-step playbook at
+`docs/adding-a-gateway-family.md`.

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Ban, Check, Download, Upload, X } from "lucide-react";
+import { Check, Download, Upload, X } from "lucide-react";
 import { exportProjectUrl } from "@/lib/api";
 import {
   deployGatewayProject,
@@ -20,11 +20,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
- * Deploy screen: export the project file, inspect round-trip capability and
- * — for ME–MBS projects only, when every server-side gate passes — deploy to
- * a connected gateway (SENDCMPLT, a WRITE operation). KNX–MBM deploy stays
- * disabled until its `knxMbmXblVerified` capability exists (docs/knx-mbm-mvp.md,
- * Pas 2.6).
+ * Deploy screen: export the project file, inspect round-trip capability and —
+ * when every server-side gate passes for the project's family — deploy to a
+ * connected gateway (SENDCMPLT, a WRITE operation). Both supported families
+ * (knx-mbm, me-mbs) share the same gated card; the gate details come from the
+ * server, so a family without its verified capability (or an unsupported
+ * family) keeps the honest disabled explanation (docs/knx-mbm-mvp.md,
+ * Pas 2.6 / 3.4).
  */
 export function DeployScreen() {
   return <ScreenGate>{(view) => <DeployContent {...view} />}</ScreenGate>;
@@ -32,7 +34,6 @@ export function DeployScreen() {
 
 function DeployContent({
   meta,
-  family,
   hasCompleteBlob,
 }: {
   meta: { id: string; name: string };
@@ -83,47 +84,20 @@ function DeployContent({
         </Card>
       </div>
 
-      {family === "me-mbs" ? <MeMbsDeployCard meta={meta} /> : <KnxMbmDeployCard />}
+      <GatedDeployCard meta={meta} />
     </div>
-  );
-}
-
-/** KNX–MBM: deploy stays disabled until the XBL verification capability exists. */
-function KnxMbmDeployCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Deploy to gateway</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-fg-muted">
-          Deploying a modified project requires regenerating the binary XBL configuration. That
-          path is blocked until the capability exists: a byte-exact verification of the generated
-          XBL against a real KNX–MBM fixture, which is not available yet. Until then, no modified
-          project can be sent to a gateway from this app. The blocking capability for this family
-          is <code>knxMbmXblVerified</code>.
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled
-            className="inline-flex h-7 cursor-not-allowed items-center justify-center gap-2 rounded bg-hms-muted px-3 text-xs font-medium text-fg-subtle"
-            title="Blocked: gateway writes disabled (knxMbmXblVerified)"
-          >
-            <Ban className="h-3.5 w-3.5" aria-hidden />
-            Deploy modified project (blocked)
-          </button>
-          <Badge variant="warning">Read-only towards gateways</Badge>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
 type DeployPhase = "idle" | "confirm" | "deploying" | "done" | "failed";
 
-/** ME–MBS: gated deploy with explicit confirmation and SSE progress. */
-function MeMbsDeployCard({ meta }: { meta: { id: string; name: string } }) {
+/**
+ * Gated deploy for both supported families: server-reported gate list,
+ * explicit confirmation and SSE progress. The card is identical per family;
+ * the family-specific details (capability key, expected AppId) come from the
+ * server's gate checks.
+ */
+function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
   const [session, setSession] = React.useState<GatewaySessionStatus | null>(null);
   const [status, setStatus] = React.useState<DeployStatus | null>(null);
   const [statusError, setStatusError] = React.useState<string | null>(null);
