@@ -89,22 +89,28 @@ Hard constraints, enforced in code, not by convention:
   sensitive payloads are never logged.
 - The session manager is in-memory: **single process, single instance**.
 
-## Deploy: what's blocked and why
+## Deploy: gated per family, and why
 
 Exporting the edited `.ibmaps` and round-tripping an **unmodified** complete
 blob both work. Deploying a **modified** configuration requires generating a
-new XBL and sending `SENDCMPLT` — and the XBL generator
-(`src/gateway-families/knx-mbm/xbl/`) is implemented but **not yet verified
-byte-for-byte**, because there is no real KNX–MBM fixture (an `.ibmaps` plus
-the XBL bytes the real MAPS tool produces for that same project).
+new XBL and sending `SENDCMPLT`, so each family is gated on a byte-exact
+verification of its XBL generator against a real fixture.
 
-So the “Deploy modified project” button stays disabled behind the
-`knxMbmXblVerified` capability. That capability is not a manual flag: it is
-only written (to `.local-data/capabilities.json`) by the verification harness
-when a byte-identical match is achieved.
+Both supported families currently pass that gate:
 
-When a real fixture is available, generate the reference XBL with the desktop
-MAPS tool from the same `.ibmaps`, then run:
+- **ME–MBS** — verified against the 770 Air fixture (`meMbsXblVerified`);
+  deploy proven live on 2026-08-19 (docs/knx-mbm-mvp.md, Pas 2.6).
+- **KNX–MBM** — verified against the IN701KNX fixture (`knxMbmXblVerified`);
+  deploy enabled in Pas 3.4, live test pending.
+
+The capability is not a manual flag: it is only written (to
+`.local-data/capabilities.json`) by the verification harness when a
+byte-identical match is achieved. A family without a genuine capability entry
+keeps deploy disabled (server-side gates: family 422, capability 403, session
+AppId 409).
+
+To verify a new fixture, generate the reference XBL with the desktop MAPS
+tool from the same `.ibmaps`, then run:
 
 ```sh
 pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
@@ -120,9 +126,6 @@ pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
   comparing (or pass `--now` matching the reference's generation time).
 - Exit codes: `0` byte-identical match (capability recorded), `1` divergence
   (first differing offset with hex context), `2` usage/setup error.
-
-Until this passes, deploy of modified projects stays off; everything else in
-the MVP remains usable.
 
 ## Documentation
 

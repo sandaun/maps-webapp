@@ -14,9 +14,10 @@
  * `[4B BE len][XBL][4B BE CRC32]` framing is applied by
  * `buildCompleteBlob` (src/core/project-format/complete-blob.ts).
  *
- * STATUS: UNVERIFIED against a real KNX–MBM gateway — no real fixture exists
- * yet. scripts/verify-xbl.ts is the harness that will close this gap (see
- * docs/knx-mbm-mvp.md, Iteració 8).
+ * STATUS: VERIFIED byte-exact against the real KNX–MBM fixture
+ * (.local-data/fixtures/knx-mbm-2026-09-01.bin, IN701KNX, AppId 4) on
+ * 2026-09-01 via scripts/verify-xbl.ts with --mask-timestamp; capability
+ * `knxMbmXblVerified` recorded (docs/knx-mbm-mvp.md, Pas 3.4).
  */
 
 import { XmlDocument } from "@/core/project-format";

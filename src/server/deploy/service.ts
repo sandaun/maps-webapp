@@ -1,25 +1,26 @@
 import "server-only";
 import { buildCompleteBlob, buildProjectZip, parseCompleteBlob } from "@/core/project-format";
 import { decodeElements, DEFAULT_SW_VERSION } from "@/core/xbl";
+import { APP_ID_KNX_MBM, generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
 import { APP_ID_ME_AC_XXX, generateMeMbsXbl } from "@/gateway-families/me-mbs";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
 import { getProjectView, snapshotDeploy } from "../projects/service";
-import { defaultCapabilitiesPath, hasMeMbsXblVerified } from "./capabilities";
+import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 
 /**
  * Deploy service: writes a (possibly modified) project to a gateway via
- * SENDCMPLT. Gated at every layer (docs/knx-mbm-mvp.md, Pas 2.6):
+ * SENDCMPLT. Gated at every layer (docs/knx-mbm-mvp.md, Pas 2.6 / 3.4):
  *
- * 1. `family` — only `me-mbs` projects deploy (knx-mbm stays read-only: its
- *    XBL generator is unverified).
+ * 1. `family` — the project's family must have a deploy descriptor below
+ *    (knx-mbm and me-mbs today; anything else stays 422).
  * 2. `capability` — `.local-data/capabilities.json` must hold a genuine
- *    `meMbsXblVerified` entry (written only by scripts/verify-xbl.ts after a
- *    byte-exact match against the real 770 Air fixture). Read from disk here;
- *    no client flag is ever trusted.
- * 3. `session-appid` — the live session's gateway INFO must report the ME
- *    unit AppId (64 on the 770 Air), so a project can never be pushed to a
- *    gateway of a different family.
+ *    per-family entry (`knxMbmXblVerified` / `meMbsXblVerified`), written only
+ *    by scripts/verify-xbl.ts after a byte-exact match against a real fixture.
+ *    Read from disk here; no client flag is ever trusted.
+ * 3. `session-appid` — the live session's gateway INFO must report the
+ *    family's unit AppId (4 for KNX–MBM, 64 for ME–MBS on the 770 Air), so a
+ *    project can never be pushed to a gateway of a different family.
  *
  * The XBL is REGENERATED from the current project XML (never the original
  * blob's XBL) so user edits take effect; the firmware only runs config from
@@ -69,6 +70,56 @@ export interface DeployDeps {
   capabilitiesPath?: string;
 }
 
+type XblGenerator = (
+  projectXml: string,
+  options: {
+    now?: Date;
+    swVersion?: readonly [number, number, number, number];
+    appId?: number;
+  },
+) => Uint8Array;
+
+/** Everything the deploy path needs to know about a gateway family. */
+export interface DeployFamilyDescriptor {
+  /** Project family id (`ProjectView.family`). */
+  family: string;
+  /** Human-readable family name for gate details. */
+  displayName: string;
+  /** Capability key in `.local-data/capabilities.json` gating this family. */
+  capabilityKey: string;
+  /** AppId the connected gateway's INFO must report for this family. */
+  expectedAppId: number;
+  /** Short unit label for gate details (e.g. "ME unit"). */
+  unitLabel: string;
+  /** Byte-exact verified XBL generator for this family. */
+  generateXbl: XblGenerator;
+}
+
+/**
+ * Families allowed to deploy, keyed by family id. A family only appears here
+ * once its XBL generator is byte-exact verified against a real fixture; the
+ * `family` gate rejects everything else with 422. Exported (and mutable) so
+ * tests can exercise the unsupported-family path.
+ */
+export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = {
+  "knx-mbm": {
+    family: "knx-mbm",
+    displayName: "KNX ↔ Modbus Master",
+    capabilityKey: "knxMbmXblVerified",
+    expectedAppId: APP_ID_KNX_MBM, // 4 — IN701KNX reports AppId 4
+    unitLabel: "KNX–MBM unit",
+    generateXbl: generateKnxMbmXbl,
+  },
+  "me-mbs": {
+    family: "me-mbs",
+    displayName: "Mitsubishi Electric AC ↔ Modbus Slave",
+    capabilityKey: "meMbsXblVerified",
+    expectedAppId: APP_ID_ME_AC_XXX, // 64 — ME_AC_XXX on the 770 Air
+    unitLabel: "ME unit",
+    generateXbl: generateMeMbsXbl,
+  },
+};
+
 /**
  * MAPS tool version quad for the XBL header tag 2. MAPS writes the version of
  * the tool that compiled the XBL; it is not derivable from the project XML.
@@ -96,26 +147,30 @@ async function runGates(
   projectId: string,
   sessionId: string,
   deps: DeployDeps,
-): Promise<{ checks: DeployGateCheck[]; appId?: number }> {
+): Promise<{ checks: DeployGateCheck[]; appId?: number; descriptor?: DeployFamilyDescriptor }> {
   const view = await getProjectView(projectId); // 404 propagates
   const checks: DeployGateCheck[] = [];
 
-  const familyOk = view.family === "me-mbs";
+  const descriptor = DEPLOY_FAMILIES[view.family];
   checks.push({
     id: "family",
-    ok: familyOk,
-    detail: familyOk
-      ? "Mitsubishi Electric AC ↔ Modbus Slave project"
-      : "Only Mitsubishi Electric AC ↔ Modbus Slave projects can be deployed",
+    ok: descriptor !== undefined,
+    detail: descriptor
+      ? `${descriptor.displayName} project`
+      : "Only projects of a family with a verified XBL generator can be deployed",
   });
 
-  const capabilityOk = hasMeMbsXblVerified(deps.capabilitiesPath ?? defaultCapabilitiesPath());
+  const capabilityOk =
+    descriptor !== undefined &&
+    hasCapability(descriptor.capabilityKey, deps.capabilitiesPath ?? defaultCapabilitiesPath());
   checks.push({
     id: "capability",
     ok: capabilityOk,
-    detail: capabilityOk
-      ? "XBL generator byte-exact verified (meMbsXblVerified)"
-      : "Missing verified XBL capability (meMbsXblVerified) — run pnpm verify:xbl against a real fixture",
+    detail: !descriptor
+      ? "No deployable family — capability not evaluated"
+      : capabilityOk
+        ? `XBL generator byte-exact verified (${descriptor.capabilityKey})`
+        : `Missing verified XBL capability (${descriptor.capabilityKey}) — run pnpm verify:xbl against a real fixture`,
   });
 
   let appId: number | undefined;
@@ -126,18 +181,20 @@ async function runGates(
     appId = status.gateway?.appId;
     if (!status.connected) {
       sessionDetail = "The gateway session is not connected";
-    } else if (appId === APP_ID_ME_AC_XXX) {
+    } else if (!descriptor) {
+      sessionDetail = "No deployable family — session AppId not evaluated";
+    } else if (appId === descriptor.expectedAppId) {
       sessionOk = true;
-      sessionDetail = `Gateway reports AppId ${APP_ID_ME_AC_XXX} (ME unit)`;
+      sessionDetail = `Gateway reports AppId ${descriptor.expectedAppId} (${descriptor.unitLabel})`;
     } else {
-      sessionDetail = `Gateway AppId ${appId ?? "unknown"} does not match the ME unit AppId ${APP_ID_ME_AC_XXX}`;
+      sessionDetail = `Gateway AppId ${appId ?? "unknown"} does not match the ${descriptor.unitLabel} AppId ${descriptor.expectedAppId}`;
     }
   } catch {
     sessionDetail = "Gateway session not found";
   }
   checks.push({ id: "session-appid", ok: sessionOk, detail: sessionDetail });
 
-  return { checks, appId };
+  return { checks, appId, descriptor };
 }
 
 /** Evaluate the deploy gates without side effects (drives the UI state). */
@@ -160,13 +217,15 @@ export async function deployProject(
   deps: DeployDeps = {},
 ): Promise<DeployResult> {
   const sessions = deps.sessions ?? getGatewaySessionManager();
-  const { checks, appId } = await runGates(projectId, sessionId, deps);
+  const { checks, appId, descriptor } = await runGates(projectId, sessionId, deps);
   for (const check of checks) {
     if (check.ok) continue;
     const status =
       check.id === "capability" ? 403 : check.id === "session-appid" ? 409 : 422;
     throw new DeployGateError(status, check.id, check.detail);
   }
+  // All gates passed, so the family gate passed: the descriptor exists.
+  if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
 
   const store = getProjectStore();
   const xml = await store.readXml(projectId);
@@ -177,7 +236,7 @@ export async function deployProject(
     swVersion = swVersionFromOriginalBlob(original.xbl) ?? DEFAULT_SW_VERSION;
   }
 
-  const xbl = generateMeMbsXbl(xml, { appId });
+  const xbl = descriptor.generateXbl(xml, { appId, swVersion });
   const zip = buildProjectZip(`${projectId}.ibmaps`, xml);
   const blob = buildCompleteBlob(xbl, zip);
 
@@ -195,7 +254,7 @@ export async function deployProject(
     bytes: blob.length,
     xblBytes: xbl.length,
     zipBytes: zip.length,
-    appId: appId ?? APP_ID_ME_AC_XXX,
+    appId: appId ?? descriptor.expectedAppId,
     swVersion: swVersion.join("."),
   };
 }
