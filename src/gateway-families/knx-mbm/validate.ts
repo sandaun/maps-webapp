@@ -171,7 +171,12 @@ function validateSignal(
     });
   }
 
-  // Modbus side: device reference + per-signal rules
+  // Modbus side: device reference + per-signal rules.
+  // Virtual signals (e.g. the gateway-generated "Comm Error" status) have no
+  // Modbus endpoint by design — readFunc/writeFunc/address stay unset (-1) in
+  // real projects downloaded from a gateway — so all Modbus checks are skipped.
+  if (signal.virtual) return;
+
   const node = signal.modbus.port >= 0 ? nodeForPort(project.mbm, signal.modbus.port) : undefined;
   const device =
     node && signal.modbus.deviceIndex >= 0 ? node.node.devices[signal.modbus.deviceIndex] : undefined;
