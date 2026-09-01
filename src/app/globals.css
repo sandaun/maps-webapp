@@ -7,6 +7,7 @@
   --color-hms-accent: #1268b3;
   --color-hms-accent-hover: #0e5896;
   --color-hms-pop: #1dc3eb;
+  --color-hms-marine: #485f70;
   --color-background-app: #f5f6f7;
   --color-hms-muted: #eff0f1;
   --color-text-body: #333333;
@@ -24,6 +25,9 @@
   --color-success-border: #bfe3d4;
   --color-error-border: #e8c4c0;
   --color-warning-border: #e8d3b4;
+  /* Info surface (v9 reference): selected pills, step dots, inline banners */
+  --color-info-bg: #eaf3fb;
+  --color-info-border: #c9def0;
 
   /* Protocol sides (design spec §4) */
   --color-bms-text: #8a5a12;
@@ -33,6 +37,7 @@
   --color-device-surface: #f7fbfe;
   --color-device-border: #cfe0ef;
   --color-gateway-surface: #f7f8f9;
+  --color-card-foot: #fcfcfd;
   --color-row-hover: #f7fbfe;
   --color-row-selected: #f5fafe;
   --color-row-open: #eaf3fb;
