@@ -28,6 +28,8 @@
   /* Info surface (v9 reference): selected pills, step dots, inline banners */
   --color-info-bg: #eaf3fb;
   --color-info-border: #c9def0;
+  /* Live "running" dot on dark gateway surfaces (v9 reference) */
+  --color-live: #3fd9a4;
 
   /* Protocol sides (design spec §4) */
   --color-bms-text: #8a5a12;
