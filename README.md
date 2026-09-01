@@ -131,5 +131,7 @@ pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
 
 - `docs/knx-mbm-mvp.md` — decisions, risks, source map and per-iteration
   status (Catalan, project working doc).
+- `docs/cloud-connector-architecture.md` — cloud deployment, local Connector,
+  browser constraints, backend options, iPad path and Render + Neon POC.
 - `src/gateway-families/README.md` — how future gateway combinations
   (BAC–MBM, BAC–DALI, …) plug in by composing `src/protocols/` modules.
