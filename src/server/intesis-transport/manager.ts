@@ -21,6 +21,8 @@ export interface GatewaySessionStatus {
   /** False when the firmware fell back to cleartext (SKT pattern). */
   encrypted: boolean;
   busy: boolean;
+  /** True while the diagnostics monitor (SPONS/COMMS pushes) is enabled. */
+  monitoring: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
 }
@@ -28,6 +30,7 @@ export interface GatewaySessionStatus {
 export type SessionEvent =
   | { type: "log"; at: string; line: string }
   | { type: "progress"; at: string; receivedBytes: number; totalBytes: number }
+  | { type: "monitor"; at: string; line: string }
   | { type: "status"; at: string; status: GatewaySessionStatus };
 
 export type SessionEventListener = (event: SessionEvent) => void;
@@ -53,6 +56,16 @@ export interface GatewaySessions {
   sendComplete(id: string, blob: Uint8Array, options?: SendFileOptions): Promise<void>;
   /** Subscribe to the session event stream (SSE); replays recent history. */
   subscribe(id: string, listener: SessionEventListener): () => void;
+  /**
+   * Free-text diagnostics console command (docs/reference/console-protocol.md).
+   * Response closes on an idle gap — unknown commands are silent by design.
+   */
+  runConsoleCommand(
+    id: string,
+    command: string,
+  ): Promise<{ lines: string[]; timedOut: boolean }>;
+  /** Enables/disables the live monitor; pushed lines flow as `monitor` events. */
+  setMonitor(id: string, enabled: boolean): Promise<GatewaySessionStatus>;
 }
 
 /** HTTP-shaped error so routes can reuse `errorResponse` from projects/http. */
@@ -103,9 +116,13 @@ interface ManagedSession {
   listeners: Set<SessionEventListener>;
   /** Recent events replayed to new SSE subscribers (ring buffer). */
   history: SessionEvent[];
+  /** Recent monitor lines, replayed after `history` (kept apart so a chatty
+   *  bus does not evict the transfer log). */
+  monitorHistory: SessionEvent[];
 }
 
 const HISTORY_LIMIT = 200;
+const MONITOR_HISTORY_LIMIT = 150;
 const CONNECT_TIMEOUT_MS = 5_000;
 
 export class GatewaySessionManager implements GatewaySessions {
@@ -140,6 +157,7 @@ export class GatewaySessionManager implements GatewaySessions {
         connectedAt: new Date().toISOString(),
         listeners: new Set(),
         history: [],
+        monitorHistory: [],
       };
       this.sessions.set(id, managed);
       const { info, encrypted } = await session.connect();
@@ -199,8 +217,47 @@ export class GatewaySessionManager implements GatewaySessions {
   subscribe(id: string, listener: SessionEventListener): () => void {
     const managed = this.require(id);
     for (const event of managed.history) listener(event);
+    for (const event of managed.monitorHistory) listener(event);
     managed.listeners.add(listener);
     return () => managed.listeners.delete(listener);
+  }
+
+  async runConsoleCommand(
+    id: string,
+    command: string,
+  ): Promise<{ lines: string[]; timedOut: boolean }> {
+    const managed = this.require(id);
+    return this.runExclusive(managed, async () => {
+      pushEvent(managed, {
+        type: "log",
+        at: new Date().toISOString(),
+        line: `Console: ${command}`,
+      });
+      return managed.session.runConsoleCommand(command);
+    }).catch((error: unknown) => {
+      throw toGatewayRequestError(error);
+    });
+  }
+
+  async setMonitor(id: string, enabled: boolean): Promise<GatewaySessionStatus> {
+    const managed = this.require(id);
+    return this.runExclusive(managed, async () => {
+      await managed.session.setMonitor(enabled, (line) => {
+        const event: SessionEvent = { type: "monitor", at: new Date().toISOString(), line };
+        managed.monitorHistory.push(event);
+        if (managed.monitorHistory.length > MONITOR_HISTORY_LIMIT) {
+          managed.monitorHistory.shift();
+        }
+        for (const listener of managed.listeners) listener(event);
+      });
+      const status = this.toStatus(id, managed);
+      for (const listener of managed.listeners) {
+        listener({ type: "status", at: new Date().toISOString(), status });
+      }
+      return status;
+    }).catch((error: unknown) => {
+      throw toGatewayRequestError(error);
+    });
   }
 
   private async runExclusive<T>(managed: ManagedSession, op: () => Promise<T>): Promise<T> {
@@ -227,6 +284,7 @@ export class GatewaySessionManager implements GatewaySessions {
       connected: m.session.connected,
       encrypted: m.encrypted,
       busy: m.busy,
+      monitoring: m.session.monitoring,
       connectedAt: m.connectedAt,
       gateway: m.gateway,
     };
@@ -239,15 +297,21 @@ function pushEvent(managed: ManagedSession, event: SessionEvent): void {
   for (const listener of managed.listeners) listener(event);
 }
 
-let instance: GatewaySessionManager | undefined;
+/**
+ * Process-wide singleton (single-process MVP). Kept on `globalThis` so Next.js
+ * dev recompilations (which re-evaluate route modules) do not silently drop
+ * live gateway sessions.
+ */
+const globalForSessions = globalThis as unknown as {
+  __mapsGatewaySessionManager?: GatewaySessionManager;
+};
 
-/** Process-wide singleton (single-process MVP). */
 export function getGatewaySessionManager(): GatewaySessionManager {
-  instance ??= new GatewaySessionManager();
-  return instance;
+  globalForSessions.__mapsGatewaySessionManager ??= new GatewaySessionManager();
+  return globalForSessions.__mapsGatewaySessionManager;
 }
 
 /** Test hook: drop the singleton. */
 export function resetGatewaySessionManagerForTests(): void {
-  instance = undefined;
+  globalForSessions.__mapsGatewaySessionManager = undefined;
 }
