@@ -25,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  * connected gateway (SENDCMPLT, a WRITE operation). Both supported families
  * (knx-mbm, me-mbs) share the same gated card; the gate details come from the
  * server, so a family without its verified capability (or an unsupported
- * family) keeps the honest disabled explanation (docs/knx-mbm-mvp.md,
+ * family) keeps the honest disabled explanation (docs/plans/knx-mbm-mvp.md,
  * Pas 2.6 / 3.4).
  */
 export function DeployScreen() {

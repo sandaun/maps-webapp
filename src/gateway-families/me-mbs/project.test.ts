@@ -159,7 +159,7 @@ describe("xml-ops", () => {
 /**
  * Gate test against the real 770 Air fixture (gitignored under
  * .local-data/ — it may contain credentials). Skipped when absent (CI).
- * Invariants per docs/ac-me-mbs-analisi.md.
+ * Invariants per docs/reference/ac-me-mbs-analisi.md.
  */
 const REAL_IBMAPS = ".local-data/fixtures/770air-me-mbs-2026-08-18.ibmaps.xml";
 const hasRealFixture = existsSync(REAL_IBMAPS);

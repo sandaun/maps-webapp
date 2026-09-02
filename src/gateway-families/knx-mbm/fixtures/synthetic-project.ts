@@ -1,7 +1,7 @@
 /**
  * SYNTHETIC KNX–MBM fixture — built from the decompiled MAPS writers
  * (CreateObjectNode shapes), NOT from a real gateway. It exists because no
- * real KNX–MBM .ibmaps is available yet (see docs/knx-mbm-mvp.md §9.1).
+ * real KNX–MBM .ibmaps is available yet (see docs/plans/knx-mbm-mvp.md §9.1).
  * Contains no secrets.
  */
 

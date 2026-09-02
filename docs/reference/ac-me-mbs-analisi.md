@@ -32,7 +32,7 @@ Nota important sobre l'AppId 64: la capçalera XBL escriu l'AppId **del disposit
 
 ## 2. Estructura top-level de l'XML
 
-Envelope idèntic al KNX–MBM (mateix parser, mateixes convencions; cf. `docs/knx-mbm-mvp.md` §4):
+Envelope idèntic al KNX–MBM (mateix parser, mateixes convencions; cf. `docs/plans/knx-mbm-mvp.md` §4):
 
 ```
 <?xml version="1.0" encoding="UTF-8"?>           (BOM + CRLF)

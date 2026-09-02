@@ -301,7 +301,7 @@ Si la fixture no és disponible, deixa el generador i el deploy modificat incomp
 
 ## Ordre d’implementació
 
-1. Audita fitxers i crea `docs/knx-mbm-mvp.md` amb decisions, riscos i mapa de fonts.
+1. Audita fitxers i crea `docs/plans/knx-mbm-mvp.md` amb decisions, riscos i mapa de fonts.
 2. Crea l’aplicació Next.js única i els límits modulars de `core`, `protocols`, `gateway-families` i `server`.
 3. Implementa la persistència local darrere dels repositoris, les fixtures i un `demo mode` explícit.
 4. Implementa el shell visual i el flux `Connection → Receive → Overview → Configuration/Devices/Signals → Validation`.

@@ -9,7 +9,7 @@
  *
  * Byte-exact against the real 770 Air fixture
  * (.local-data/fixtures/770air-me-mbs-2026-08-18.bin) — see
- * docs/knx-mbm-mvp.md, Pas 2.4.
+ * docs/plans/knx-mbm-mvp.md, Pas 2.4.
  */
 
 import {

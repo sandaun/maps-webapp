@@ -5,7 +5,7 @@ import { ADDRESS_MODES, type MbsAddressMode } from "./types";
  * ported from `IntesisProjectMbsMe_RT.GetAddressFromSignal`
  * (IntesisProjectMbsMe_RT.cs:2713-2799) and `GetAddressFromSignalV4`
  * (:2802-2870). Verified against the real 770 Air fixture: the FIXED map
- * reproduces 222/222 addresses (docs/ac-me-mbs-analisi.md §5).
+ * reproduces 222/222 addresses (docs/reference/ac-me-mbs-analisi.md §5).
  *
  * CUSTOM mode addresses are persisted by the desktop tool (`AddressesStorer`)
  * and are NOT derivable — pass the persisted value as `customAddress`.

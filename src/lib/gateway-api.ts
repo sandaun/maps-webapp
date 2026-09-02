@@ -64,9 +64,9 @@ export type SessionEvent =
   | { type: "progress"; at: string; receivedBytes: number; totalBytes: number }
   | { type: "status"; at: string; status: GatewaySessionStatus };
 
-/** KNX ↔ Modbus Master AppId (`IBOX_KNX_MBM = 4`, see docs/knx-mbm-mvp.md §1). */
+/** KNX ↔ Modbus Master AppId (`IBOX_KNX_MBM = 4`, see docs/plans/knx-mbm-mvp.md §1). */
 export const KNX_MBM_APP_ID = 4;
-/** ME AC ↔ Modbus Slave unit AppId (`ME_AC_XXX = 64` — 770 Air, see docs/ac-me-mbs-analisi.md §1). */
+/** ME AC ↔ Modbus Slave unit AppId (`ME_AC_XXX = 64` — 770 Air, see docs/reference/ac-me-mbs-analisi.md §1). */
 export const ME_MBS_APP_ID = 64;
 
 /**

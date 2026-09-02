@@ -17,7 +17,7 @@
  * STATUS: VERIFIED byte-exact against the real KNX–MBM fixture
  * (.local-data/fixtures/knx-mbm-2026-09-01.bin, IN701KNX, AppId 4) on
  * 2026-09-01 via scripts/verify-xbl.ts with --mask-timestamp; capability
- * `knxMbmXblVerified` recorded (docs/knx-mbm-mvp.md, Pas 3.4).
+ * `knxMbmXblVerified` recorded (docs/plans/knx-mbm-mvp.md, Pas 3.4).
  */
 
 import { XmlDocument } from "@/core/project-format";

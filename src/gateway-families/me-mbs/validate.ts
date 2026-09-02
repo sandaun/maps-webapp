@@ -20,7 +20,7 @@ import type { MeMbsProject, MeMbsSignal } from "./model";
 
 /**
  * ME–MBS project validation. Codes are stable and documented in
- * docs/knx-mbm-mvp.md (Pas 2.3). Errors block save/deploy; warnings do not.
+ * docs/plans/knx-mbm-mvp.md (Pas 2.3). Errors block save/deploy; warnings do not.
  */
 export function validateProject(project: MeMbsProject): ValidationIssue[] {
   const issues: ValidationIssue[] = [];

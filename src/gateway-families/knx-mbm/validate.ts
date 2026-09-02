@@ -18,7 +18,7 @@ import type { KnxMbmProject, KnxMbmSignal } from "./model";
 
 /**
  * KNX–MBM project validation. Codes are stable and documented in
- * docs/knx-mbm-mvp.md §5. Errors block save/deploy; warnings do not.
+ * docs/plans/knx-mbm-mvp.md §5. Errors block save/deploy; warnings do not.
  */
 export function validateProject(project: KnxMbmProject): ValidationIssue[] {
   const issues: ValidationIssue[] = [];

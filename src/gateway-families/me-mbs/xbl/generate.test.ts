@@ -8,7 +8,7 @@ import { generateMeMbsXbl } from "./generate";
 /**
  * Structural tests over the synthetic fixture, plus a byte-exact gate against
  * the real 770 Air fixture (skip-if-absent; verified via scripts/verify-xbl.ts
- * — see docs/knx-mbm-mvp.md, Pas 2.4).
+ * — see docs/plans/knx-mbm-mvp.md, Pas 2.4).
  *
  * The synthetic fixture's spec table references conversions/LUTs the shared
  * fixture's IBOX does not declare (operations "0,1" → ARITH, "17,0" →

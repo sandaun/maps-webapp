@@ -1,6 +1,6 @@
 # NOTE: this is NOT a monorepo workspace. pnpm 11 stores its settings in this
 # file even for single-package projects. There is intentionally no `packages:`
-# key — the app stays a single pnpm package (see docs/knx-mbm-mvp.md).
+# key — the app stays a single pnpm package (see docs/plans/knx-mbm-mvp.md).
 allowBuilds:
   # tsx (scripts/verify-xbl.ts runner) wraps esbuild; its postinstall links the binary.
   esbuild: true

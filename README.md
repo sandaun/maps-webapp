@@ -99,7 +99,7 @@ verification of its XBL generator against a real fixture.
 Both supported families currently pass that gate:
 
 - **ME–MBS** — verified against the 770 Air fixture (`meMbsXblVerified`);
-  deploy proven live on 2026-08-19 (docs/knx-mbm-mvp.md, Pas 2.6).
+  deploy proven live on 2026-08-19 (docs/plans/knx-mbm-mvp.md, Pas 2.6).
 - **KNX–MBM** — verified against the IN701KNX fixture (`knxMbmXblVerified`);
   deploy enabled in Pas 3.4, live test pending.
 
@@ -129,9 +129,19 @@ pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
 
 ## Documentation
 
-- `docs/knx-mbm-mvp.md` — decisions, risks, source map and per-iteration
+See `docs/README.md` for the folder convention: `docs/plans/` holds implementation
+plans (deletable once implemented), `docs/reference/` holds durable technical
+documentation (protocols, fixture analyses, proven playbooks).
+
+- `docs/plans/knx-mbm-mvp.md` — decisions, risks, source map and per-iteration
   status (Catalan, project working doc).
-- `docs/cloud-connector-architecture.md` — cloud deployment, local Connector,
+- `docs/plans/cloud-connector-architecture.md` — cloud deployment, local Connector,
   browser constraints, backend options, iPad path and Render + Neon POC.
+- `docs/reference/console-protocol.md` — ASCII diagnostic console of 700 Series
+  gateways: command catalog validated live, response formats, observed behaviors.
+- `docs/reference/ac-me-mbs-analisi.md` — analysis of the real ME–MBS fixture
+  (770 Air): project format, addresses, quirks.
+- `docs/reference/adding-a-gateway-family.md` — the proven playbook for adding a
+  new gateway family.
 - `src/gateway-families/README.md` — how future gateway combinations
   (BAC–MBM, BAC–DALI, …) plug in by composing `src/protocols/` modules.

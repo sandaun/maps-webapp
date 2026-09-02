@@ -8,7 +8,7 @@ import { crc16Ccitt } from "../crypto/crc16";
  *
  * Port of the receiver in `sonda_maps.py` (`xmodem_receive`), itself a port of
  * `IntesisComm.XModem/XModem.cs` (PROTOCOL.md §4), with the documented fixes
- * (docs/knx-mbm-mvp.md §9.9): a retransmitted copy of the last accepted packet
+ * (docs/plans/knx-mbm-mvp.md §9.9): a retransmitted copy of the last accepted packet
  * is re-ACKed instead of rejected, and the caller (session) must NOT ignore a
  * final `RECVCMPLT:ERR`.
  *

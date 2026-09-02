@@ -256,7 +256,7 @@ Nota d'entrega: les **captures de les pantalles clau** que demana el prompt qued
 
 ### Fase 2 — pas 2.3: domini de la família ME AC ↔ Modbus Slave (fet, 2026-08-18)
 
-Segona família implementada seguint la recepta KNX–MBM, a partir de l'anàlisi de `docs/ac-me-mbs-analisi.md`:
+Segona família implementada seguint la recepta KNX–MBM, a partir de l'anàlisi de `docs/reference/ac-me-mbs-analisi.md`:
 
 - **`src/protocols/modbus/slave/`**: `MbsConfig` (media, byteOrder, updateCOV, addressMode, tempSetpoint, commErrorTout, registerBase, RTU/TCP, slaveAddressMode, MBSlave[]), enums (`MbsReadWrite` amb TRIGGER, `MbsAddressMode` FIXED/CUSTOM/V4_COMP, `SlaveAddressMode`, `MbsTempSetpoint`) i el **mapa d'adreces FIXED/V4_COMP portat de `IntesisProjectMbsMe_RT.GetAddressFromSignal`** (`addresses.ts`). CUSTOM retorna `null` llevat que se li passi l'adreça persistida. Tests del mapa amb els valors documentats (col·lisions intencionades d'specs incloses).
 - **`src/protocols/me/`**: enums ME (MEGroupType, ControllerModel, CompatibilityMode, METemperatureMode), model `MeController`/`MeGroup`/`MeConfig` (sense `AuthUserId`/`AuthPassword`), constants `SIGNAL_*` d'`IntesisMe.cs` i la **taula de specs** (`GROUP_SPECS` 0–60 + `GENERAL_SPECS` 0–29: spec ↔ signalIndex ↔ descripció/valors permesos ↔ tipat intern per defecte), extreta de `CreateSignalsWithParams`/`GetSignalDescription`/`GetAllowedValues` i verificada contra la fixture real pels specs presents (36 distints). Specs no exercitats per la fixture marcats `UNVERIFIED`.

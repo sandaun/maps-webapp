@@ -5,7 +5,7 @@ import path from "node:path";
 /**
  * Reader for `.local-data/capabilities.json` — the artefact written ONLY by
  * `scripts/verify-xbl.ts` after a byte-exact XBL match against a real fixture
- * (docs/knx-mbm-mvp.md, Pas 2.4). The deploy path gates on the presence of a
+ * (docs/plans/knx-mbm-mvp.md, Pas 2.4). The deploy path gates on the presence of a
  * genuine entry; nothing else in the app writes this file.
  */
 

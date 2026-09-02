@@ -139,7 +139,7 @@ For each protocol side not yet implemented, create `src/protocols/<proto>/`:
 ### 3.4 Gate
 
 `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build` all green. Document
-the phase in `docs/knx-mbm-mvp.md` (or a family doc) — decisions, unknowns,
+the phase in `docs/plans/knx-mbm-mvp.md` (or a family doc) — decisions, unknowns,
 `UNVERIFIED:` marks.
 
 ---

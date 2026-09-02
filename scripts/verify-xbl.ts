@@ -30,7 +30,7 @@
  * Exit codes: 0 = byte-identical match; 1 = divergence; 2 = usage/setup error.
  *
  * On a full match, the result is recorded in `.local-data/capabilities.json`
- * under the family's capability key (see docs/knx-mbm-mvp.md, Iteració 8 /
+ * under the family's capability key (see docs/plans/knx-mbm-mvp.md, Iteració 8 /
  * Pas 2.4). Nothing reads that artefact yet; the deploy UI stays disabled
  * until a follow-up iteration wires it up.
  */

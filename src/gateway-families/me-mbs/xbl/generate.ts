@@ -6,7 +6,7 @@
  * IntesisXBL.cs:31-122) as wired by the _RT project class: PreXBLActions
  * pipeline → header (tag 1) → IBOX (tag 2) → MBS internal (tag 9) → ME
  * external (tag 8). Top-level order verified against the real fixture
- * (docs/ac-me-mbs-analisi.md §7).
+ * (docs/reference/ac-me-mbs-analisi.md §7).
  *
  * The module is pure and deterministic: no fs/net access, and the only
  * volatile field (the 6-byte generation timestamp in the header) is injected

@@ -4,7 +4,7 @@ import { XmlDocument } from "@/core/project-format";
  * An .ibmaps belongs to the ME AC ↔ Modbus Slave family (770 Air, variant
  * `IntesisProjectMbsMe_RT`) when the root declares InternalProtocol
  * "Modbus Slave" + ExternalProtocol "Mitsubishi Electric" on Platform 3
- * (RT_AIR). Detection keys per docs/ac-me-mbs-analisi.md §1.
+ * (RT_AIR). Detection keys per docs/reference/ac-me-mbs-analisi.md §1.
  */
 export function isMeMbsProject(doc: XmlDocument): boolean {
   if (doc.root.tag !== "Project") return false;

@@ -7,7 +7,7 @@ import { generateKnxMbmXbl } from "./generate";
  * Structural tests over the synthetic fixture. Every byte sequence asserted
  * here was derived from the decompiled C# writers (see provenance notes in
  * each module) and cross-checked against the decoded output; none of it is
- * verified against a real KNX–MBM gateway yet (docs/knx-mbm-mvp.md, Iteració 8).
+ * verified against a real KNX–MBM gateway yet (docs/plans/knx-mbm-mvp.md, Iteració 8).
  */
 
 const NOW = new Date(2026, 0, 1, 12, 0, 0); // local time, like C# DateTime.Now

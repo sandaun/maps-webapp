@@ -5,7 +5,7 @@ import { getSignalAddress, groupSignalOffset } from "./addresses";
 /**
  * Address-assignment rules ported from IntesisProjectMbsMe_RT.cs:2713-2870.
  * The FIXED expectations below are the documented map verified 222/222
- * against the real 770 Air fixture (docs/ac-me-mbs-analisi.md §5).
+ * against the real 770 Air fixture (docs/reference/ac-me-mbs-analisi.md §5).
  */
 
 const general = (g50: number, spec: number) =>

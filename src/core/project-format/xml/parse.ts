@@ -23,7 +23,7 @@ export interface ParsedXml {
  * comments, no CDATA — verified against real reference files), and the MVP
  * requires byte-stable round-trip, including the `<tag />` vs `<tag></tag>`
  * distinction and CRLF preservation. fast-xml-parser's preserveOrder mode
- * loses both, which is why this parser exists (see docs/knx-mbm-mvp.md).
+ * loses both, which is why this parser exists (see docs/plans/knx-mbm-mvp.md).
  *
  * Text and attribute values are entity-decoded on parse and re-escaped on
  * serialize. Unknown constructs (`<!`, `<?` beyond the declaration) fail

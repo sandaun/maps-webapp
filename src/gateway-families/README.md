@@ -30,4 +30,4 @@ Rules:
     `IntesisProjectMbsMe_RT`; XBL verified, live deploy tested).
 
 To add a new family, follow the step-by-step playbook at
-`docs/adding-a-gateway-family.md`.
+`docs/reference/adding-a-gateway-family.md`.

@@ -10,7 +10,7 @@ import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 
 /**
  * Deploy service: writes a (possibly modified) project to a gateway via
- * SENDCMPLT. Gated at every layer (docs/knx-mbm-mvp.md, Pas 2.6 / 3.4):
+ * SENDCMPLT. Gated at every layer (docs/plans/knx-mbm-mvp.md, Pas 2.6 / 3.4):
  *
  * 1. `family` — the project's family must have a deploy descriptor below
  *    (knx-mbm and me-mbs today; anything else stays 422).
