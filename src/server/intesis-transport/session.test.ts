@@ -243,3 +243,88 @@ describe("fake gateway sanity", () => {
     expect(FAKE_INFO_BODY).toContain("INFO:APPID:4");
   });
 });
+
+describe("diagnostics console and monitor", () => {
+  const FAST = { idleMs: 40, timeoutMs: 1_500 };
+
+  it("runs a free-text console command and collects the response lines", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    const result = await session.runConsoleCommand("INFO?", FAST);
+    expect(result.lines.some((l) => l.includes("INFO:GWNAME:IN-KNX-MBM-TEST"))).toBe(true);
+    expect(result.lines.some((l) => l.includes("INFO:END"))).toBe(true);
+    expect(result.timedOut).toBe(false);
+    session.close();
+  });
+
+  it("resolves unknown commands with silence (empty lines, no hang)", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    const result = await session.runConsoleCommand("HELP?", FAST);
+    expect(result.lines).toEqual([]);
+    session.close();
+  });
+
+  it("rejects multi-line commands", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.runConsoleCommand("INFO?\r\nRESET!")).rejects.toMatchObject({
+      code: "protocol",
+    });
+    session.close();
+  });
+
+  it("writes and reads a signal through the documented console syntax", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    const write = await session.runConsoleCommand("0KX:00020003=1", FAST);
+    expect(write.lines.some((l) => l.includes("0KX:OK"))).toBe(true);
+    const read = await session.runConsoleCommand("0KX:00020003?", FAST);
+    expect(read.lines.some((l) => l.includes("0KX:00020003=1;0"))).toBe(true);
+    session.close();
+  });
+
+  it("streams SPONS/COMMS pushes to the monitor listener until disabled", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    const lines: string[] = [];
+    await session.setMonitor(true, (line) => lines.push(line));
+    expect(session.monitoring).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(lines.some((l) => l.includes("1MM:RTUB [Tx]"))).toBe(true);
+    await session.setMonitor(false);
+    expect(session.monitoring).toBe(false);
+    const count = lines.length;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(lines.length).toBe(count);
+    session.close();
+  });
+
+  it("keeps INFO? working while the monitor is enabled (pump owns the channel)", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await session.setMonitor(true, () => {});
+    const info = await session.queryInfo();
+    expect(info.complete).toBe(true);
+    expect(session.monitoring).toBe(true);
+    session.close();
+  });
+
+  it("suspends the monitor during a transfer and resumes it afterwards", async () => {
+    const blob = makeTestBlob();
+    const fake = new FakeGateway({ password: "admin", projectBlob: blob });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await session.setMonitor(true, () => {});
+    const data = await session.receiveComplete();
+    expect(Buffer.from(data)).toEqual(Buffer.from(blob));
+    expect(session.monitoring).toBe(true);
+    session.close();
+  });
+});

@@ -102,6 +102,7 @@ describe("AppShell", () => {
       connected: true,
       encrypted: true,
       busy: false,
+      monitoring: false,
       connectedAt: "2026-08-19T17:00:00.000Z",
       gateway: {
         name: "Plant room",

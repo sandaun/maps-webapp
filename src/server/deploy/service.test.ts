@@ -90,6 +90,7 @@ function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boole
     connected: opts.connected ?? true,
     encrypted: true,
     busy: false,
+    monitoring: false,
     connectedAt: new Date().toISOString(),
     gateway: { appId: opts.appId ?? 64, bootloader: false, noApp: false },
   };
@@ -107,6 +108,8 @@ function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boole
     },
     queryInfo: () => Promise.reject(new Error("not implemented")),
     receiveProject: () => Promise.reject(new Error("not implemented")),
+    runConsoleCommand: () => Promise.reject(new Error("not implemented")),
+    setMonitor: () => Promise.reject(new Error("not implemented")),
     sendComplete: (_id, blob) => {
       uploads.push(blob);
       return Promise.resolve();

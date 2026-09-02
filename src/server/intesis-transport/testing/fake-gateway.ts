@@ -79,6 +79,10 @@ export class FakeGateway implements Duplex {
   private nakkedPackets = new Set<number>();
   private receivedUploads: Uint8Array[] = [];
   private sendCommands: string[] = [];
+  private pushTimers: ReturnType<typeof setInterval>[] = [];
+  private signalValues = new Map<string, string>();
+  private commsTick = 0;
+  private debugOn = false;
   closed = false;
 
   constructor(private readonly config: FakeGatewayConfig) {
@@ -118,6 +122,8 @@ export class FakeGateway implements Duplex {
 
   close(): void {
     this.closed = true;
+    for (const timer of this.pushTimers) clearInterval(timer);
+    this.pushTimers = [];
     for (const w of this.waiters.splice(0)) w(null);
   }
 
@@ -196,6 +202,25 @@ export class FakeGateway implements Duplex {
       if (line === "INFO?") {
         this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
         this.respondEncrypted((this.config.infoBody ?? FAKE_INFO_BODY) + "INFO:END\r\n");
+      } else if (line === "APPINFO?") {
+        this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+        this.respondEncrypted(
+          "APPINFO:NAME:fake-project\r\n" +
+            "APPINFO:SIGNALS:6\r\n" +
+            "APPINFO:APPID:4\r\n" +
+            "APPINFO:END\r\n",
+        );
+      } else if (line === "DIAGS?") {
+        this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+        this.respondEncrypted(
+          "DIAGS:XMEM:61234\r\n" +
+            "DIAGS:XFLASH:1048576\r\n" +
+            "DIAGS:TIMEOUTS:0\r\n" +
+            "DIAGS:SEMAPHORES:0\r\n" +
+            "DIAGS:GPIOS:0\r\n" +
+            "DIAGS:CPUTIME:0000d 00:44:52\r\n" +
+            "DIAGS:END\r\n",
+        );
       } else if (line === "RECVCMPLT") {
         this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
         if (!this.config.projectBlob) {
@@ -206,12 +231,74 @@ export class FakeGateway implements Duplex {
           this.respondEncrypted(`RECVCMPLT:READY:${n}\r\n`);
           this.stage = "xmodem";
         }
-      } else if (/^[01]:(SPONS|COMMS|DEBUG)=0$/.test(line)) {
-        // Upload pre-commands (PROTOCOL.md §10.1).
+      } else if (/^[01]:(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
+        // Console toggles (diagnostics) and upload pre-commands (PROTOCOL.md §10.1).
         this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+        this.updatePushes(line);
+      } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}\?/.test(line)) {
+        this.handleSignalRead(line);
+      } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}=/.test(line)) {
+        this.handleSignalWrite(line);
+      } else if (line === "RESET!") {
+        this.respondEncrypted("OK\r\n");
       } else if (line.startsWith("SENDCMPLT,") || line.startsWith("SENDPROJ,")) {
         this.handleSendCommand(line);
       }
+      // Unknown commands are ignored in silence, like the real firmware
+      // (docs/reference/console-protocol.md §4).
+    }
+  }
+
+  /** Signal read `<side><PREFIX>:<idHex>?` → `<same id>=<value>;<flags>`. */
+  private handleSignalRead(line: string): void {
+    const m = /^([01](?:KX|MM):[0-9A-Fa-f]{4,8})\?/.exec(line);
+    if (!m) return;
+    const id = m[1].toUpperCase();
+    // Without bus data the real firmware answers 0 (console-protocol.md §4).
+    this.respondEncrypted(`${id}=${this.signalValues.get(id) ?? "0.00"};0\r\n`);
+  }
+
+  /** Signal write `<side><PREFIX>:<idHex>=<value>[;]` → `<prefix>:OK`. */
+  private handleSignalWrite(line: string): void {
+    const m = /^([01])(KX|MM):([0-9A-Fa-f]{4,8})=([^;]*);?/.exec(line);
+    if (!m) return;
+    const id = `${m[1]}${m[2]}:${m[3]}`.toUpperCase();
+    this.signalValues.set(id, m[4]);
+    this.respondEncrypted(`${m[1]}${m[2]}:OK\r\n`);
+  }
+
+  /** Starts/stops the SPONS/COMMS push timers after a console toggle. */
+  private updatePushes(line: string): void {
+    const on = line.endsWith("=1");
+    // DEBUG only toggles timeout visibility; it must not restart the stream.
+    if (/DEBUG=/.test(line)) {
+      this.debugOn = on;
+      return;
+    }
+    for (const timer of this.pushTimers) clearInterval(timer);
+    this.pushTimers = [];
+    if (!on) return;
+    if (/SPONS=1$/.test(line) || /COMMS=1$/.test(line)) {
+      // Only start the scripted stream once both toggles may be on; the
+      // session enables SPONS and COMMS on both ports in sequence.
+      const timer = setInterval(() => {
+        if (this.closed) return;
+        this.commsTick++;
+        const n = this.commsTick;
+        if (this.debugOn && n % 13 === 0) {
+          // DEBUG=1 makes bus timeouts visible (console-protocol.md §2).
+          this.respondEncrypted("1MM:RTUB Timeout!\r\n");
+        } else if (n % 2 === 0) {
+          this.respondEncrypted("1MM:RTUB [Tx] 01 03 00 01 00 01 D5 CA\r\n");
+          this.respondEncrypted("1MM:RTUB [Rx] 01 03 02 00 A3 21 84\r\n");
+        } else {
+          const value = (20 + (n % 7)).toFixed(2);
+          this.signalValues.set("0KX:00020003", value);
+          this.respondEncrypted(`0KX:00020003=${value};0\r\n`);
+        }
+      }, 450);
+      timer.unref?.();
+      this.pushTimers.push(timer);
     }
   }
 

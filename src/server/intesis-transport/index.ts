@@ -20,6 +20,8 @@ export {
   GatewayError,
   GatewaySession,
   type ConnectResult,
+  type ConsoleCommandOptions,
+  type ConsoleResult,
   type GatewayErrorCode,
   type GatewaySessionOptions,
   type SendFileOptions,

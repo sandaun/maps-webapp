@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { ApiError, request } from "./api";
 import type { ProjectMeta } from "./project-types";
 
 export const GATEWAY_SESSIONS_CHANGED_EVENT = "maps:gateway-sessions-changed";
@@ -11,6 +11,23 @@ export interface GatewaySessionsChangedDetail {
 function notifyGatewaySessionsChanged(detail: GatewaySessionsChangedDetail): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(GATEWAY_SESSIONS_CHANGED_EVENT, { detail }));
+  }
+}
+
+/**
+ * Sessions live only in the server's memory, so a dev-server recompile or
+ * restart drops them while the browser still holds the id. When a
+ * session-scoped route answers 404, drop the stale session client-side too,
+ * so the UI returns to the Connection screen instead of going zombie.
+ */
+async function sessionScoped<T>(id: string, promise: Promise<T>): Promise<T> {
+  try {
+    return await promise;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      notifyGatewaySessionsChanged({ disconnectedId: id });
+    }
+    throw error;
   }
 }
 
@@ -47,6 +64,7 @@ export interface GatewaySessionStatus {
   connected: boolean;
   encrypted: boolean;
   busy: boolean;
+  monitoring: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
 }
@@ -62,6 +80,7 @@ export interface DiscoveredGateway {
 export type SessionEvent =
   | { type: "log"; at: string; line: string }
   | { type: "progress"; at: string; receivedBytes: number; totalBytes: number }
+  | { type: "monitor"; at: string; line: string }
   | { type: "status"; at: string; status: GatewaySessionStatus };
 
 /** KNX ↔ Modbus Master AppId (`IBOX_KNX_MBM = 4`, see docs/plans/knx-mbm-mvp.md §1). */
@@ -123,33 +142,95 @@ export async function listGatewaySessions(): Promise<GatewaySessionStatus[]> {
 }
 
 export async function getGatewaySession(id: string): Promise<GatewaySessionStatus> {
-  const data = await request<{ session: GatewaySessionStatus }>(
-    `/api/gateway/sessions/${encodeURIComponent(id)}`,
+  const data = await sessionScoped(
+    id,
+    request<{ session: GatewaySessionStatus }>(
+      `/api/gateway/sessions/${encodeURIComponent(id)}`,
+    ),
   );
   return data.session;
 }
 
 export async function disconnectGateway(id: string): Promise<void> {
-  await request(`/api/gateway/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await sessionScoped(
+    id,
+    request(`/api/gateway/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  ).catch((error: unknown) => {
+    // A 404 means the server already dropped the session — that is the goal.
+    if (error instanceof ApiError && error.status === 404) return;
+    throw error;
+  });
   notifyGatewaySessionsChanged({ disconnectedId: id });
 }
 
 /** Fresh `INFO?` query (read-only). */
 export async function queryGatewayInfo(id: string): Promise<GatewayInfoSummary> {
-  const data = await request<{ info: GatewayInfoSummary }>(
-    `/api/gateway/sessions/${encodeURIComponent(id)}/info`,
-    { method: "POST" },
+  const data = await sessionScoped(
+    id,
+    request<{ info: GatewayInfoSummary }>(
+      `/api/gateway/sessions/${encodeURIComponent(id)}/info`,
+      { method: "POST" },
+    ),
   );
   return data.info;
 }
 
 /** RECVCMPLT: receive the project from the gateway (read-only on the device). */
 export async function receiveGatewayProject(id: string): Promise<ProjectMeta> {
-  const data = await request<{ project: ProjectMeta }>(
-    `/api/gateway/sessions/${encodeURIComponent(id)}/receive`,
-    { method: "POST" },
+  const data = await sessionScoped(
+    id,
+    request<{ project: ProjectMeta }>(
+      `/api/gateway/sessions/${encodeURIComponent(id)}/receive`,
+      { method: "POST" },
+    ),
   );
   return data.project;
+}
+
+/** Mirror of `ConsoleResult` in `src/server/intesis-transport/session.ts`. */
+export interface ConsoleCommandResult {
+  lines: string[];
+  timedOut: boolean;
+}
+
+/**
+ * Diagnostics console: free-text command, response closes on an idle gap.
+ * Unknown commands are silent by design (docs/reference/console-protocol.md).
+ */
+export async function sendConsoleCommand(
+  id: string,
+  command: string,
+): Promise<ConsoleCommandResult> {
+  return sessionScoped(
+    id,
+    request<ConsoleCommandResult>(
+      `/api/gateway/sessions/${encodeURIComponent(id)}/console`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      },
+    ),
+  );
+}
+
+/** Enables/disables the live diagnostics monitor (pushes arrive via SSE). */
+export async function setGatewayMonitor(
+  id: string,
+  enabled: boolean,
+): Promise<GatewaySessionStatus> {
+  const data = await sessionScoped(
+    id,
+    request<{ session: GatewaySessionStatus }>(
+      `/api/gateway/sessions/${encodeURIComponent(id)}/monitor`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      },
+    ),
+  );
+  return data.session;
 }
 
 /** Mirror of `DeployGateCheck` in `src/server/deploy/service.ts`. */
@@ -178,8 +259,11 @@ export interface DeployResult {
 
 /** Server-side deploy gate evaluation for a project/session pair. */
 export async function getDeployStatus(sessionId: string, projectId: string): Promise<DeployStatus> {
-  const data = await request<{ status: DeployStatus }>(
-    `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy?projectId=${encodeURIComponent(projectId)}`,
+  const data = await sessionScoped(
+    sessionId,
+    request<{ status: DeployStatus }>(
+      `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy?projectId=${encodeURIComponent(projectId)}`,
+    ),
   );
   return data.status;
 }
@@ -192,13 +276,16 @@ export async function deployGatewayProject(
   sessionId: string,
   projectId: string,
 ): Promise<DeployResult> {
-  const data = await request<{ result: DeployResult }>(
-    `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId }),
-    },
+  const data = await sessionScoped(
+    sessionId,
+    request<{ result: DeployResult }>(
+      `/api/gateway/sessions/${encodeURIComponent(sessionId)}/deploy`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      },
+    ),
   );
   return data.result;
 }

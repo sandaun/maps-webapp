@@ -13,6 +13,13 @@ import { XmodemSender } from "./xmodem/sender";
  * The write path exists for the deploy flow (src/server/deploy/) and is
  * gated there — the session itself only speaks the protocol.
  *
+ * Diagnostics (docs/reference/console-protocol.md, live-validated): free-text
+ * console commands (`runConsoleCommand` — responses close on an idle gap
+ * because unknown commands are answered with silence) and the live monitor
+ * (`setMonitor` — `SPONS=1`/`COMMS=1` on both ports, pushed lines are routed
+ * to a listener). A single pump loop owns channel reads while diagnostics is
+ * active; transfers suspend it (`withPumpSuspended`).
+ *
  * Port of `fer_login` / `Canal` / `mode_info` / `mode_descarrega` /
  * `mode_puja` from temp/maps-cloud/sonda_maps.py (live-validated,
  * PROTOCOL.md §8/§10), with the documented fixes: `RECVCMPLT:ERR` is NOT
@@ -77,6 +84,12 @@ const SEND_PRE_COMMANDS = ["0:SPONS=0", "1:SPONS=0", "0:COMMS=0", "1:COMMS=0", "
 const SEND_READY_TIMEOUT_MS = 20_000;
 /** The gateway can take a while to apply the received config (sonda: 60 s). */
 const SEND_VALIDATION_TIMEOUT_MS = 60_000;
+/** Fast close for SPONS/COMMS toggles: the ACK is a single `SKTn - OK` line. */
+const TOGGLE_OPTS: ConsoleCommandOptions = {
+  idleMs: 80,
+  timeoutMs: 3_000,
+  doneWhen: (line) => line.includes(" - OK") || line.includes("ERR"),
+};
 
 /** Buffered text/binary channel over a Duplex, decrypting on arrival (sonda's `Canal`). */
 class Channel {
@@ -130,6 +143,11 @@ class Channel {
     return Uint8Array.from(this.buf.splice(0));
   }
 
+  /** True when the remote end closed and the buffer is drained. */
+  isEof(): boolean {
+    return this.eof && this.buf.length === 0;
+  }
+
   send(data: Uint8Array): void {    this.link.write(this.cipher ? this.cipher.encryptTx(data) : data);
   }
 
@@ -153,6 +171,35 @@ export interface ConnectResult {
   info: GatewayInfo;
   /** False when the firmware answered with the SKT cleartext pattern. */
   encrypted: boolean;
+}
+
+export interface ConsoleResult {
+  /** Response lines (CRLF stripped; SKT ACKs included). Empty = silent command. */
+  lines: string[];
+  /** True when the overall deadline hit (the idle gap never completed). */
+  timedOut: boolean;
+}
+
+export interface ConsoleCommandOptions {
+  /** Idle gap after the last received line that closes the response (default 600 ms). */
+  idleMs?: number;
+  /** Overall deadline (default 10000 ms). Unknown commands are answered with
+   *  silence by the firmware, so callers must rely on timeouts, not errors. */
+  timeoutMs?: number;
+  /** Early completion when a line matches (e.g. `INFO:END`): on a chatty bus
+   *  SPONS/COMMS pushes keep resetting the idle gap, so known terminators
+   *  must close the response without waiting for silence. */
+  doneWhen?: (line: string) => boolean;
+}
+
+/** Pending console-command response collector, fed by the pump loop. */
+interface ConsoleCollector {
+  lines: string[];
+  lastLineAt: number;
+  deadline: number;
+  idleMs: number;
+  doneWhen?: (line: string) => boolean;
+  resolve: (result: ConsoleResult) => void;
 }
 
 export interface SendFileOptions {
@@ -190,6 +237,15 @@ export class GatewaySession {
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private busy = false;
   private closed = false;
+  // Diagnostics console/monitor: a single pump loop owns the channel reads and
+  // routes lines either to the pending console collector or to the monitor
+  // listener (SPONS/COMMS pushes). Transfers suspend the pump to regain raw
+  // channel access (see withPumpSuspended).
+  private pumpDesired = false;
+  private pumpRunning = false;
+  private collector: ConsoleCollector | null = null;
+  private monitorOn = false;
+  private monitorListener: ((line: string) => void) | undefined;
 
   /** True after a successful LOGIN2 when the firmware encrypts the session. */
   encrypted = false;
@@ -270,18 +326,17 @@ export class GatewaySession {
   async queryInfo(): Promise<GatewayInfo> {
     const channel = this.requireChannel();
     return this.withBusy(async () => {
-      channel.sendLine("INFO?");
-      const lines: string[] = [];
-      const deadline = Date.now() + this.opts.lineTimeoutMs;
-      for (;;) {
-        const line = await channel.readLine(Math.max(1, deadline - Date.now()));
-        if (line === null) break;
-        const text = new TextDecoder().decode(line);
-        lines.push(text);
-        if (text.includes("INFO:END")) break;
-        if (Date.now() >= deadline) break;
-      }
-      const joined = lines.join("");
+      // With the diagnostics pump running, the channel is owned by the pump:
+      // go through the console collector instead of reading directly.
+      const lines = this.pumpRunning
+        ? (
+            await this.commandLocked("INFO?", {
+              timeoutMs: this.opts.lineTimeoutMs,
+              doneWhen: (line) => line.includes("INFO:END"),
+            })
+          ).lines
+        : await this.readInfoLines(channel);
+      const joined = lines.join("\n");
       if (joined.includes("Client disconnected")) {
         throw new GatewayError("closed", "Gateway closed the session");
       }
@@ -294,13 +349,29 @@ export class GatewaySession {
     });
   }
 
+  private async readInfoLines(channel: Channel): Promise<string[]> {
+    channel.sendLine("INFO?");
+    const lines: string[] = [];
+    const deadline = Date.now() + this.opts.lineTimeoutMs;
+    for (;;) {
+      const line = await channel.readLine(Math.max(1, deadline - Date.now()));
+      if (line === null) break;
+      const text = new TextDecoder().decode(line);
+      lines.push(text);
+      if (text.includes("INFO:END")) break;
+      if (Date.now() >= deadline) break;
+    }
+    return lines;
+  }
+
   /**
    * `RECVCMPLT`: downloads the "complete" project blob via XMODEM-1K and
    * validates it (length header, CRC32, ZIP magic) before returning it.
    */
   async receiveComplete(): Promise<Uint8Array> {
     const channel = this.requireChannel();
-    return this.withBusy(async () => {
+    return this.withBusy(() =>
+      this.withPumpSuspended(async () => {
       channel.sendLine("RECVCMPLT");
       this.events.log?.("RECVCMPLT sent");
 
@@ -374,7 +445,8 @@ export class GatewaySession {
       }
       this.events.log?.(`Blob validated (${total} bytes, CRC32 OK)`);
       return data;
-    });
+      }),
+    );
   }
 
   /**
@@ -436,7 +508,8 @@ export class GatewaySession {
   }): Promise<void> {
     const channel = this.requireChannel();
     const { command, filePrefix, okMarkers, payload, lengthArg, options } = params;
-    return this.withBusy(async () => {
+    return this.withBusy(() =>
+      this.withPumpSuspended(async () => {
       // Pre-commands: pause comms/debug on both ports during the upload.
       for (const cmd of SEND_PRE_COMMANDS) {
         channel.sendLine(cmd);
@@ -497,17 +570,207 @@ export class GatewaySession {
         if (Date.now() >= deadline) break;
       }
       throw new GatewayError("timeout", `No ${filePrefix}:OK within ${SEND_VALIDATION_TIMEOUT_MS / 1000} s`);
-    });
+      }),
+    );
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
     this.connected = false;
+    this.pumpDesired = false;
+    this.monitorOn = false;
+    if (this.collector) {
+      this.collector.resolve({ lines: this.collector.lines, timedOut: false });
+      this.collector = null;
+    }
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
     this.link.close();
     this.events.log?.("Session closed");
   }
+
+  /** True while the live monitor (SPONS/COMMS pushes) is enabled. */
+  get monitoring(): boolean {
+    return this.monitorOn;
+  }
+
+  /**
+   * Free-text console command (docs/reference/console-protocol.md). Sends the
+   * line and collects response lines until an idle gap (`idleMs`) or the
+   * overall deadline (`timeoutMs`): the firmware answers unknown commands
+   * with silence, so the idle gap is the universal terminator.
+   */
+  async runConsoleCommand(command: string, options: ConsoleCommandOptions = {}): Promise<ConsoleResult> {
+    this.requireChannel();
+    if (/[\r\n]/.test(command)) {
+      throw new GatewayError("protocol", "Console commands must be a single line");
+    }
+    return this.withBusy(() => this.commandLocked(command.trim(), options));
+  }
+
+  /**
+   * Enables/disables the live monitor: `SPONS=1` + `COMMS=1` + `DEBUG=1` on
+   * both ports (docs/reference/console-protocol.md §2). DEBUG makes bus
+   * timeouts visible (`1MM:RTUB Timeout!`) — with a silent bus they are the
+   * only signal that the monitor is alive. While enabled, every pushed line
+   * is routed to `listener`. Toggling ACKs are consumed internally.
+   */
+  async setMonitor(enabled: boolean, listener?: (line: string) => void): Promise<void> {
+    this.requireChannel();
+    return this.withBusy(async () => {
+      this.ensurePump();
+      // Disable first so a re-subscribe never stacks pushes on the gateway.
+      for (const port of [0, 1]) {
+        await this.commandLocked(`${port}:SPONS=0`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:COMMS=0`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:DEBUG=0`, TOGGLE_OPTS);
+      }
+      this.monitorOn = false;
+      this.monitorListener = undefined;
+      if (!enabled) {
+        // Nothing left to read for: let the pump wind down (a later console
+        // command or monitor enable restarts it via ensurePump).
+        this.pumpDesired = false;
+        return;
+      }
+      for (const port of [0, 1]) {
+        await this.commandLocked(`${port}:SPONS=1`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:COMMS=1`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:DEBUG=1`, TOGGLE_OPTS);
+      }
+      this.monitorListener = listener;
+      this.monitorOn = true;
+      this.events.log?.("Diagnostics monitor enabled (SPONS/COMMS on both ports)");
+    });
+  }
+
+  /** Console command with the busy lock already held (collector round-trip). */
+  private async commandLocked(command: string, options: ConsoleCommandOptions = {}): Promise<ConsoleResult> {
+    const channel = this.requireChannel();
+    this.ensurePump();
+    const idleMs = options.idleMs ?? 600;
+    const timeoutMs = options.timeoutMs ?? 10_000;
+    const result = new Promise<ConsoleResult>((resolve) => {
+      const now = Date.now();
+      this.collector = {
+        lines: [],
+        lastLineAt: now,
+        deadline: now + timeoutMs,
+        idleMs,
+        doneWhen: options.doneWhen,
+        resolve,
+      };
+    });
+    channel.sendLine(command);
+    return result;
+  }
+
+  /** Starts the pump loop if it is not running yet. */
+  private ensurePump(): void {
+    this.pumpDesired = true;
+    if (!this.pumpRunning) void this.pumpLoop();
+  }
+
+  /**
+   * Single reader of the channel while diagnostics is active. Routes each line
+   * to the pending console collector or, when the monitor is on, to the
+   * monitor listener. A collector closes after `idleMs` without new lines.
+   */
+  private async pumpLoop(): Promise<void> {
+    if (this.pumpRunning) return;
+    this.pumpRunning = true;
+    const channel = this.requireChannel();
+    try {
+      while (!this.closed && this.pumpDesired) {
+        const line = await channel.readLine(250);
+        const now = Date.now();
+        if (line !== null) {
+          const text = new TextDecoder().decode(line).replace(/\r\n$/, "");
+          if (this.collector) {
+            this.collector.lines.push(text);
+            this.collector.lastLineAt = now;
+            if (this.collector.doneWhen?.(text)) {
+              const done = this.collector;
+              this.collector = null;
+              done.resolve({ lines: done.lines, timedOut: false });
+            }
+          } else if (this.monitorOn) {
+            this.monitorListener?.(text);
+          } else {
+            this.events.log?.(`Unsolicited line: ${text}`);
+          }
+        }
+        const collector = this.collector;
+        if (collector && (now - collector.lastLineAt >= collector.idleMs || now >= collector.deadline)) {
+          this.collector = null;
+          collector.resolve({ lines: collector.lines, timedOut: now >= collector.deadline });
+        }
+        if (channel.isEof()) {
+          this.connected = false;
+          this.events.log?.("Connection lost (gateway closed the session)");
+          break;
+        }
+      }
+    } finally {
+      this.pumpRunning = false;
+      const collector = this.collector;
+      if (collector) {
+        this.collector = null;
+        collector.resolve({ lines: collector.lines, timedOut: false });
+      }
+    }
+  }
+
+  /** Stops the pump so transfers regain raw channel access (XMODEM is binary). */
+  private async suspendPump(): Promise<void> {
+    this.pumpDesired = false;
+    const deadline = Date.now() + 2_000;
+    while (this.pumpRunning && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (this.pumpRunning) {
+      throw new GatewayError("busy", "Could not pause the diagnostics monitor");
+    }
+  }
+
+  /**
+   * Runs a transfer with the diagnostics pump suspended and the gateway pushes
+   * off; restores the monitor afterwards when it was enabled. The gateway-side
+   * re-enable goes through console commands so the toggling ACKs never reach
+   * the monitor listener.
+   */
+  private async withPumpSuspended<T>(op: () => Promise<T>): Promise<T> {
+    const resume = this.monitorOn;
+    const listener = this.monitorListener;
+    if (resume) {
+      for (const port of [0, 1]) {
+        await this.commandLocked(`${port}:SPONS=0`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:COMMS=0`, TOGGLE_OPTS);
+        await this.commandLocked(`${port}:DEBUG=0`, TOGGLE_OPTS);
+      }
+      this.monitorOn = false;
+    }
+    await this.suspendPump();
+    try {
+      return await op();
+    } finally {
+      if (resume && this.connected && !this.closed) {
+        try {
+          this.ensurePump();
+          for (const port of [0, 1]) {
+            await this.commandLocked(`${port}:SPONS=1`, TOGGLE_OPTS);
+            await this.commandLocked(`${port}:COMMS=1`, TOGGLE_OPTS);
+            await this.commandLocked(`${port}:DEBUG=1`, TOGGLE_OPTS);
+          }
+          this.monitorListener = listener;
+          this.monitorOn = true;
+        } catch {
+          this.events.log?.("Could not resume the diagnostics monitor after the transfer");
+        }
+      }
+    }
+  }
+
 
   private assertUsable(): void {
     if (this.closed) throw new GatewayError("closed", "Session is closed");
