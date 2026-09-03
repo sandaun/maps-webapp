@@ -24,7 +24,7 @@ export interface MeGroupInfo {
   /** Owning controller index (`Controller` attribute). */
   controllerIndex: number;
   type: MEGroupType;
-  /** `NumOfFanSpeeds`: 2, 3 or 4. */
+  /** `NumOfFanSpeeds`: 0 (none), 2, 3 or 4. */
   fanSpeeds: number;
   dualSetPoint: boolean;
   /** URC = remote controller with humidity/brightness/occupancy sensors. */

@@ -2,10 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { Loader2, Plus, Search } from "lucide-react";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
-import { GROUP_TYPE_LABELS } from "@/protocols/me";
+import { CONTROLLER_MODELS, GROUP_TYPE_LABELS } from "@/protocols/me";
+import type { ScannedMeGroup } from "@/gateway-families/me-mbs/bus-scan";
 import type { MeMbsSignal } from "@/gateway-families/me-mbs/model";
+import { scanMeGroups } from "@/lib/gateway-api";
+import { useGatewaySession } from "@/lib/gateway-session";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
 import { useSave } from "@/lib/use-save";
@@ -13,10 +16,12 @@ import { cn } from "@/lib/utils";
 import { ScreenIssues } from "@/components/screens/screen-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type MeMbsView = Extract<ProjectView, { family: "me-mbs" }>;
 
@@ -299,6 +304,8 @@ function DetailHeader({
 
 function ControllerDetail({ view, controller }: { view: MeMbsView; controller: MeControllerInfo }) {
   const { save, busy, error } = useSave();
+  const { session } = useGatewaySession();
+  const [scanOpen, setScanOpen] = React.useState(false);
   const { me } = view.project;
   const c = controller;
   const enabledGroups = c.groups.filter((g) => g.enabled);
@@ -431,8 +438,21 @@ function ControllerDetail({ view, controller }: { view: MeMbsView; controller: M
         <FieldRow label="Integrated" hint="Groups integrated from this controller into the project list">
           <ReadOnly value={`${enabledGroups.length} of ${GROUPS_PER_CONTROLLER} · ${controllerSignals.length} signals mapped`} />
         </FieldRow>
-        <FieldRow label="Scan groups" hint="Connect the gateway to scan the centralized controllers">
-          <Button size="sm" variant="secondary" className="h-8" disabled>
+        <FieldRow
+          label="Scan groups"
+          hint={
+            session?.connected
+              ? "Read the M-NET groups from this controller via the gateway"
+              : "Connect the gateway to scan the centralized controllers"
+          }
+        >
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8"
+            disabled={!session?.connected}
+            onClick={() => setScanOpen(true)}
+          >
             Scan groups
           </Button>
         </FieldRow>
@@ -480,6 +500,10 @@ function ControllerDetail({ view, controller }: { view: MeMbsView; controller: M
           <ReadOnly value="—" />
         </FieldRow>
       </GroupCard>
+
+      {scanOpen && session?.connected && (
+        <ScanGroupsModal controller={c} sessionId={session.id} onClose={() => setScanOpen(false)} />
+      )}
     </>
   );
 }
@@ -593,7 +617,7 @@ function GroupDetail({
             value={form.fanSpeeds}
             onChange={(e) => set("fanSpeeds", Number(e.target.value))}
           >
-            {[2, 3, 4].map((n) => (
+            {[0, 2, 3, 4].map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
@@ -740,6 +764,241 @@ function AddGroupsModal({ view, onClose }: { view: MeMbsView; onClose: () => voi
         </div>
       )}
     </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Scan groups modal (M-NET bus scan via the gateway diagnostics console)
+ * ------------------------------------------------------------------------- */
+
+/** Desktop `GetControllerTypeString` (frmDiscoverMe.cs). */
+const CONTROLLER_TYPE_LABELS: Record<number, string> = {
+  0: "Controller Direct Connection",
+  1: "Expansion Controller 1",
+  2: "Expansion Controller 2",
+  3: "Expansion Controller 3",
+};
+
+type ScanPhase = "ready" | "scanning" | "finished" | "failed";
+
+const SCAN_PHASE_BADGE: Record<ScanPhase, { label: string; variant: "muted" | "default" | "success" | "error" }> = {
+  ready: { label: "ready", variant: "muted" },
+  scanning: { label: "scanning", variant: "default" },
+  finished: { label: "scan finished", variant: "success" },
+  failed: { label: "scan failed", variant: "error" },
+};
+
+function ScanGroupsModal({
+  controller,
+  sessionId,
+  onClose,
+}: {
+  controller: MeControllerInfo;
+  sessionId: string;
+  onClose: () => void;
+}) {
+  const applyPatches = usePatch();
+  const [phase, setPhase] = React.useState<ScanPhase>("ready");
+  const [groups, setGroups] = React.useState<ScannedMeGroup[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const abortRef = React.useRef<AbortController | null>(null);
+
+  const inProject = (group: number) => controller.groups[group - 1]?.enabled === true;
+  const newCount = groups.filter((g) => !inProject(g.group)).length;
+
+  function startScan() {
+    // Secure controllers need credentials appended to the command; those are
+    // never stored in the project model, so the scan is not supported.
+    if (controller.model === CONTROLLER_MODELS.AE_C400E) {
+      setError("Secure controllers (AE-C400E) require credentials that the web app never handles — bus scan is not supported for them");
+      setPhase("failed");
+      return;
+    }
+    const abort = new AbortController();
+    abortRef.current = abort;
+    setPhase("scanning");
+    setError(null);
+    void scanMeGroups(
+      sessionId,
+      { typeIndex: controller.type, ip: controller.ip, port: controller.port },
+      abort.signal,
+    )
+      .then((result) => {
+        if (abort.signal.aborted) return;
+        setGroups(result.groups);
+        if (result.ok) {
+          // Pre-select only the groups that are not yet in the project.
+          setSelected(new Set(result.groups.filter((g) => !inProject(g.group)).map((g) => g.group)));
+          setPhase("finished");
+        } else {
+          setError(result.error ?? "Scan failed");
+          setPhase("failed");
+        }
+      })
+      .catch((scanError: unknown) => {
+        if (abort.signal.aborted) return;
+        setGroups([]);
+        setError(scanError instanceof Error ? scanError.message : "Scan failed");
+        setPhase("failed");
+      });
+  }
+
+  // Cancelling mid-scan aborts only the client-side wait: the gateway finishes
+  // the scan in the background (no STOPBUSSCAN is sent).
+  function handleClose() {
+    abortRef.current?.abort();
+    onClose();
+  }
+
+  const toggle = (group: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+
+  function selectNewOnly() {
+    setSelected(new Set(groups.filter((g) => !inProject(g.group)).map((g) => g.group)));
+  }
+
+  function handleApply() {
+    const patches: ProjectPatchInput[] = groups
+      .filter((g) => selected.has(g.group))
+      .map((g) => ({
+        type: "updateGroup",
+        controllerIndex: controller.index,
+        groupIndex: g.group - 1,
+        patch: { enabled: true, type: g.type, fanSpeeds: g.fanSpeeds, urc: g.urc, capacity: g.capacity },
+      }));
+    void applyPatches(patches).then(onClose);
+  }
+
+  const phaseBadge = SCAN_PHASE_BADGE[phase];
+
+  return (
+    <Modal
+      title={`Scan groups — Controller ${controller.index + 1}`}
+      description={`The gateway asks centralized controller ${controller.index + 1} for every indoor and outdoor unit on the M-NET bus. Nothing changes in the project until you apply the selection.`}
+      foot="Applying replaces the unit type, fan speeds and URC of the selected groups with the values read from the controller. Descriptions are not read from the controller — add them per group after applying."
+      ctaLabel={`Apply ${selected.size} group${selected.size === 1 ? "" : "s"}`}
+      ctaDisabled={selected.size === 0 || phase === "scanning"}
+      onConfirm={handleApply}
+      onClose={handleClose}
+      width={760}
+    >
+      <div className="mb-3 grid grid-cols-4 gap-[9px] rounded-[4px] border border-border bg-[#FBFBFC] px-3 py-[10px]">
+        <ScanField
+          label="Controller"
+          value={`${controller.index + 1}${controller.description ? ` — ${controller.description}` : ""}`}
+        />
+        <ScanField label="Type" value={CONTROLLER_TYPE_LABELS[controller.type] ?? `Type ${controller.type}`} />
+        <ScanField label="IP address" value={controller.ip || "—"} mono />
+        <ScanField label="Port" value={String(controller.port)} mono />
+      </div>
+
+      <div className="mb-3 flex items-center gap-[9px]">
+        <Badge variant={phaseBadge.variant}>{phaseBadge.label}</Badge>
+        {phase === "scanning" && (
+          <span className="flex items-center gap-[6px] text-[12px] text-fg-muted">
+            <Loader2 className="size-[13px] animate-spin" aria-hidden />
+            Reading M-NET addresses…
+          </span>
+        )}
+        <Button
+          size="sm"
+          variant="secondary"
+          className="ml-auto h-8"
+          disabled={phase === "scanning"}
+          onClick={startScan}
+        >
+          {phase === "ready" ? "Scan" : "Scan again"}
+        </Button>
+      </div>
+
+      {phase === "failed" && error && (
+        <p role="alert" className="mb-3 text-[12.5px] text-error">
+          {error}
+        </p>
+      )}
+      {phase === "finished" && groups.length === 0 && (
+        <p className="mb-3 text-[12.5px] text-fg-muted">No groups found on the M-NET bus.</p>
+      )}
+
+      {groups.length > 0 && (
+        <>
+          <div className="mb-2 flex items-center gap-[9px] text-[11.5px] text-fg-subtle">
+            <span>
+              {groups.length} groups · {newCount} new
+            </span>
+            {newCount > 0 && (
+              <button
+                type="button"
+                onClick={selectNewOnly}
+                className="cursor-pointer text-hms-accent hover:underline"
+              >
+                Select new only
+              </button>
+            )}
+          </div>
+          <div className="max-h-[320px] overflow-y-auto rounded-[4px] border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[36px]">Add</TableHead>
+                  <TableHead>Group</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Fan speed</TableHead>
+                  <TableHead>Fan auto</TableHead>
+                  <TableHead>Fan exlow</TableHead>
+                  <TableHead>URC</TableHead>
+                  <TableHead>State</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {groups.map((g) => {
+                  const existing = inProject(g.group);
+                  return (
+                    <TableRow key={g.group}>
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`Add group G${g.group}`}
+                          checked={selected.has(g.group)}
+                          onChange={() => toggle(g.group)}
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono text-[12px]">G{g.group}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{g.addresses.join(", ") || "—"}</TableCell>
+                      <TableCell className="text-[12px]">{g.model || "—"}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{g.fanSpeeds}</TableCell>
+                      <TableCell className="text-[12px]">{g.fanAuto || "—"}</TableCell>
+                      <TableCell className="text-[12px]">{g.fanExlow || "—"}</TableCell>
+                      <TableCell className="text-[12px]">{g.urc ? "Enabled" : "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={existing ? "success" : "outline"} className="px-[6px] py-0 text-[10px]">
+                          {existing ? "in project" : "new"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function ScanField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10.5px] font-bold uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div className={cn("mt-[2px] truncate text-[12.5px] text-text-body", mono && "font-mono")}>{value}</div>
+    </div>
   );
 }
 

@@ -204,7 +204,7 @@ const meGroupPatchSchema = z
     enabled: z.boolean(),
     description: z.string().max(128),
     type: z.number().int().min(0).max(6),
-    fanSpeeds: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+    fanSpeeds: z.union([z.literal(0), z.literal(2), z.literal(3), z.literal(4)]),
     dualSetPoint: z.boolean(),
     urc: z.boolean(),
     capacity: z.number().int().min(-1),
