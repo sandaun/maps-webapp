@@ -83,7 +83,7 @@ type MeScalarsPatch = Partial<
   >
 >;
 type MeControllerPatch = Partial<
-  Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "model" | "compatibility" | "addErrorSignals">
+  Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "type" | "model" | "compatibility" | "addErrorSignals">
 >;
 type MeGroupPatch = Partial<
   Pick<MeGroupInfo, "enabled" | "description" | "type" | "fanSpeeds" | "dualSetPoint" | "urc" | "capacity">

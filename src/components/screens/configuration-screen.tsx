@@ -110,7 +110,7 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
 function SectionHeader({ title, desc }: { title: string; desc: string }) {
   return (
     <>
-      <h2 className="mb-1 font-display text-[22px] font-normal text-hms-blue">{title}</h2>
+      <h2 className="mb-1 font-display text-[22px] font-light text-hms-blue">{title}</h2>
       <p className="mb-[22px] max-w-[600px] text-[13px] leading-[1.55] text-fg-muted">{desc}</p>
     </>
   );

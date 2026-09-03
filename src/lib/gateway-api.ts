@@ -1,4 +1,5 @@
 import { ApiError, request } from "./api";
+import type { ScannedMeGroup } from "@/gateway-families/me-mbs/bus-scan";
 import type { ProjectMeta } from "./project-types";
 
 export const GATEWAY_SESSIONS_CHANGED_EVENT = "maps:gateway-sessions-changed";
@@ -211,6 +212,43 @@ export async function sendConsoleCommand(
         body: JSON.stringify({ command }),
       },
     ),
+  );
+}
+
+export interface MeScanParams {
+  /** Controller `TypeIndex` (0 = direct connection, 1-3 = expansion). */
+  typeIndex: number;
+  ip: string;
+  port: number;
+  /** Secure controllers (AE-C400E) are rejected by the route — always omit. */
+  secure?: false;
+}
+
+/** Result of the `me-scan` route (`ok`/`error` from `parseBusScanResult`). */
+export interface MeScanResult {
+  ok: boolean;
+  groups: ScannedMeGroup[];
+  error?: string;
+}
+
+/**
+ * M-NET bus scan of a centralized controller (long-running: up to 2 min).
+ * Aborting `signal` cancels only the client-side wait — the gateway finishes
+ * the scan in the background.
+ */
+export async function scanMeGroups(
+  id: string,
+  params: MeScanParams,
+  signal?: AbortSignal,
+): Promise<MeScanResult> {
+  return sessionScoped(
+    id,
+    request<MeScanResult>(`/api/gateway/sessions/${encodeURIComponent(id)}/me-scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+      signal,
+    }),
   );
 }
 
