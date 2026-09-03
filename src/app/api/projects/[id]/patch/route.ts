@@ -192,6 +192,7 @@ const meControllerPatchSchema = z
     enabled: z.boolean(),
     ip: z.string().max(45),
     port: z.number().int().min(1).max(65535),
+    type: z.number().int().min(0).max(3),
     model: z.number().int().min(0).max(3),
     compatibility: z.union([z.literal(0), z.literal(1)]),
     addErrorSignals: z.boolean(),

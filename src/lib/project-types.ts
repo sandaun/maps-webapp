@@ -81,7 +81,7 @@ export type MeScalarsPatchInput = Partial<
   >
 >;
 export type MeControllerPatchInput = Partial<
-  Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "model" | "compatibility" | "addErrorSignals">
+  Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "type" | "model" | "compatibility" | "addErrorSignals">
 >;
 export type MeGroupPatchInput = Partial<
   Pick<MeGroupInfo, "enabled" | "description" | "type" | "fanSpeeds" | "dualSetPoint" | "urc" | "capacity">

@@ -140,13 +140,14 @@ export function updateMeScalars(
 export function updateController(
   doc: XmlDocument,
   controllerIndex: number,
-  patch: Partial<Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "model" | "compatibility" | "addErrorSignals">>,
+  patch: Partial<Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "type" | "model" | "compatibility" | "addErrorSignals">>,
 ): void {
   const el = controllerAt(doc, controllerIndex);
   if (patch.description !== undefined) setText(childEl(el, "Description"), patch.description);
   if (patch.enabled !== undefined) setText(childEl(el, "Enabled"), boolText(patch.enabled));
   if (patch.ip !== undefined) setText(childEl(el, "IP"), patch.ip);
   if (patch.port !== undefined) setText(childEl(el, "Port"), String(patch.port));
+  if (patch.type !== undefined) setText(childEl(el, "Type"), String(patch.type));
   if (patch.model !== undefined) setText(childEl(el, "Model"), String(patch.model));
   if (patch.compatibility !== undefined) setText(childEl(el, "Compatibility"), String(patch.compatibility));
   if (patch.addErrorSignals !== undefined) setText(childEl(el, "AddErrorSignals"), boolText(patch.addErrorSignals));
