@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { GatewayError, GatewaySession, type SendFileOptions } from "./session";
+import { GatewayError, GatewaySession, type ConsoleCommandOptions, type SendFileOptions } from "./session";
 import { TcpDuplex, type Duplex } from "./transport";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
 
@@ -63,6 +63,7 @@ export interface GatewaySessions {
   runConsoleCommand(
     id: string,
     command: string,
+    options?: ConsoleCommandOptions,
   ): Promise<{ lines: string[]; timedOut: boolean }>;
   /** Enables/disables the live monitor; pushed lines flow as `monitor` events. */
   setMonitor(id: string, enabled: boolean): Promise<GatewaySessionStatus>;
@@ -225,6 +226,7 @@ export class GatewaySessionManager implements GatewaySessions {
   async runConsoleCommand(
     id: string,
     command: string,
+    options?: ConsoleCommandOptions,
   ): Promise<{ lines: string[]; timedOut: boolean }> {
     const managed = this.require(id);
     return this.runExclusive(managed, async () => {
@@ -233,7 +235,7 @@ export class GatewaySessionManager implements GatewaySessions {
         at: new Date().toISOString(),
         line: `Console: ${command}`,
       });
-      return managed.session.runConsoleCommand(command);
+      return managed.session.runConsoleCommand(command, options);
     }).catch((error: unknown) => {
       throw toGatewayRequestError(error);
     });
