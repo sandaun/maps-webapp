@@ -60,6 +60,30 @@ export function setKnxExtendedAddresses(doc: XmlDocument, enabled: boolean): voi
   setText(mustFind(doc, ["InternalProtocol", "UseExtendedAddresses"]), boolText(enabled));
 }
 
+/** Global Modbus Master settings: media, deadband and poll records. */
+export interface MbmConfigPatch {
+  media?: number;
+  deadband?: number;
+  pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
+}
+
+export function updateMbmConfig(doc: XmlDocument, patch: MbmConfigPatch): void {
+  const external = mustFind(doc, ["ExternalProtocol"]);
+  if (patch.media !== undefined) setText(childEl(external, "Media"), String(patch.media));
+  if (patch.deadband !== undefined) setText(childEl(external, "Deadband"), String(patch.deadband));
+  const pr = patch.pollRecords;
+  if (pr) {
+    const pollRecords = external.children.find(
+      (c): c is XmlElement => c.kind === "element" && c.tag === "PollRecords",
+    );
+    if (pollRecords) {
+      if (pr.enabled !== undefined) setAttr(pollRecords, "Enabled", boolText(pr.enabled));
+      if (pr.useMissingReg !== undefined) setAttr(pollRecords, "UseMissingReg", boolText(pr.useMissingReg));
+      if (pr.maxRegisters !== undefined) setAttr(pollRecords, "MaxRegisters", String(pr.maxRegisters));
+    }
+  }
+}
+
 // --- signals ---------------------------------------------------------------
 
 /** Next free signal id (max existing + 1, 0 when empty). */

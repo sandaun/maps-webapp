@@ -8,6 +8,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
+import type { FamilyId } from "./project-types";
 
 export interface NavSection {
   href: string;
@@ -25,7 +26,17 @@ export const NAV_SECTIONS: NavSection[] = [
   { href: "/deploy", label: "Deploy", icon: Rocket },
 ];
 
-export function sectionLabelForPath(pathname: string): string {
+/** The /devices screen lists AC units on me-mbs projects, Modbus nodes elsewhere. */
+const DEVICES_LABELS: Record<FamilyId, string> = {
+  "knx-mbm": "Modbus devices",
+  "me-mbs": "AC units",
+};
+
+export function navLabelFor(section: NavSection, family?: FamilyId): string {
+  return section.href === "/devices" && family ? DEVICES_LABELS[family] : section.label;
+}
+
+export function sectionLabelForPath(pathname: string, family?: FamilyId): string {
   const section = NAV_SECTIONS.find((s) => pathname.startsWith(s.href));
-  return section?.label ?? "Connection";
+  return section ? navLabelFor(section, family) : "Connection";
 }

@@ -67,8 +67,8 @@ function StatusChip({
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
-  const section = sectionLabelForPath(pathname);
   const { view } = useCurrentProject();
+  const section = sectionLabelForPath(pathname, view?.family);
   const { session, loading: sessionLoading } = useGatewaySession();
   const { dirtyCount } = useWorkspaceChrome();
   const projectsArea = pathname.startsWith("/projects");

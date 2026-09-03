@@ -46,14 +46,46 @@ export function setGatewayInfo(doc: XmlDocument, patch: Partial<GatewayInfo>): v
 
 export function updateMbsConfig(
   doc: XmlDocument,
-  patch: Partial<Pick<MbsConfig, "media" | "byteOrder" | "updateCOV" | "commErrorTout" | "registerBase">>,
+  patch: Partial<
+    Pick<
+      MbsConfig,
+      "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+    >
+  >,
 ): void {
   const internal = mustFind(doc, ["InternalProtocol"]);
   if (patch.media !== undefined) setText(childEl(internal, "Media"), String(patch.media));
   if (patch.byteOrder !== undefined) setText(childEl(internal, "ByteOrder"), String(patch.byteOrder));
   if (patch.updateCOV !== undefined) setText(childEl(internal, "UpdateCOV"), boolText(patch.updateCOV));
+  if (patch.addressMode !== undefined) setText(childEl(internal, "AddressMode"), String(patch.addressMode));
+  if (patch.slaveAddressMode !== undefined) {
+    setText(childEl(internal, "SlaveAddressMode"), String(patch.slaveAddressMode));
+  }
   if (patch.commErrorTout !== undefined) setText(childEl(internal, "CommErrorTout"), String(patch.commErrorTout));
   if (patch.registerBase !== undefined) setText(childEl(internal, "RegisterBase"), String(patch.registerBase));
+  if (patch.slaves !== undefined) replaceMbsSlaves(internal, patch.slaves);
+}
+
+/** Rewrites `<MBSlavesArray>` (virtual-slave list, MULTIPLE addressing mode). */
+function replaceMbsSlaves(internal: XmlElement, slaves: MbsConfig["slaves"]): void {
+  const array = internal.children.find(
+    (c): c is XmlElement => c.kind === "element" && c.tag === "MBSlavesArray"
+  );
+  if (!array) throw new Error("<InternalProtocol> has no <MBSlavesArray> child");
+  // Drop existing <MBSlave> entries (and their whitespace) keeping the wrapper.
+  for (const child of [...array.children]) {
+    if (child.kind === "element") removeElement(child);
+  }
+  for (const slave of slaves) {
+    appendChildIndented(
+      array,
+      element("MBSlave", [
+        ["Address", String(slave.address)],
+        ["Description", slave.description],
+      ]),
+      3
+    );
+  }
 }
 
 export function updateRtuConfig(doc: XmlDocument, patch: Partial<MbsConfig["rtu"]>): void {
@@ -82,13 +114,27 @@ export function updateTcpConfig(doc: XmlDocument, patch: Partial<MbsConfig["tcp"
 
 export function updateMeScalars(
   doc: XmlDocument,
-  patch: Partial<Pick<import("@/protocols/me").MeConfig, "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst">>,
+  patch: Partial<
+    Pick<
+      import("@/protocols/me").MeConfig,
+      "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst" | "temperatureMode" | "consumptionEnabled"
+    >
+  >,
 ): void {
   const external = mustFind(doc, ["ExternalProtocol"]);
   if (patch.pollPeriod !== undefined) setText(childEl(external, "PollPeriod"), String(patch.pollPeriod));
   if (patch.ansTimeout !== undefined) setText(childEl(external, "AnsTimeout"), String(patch.ansTimeout));
   if (patch.controllerTout !== undefined) setText(childEl(external, "ControllerTout"), String(patch.controllerTout));
   if (patch.writeMaxBurst !== undefined) setText(childEl(external, "WriteMaxBurst"), String(patch.writeMaxBurst));
+  if (patch.temperatureMode !== undefined) {
+    setText(childEl(external, "TemperatureMode"), String(patch.temperatureMode));
+  }
+  if (patch.consumptionEnabled !== undefined) {
+    const consumption = external.children.find(
+      (c): c is XmlElement => c.kind === "element" && c.tag === "ConsumptionFunction",
+    );
+    if (consumption) setAttr(consumption, "Enabled", boolText(patch.consumptionEnabled));
+  }
 }
 
 export function updateController(

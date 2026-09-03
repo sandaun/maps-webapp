@@ -116,6 +116,23 @@ const devicePatchSchema = z
   })
   .partial();
 
+// KNX–MBM global Modbus Master config patch (media, deadband, poll records).
+const mbmConfigPatchSchema = z
+  .object({
+    media: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    deadband: z.number().min(0).max(1),
+    pollRecords: z
+      .object({
+        enabled: z.boolean(),
+        useMissingReg: z.boolean(),
+        maxRegisters: z.number().int().min(1).max(255),
+      })
+      .partial()
+      .strict(),
+  })
+  .partial()
+  .strict();
+
 // --- ME–MBS config patches -----------------------------------------------------
 
 const mbsConfigPatchSchema = z
@@ -123,8 +140,16 @@ const mbsConfigPatchSchema = z
     media: z.union([z.literal(0), z.literal(1), z.literal(2)]),
     byteOrder: z.number().int().min(0).max(3),
     updateCOV: z.boolean(),
+    addressMode: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    slaveAddressMode: z.union([z.literal(0), z.literal(1)]),
     commErrorTout: z.number().int().min(0).max(3600),
     registerBase: z.union([z.literal(0), z.literal(1)]),
+    slaves: z.array(
+      z.object({
+        address: z.number().int().min(1).max(247),
+        description: z.string().max(128),
+      }),
+    ),
   })
   .partial()
   .strict();
@@ -155,6 +180,8 @@ const meScalarsPatchSchema = z
     ansTimeout: z.number().int().min(0),
     controllerTout: z.number().int().min(0),
     writeMaxBurst: z.number().int().min(0),
+    temperatureMode: z.union([z.literal(0), z.literal(1)]),
+    consumptionEnabled: z.boolean(),
   })
   .partial()
   .strict();
@@ -201,6 +228,7 @@ const patchSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("setKnxPhysicalAddress"), address: z.number().int().min(1).max(65535) }),
   z.object({ type: z.literal("setKnxExtendedAddresses"), enabled: z.boolean() }),
+  z.object({ type: z.literal("updateMbmConfig"), patch: mbmConfigPatchSchema }),
   z.object({ type: z.literal("addSignal") }),
   z.object({ type: z.literal("removeSignal"), id: z.number().int().min(0) }),
   z.object({
