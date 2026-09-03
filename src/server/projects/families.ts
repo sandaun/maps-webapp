@@ -16,6 +16,7 @@ import {
   setKnxExtendedAddresses,
   setKnxPhysicalAddress,
   updateDevice as knxUpdateDevice,
+  updateMbmConfig,
   updateRtuNode as knxUpdateRtuNode,
   updateSignal as knxUpdateSignal,
   updateTcpNode as knxUpdateTcpNode,
@@ -70,10 +71,16 @@ export type TcpNodePatch = Partial<Omit<MbmTcpNode, "devices">>;
 export type DevicePatch = Partial<Omit<MbmDevice, "index">>;
 
 type MbsConfigPatch = Partial<
-  Pick<MbsConfig, "media" | "byteOrder" | "updateCOV" | "commErrorTout" | "registerBase">
+  Pick<
+    MbsConfig,
+    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+  >
 >;
 type MeScalarsPatch = Partial<
-  Pick<MeMbsProject["me"], "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst">
+  Pick<
+    MeMbsProject["me"],
+    "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst" | "temperatureMode" | "consumptionEnabled"
+  >
 >;
 type MeControllerPatch = Partial<
   Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "model" | "compatibility" | "addErrorSignals">
@@ -88,6 +95,14 @@ export type KnxMbmPatch =
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
   | { type: "setKnxExtendedAddresses"; enabled: boolean }
+  | {
+      type: "updateMbmConfig";
+      patch: {
+        media?: number;
+        deadband?: number;
+        pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
+      };
+    }
   | { type: "addSignal" }
   | { type: "removeSignal"; id: number }
   | { type: "updateSignal"; id: number; patch: KnxMbmSignalPatch }
@@ -136,6 +151,7 @@ const KNX_MBM_TYPES = new Set([
   "setGatewayInfo",
   "setKnxPhysicalAddress",
   "setKnxExtendedAddresses",
+  "updateMbmConfig",
   "addSignal",
   "removeSignal",
   "updateSignal",
@@ -220,6 +236,9 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       break;
     case "setKnxExtendedAddresses":
       setKnxExtendedAddresses(doc, patch.enabled);
+      break;
+    case "updateMbmConfig":
+      updateMbmConfig(doc, patch.patch);
       break;
     case "addSignal":
       knxAddSignal(doc);

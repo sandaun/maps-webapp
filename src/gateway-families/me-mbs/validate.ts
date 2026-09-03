@@ -91,7 +91,7 @@ function validateMbsConfig(project: MeMbsProject, issues: ValidationIssue[]): vo
 }
 
 function validateMeTopology(project: MeMbsProject, issues: ValidationIssue[]): void {
-  const ref = { screen: "configuration" as const, entity: "project" as const };
+  const ref = { screen: "devices" as const, entity: "project" as const };
   if (project.me.controllers.length > MAX_CONTROLLERS) {
     issues.push({
       code: "ME-CONTROLLER-LIMIT",
@@ -116,7 +116,7 @@ function validateMeTopology(project: MeMbsProject, issues: ValidationIssue[]): v
         code: "ME-CTRL-DISABLED",
         severity: "warning",
         message: `Controller ${ci + 1} is disabled but has enabled groups.`,
-        ref: { screen: "configuration", entity: "device", id: `ctrl:${ci}` },
+        ref: { screen: "devices", entity: "device", id: `ctrl:${ci}` },
       });
     }
   });

@@ -63,10 +63,22 @@ export type TcpNodePatchInput = Partial<Omit<MbmTcpNode, "devices">>;
 export type DevicePatchInput = Partial<Omit<MbmDevice, "index">>;
 
 export type MbsConfigPatchInput = Partial<
-  Pick<MbsConfig, "media" | "byteOrder" | "updateCOV" | "commErrorTout" | "registerBase">
+  Pick<
+    MbsConfig,
+    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+  >
 >;
+/** KNX-MBM global Modbus Master config (mirror of `MbmConfigPatch` in xml-ops). */
+export interface MbmConfigPatchInput {
+  media?: number;
+  deadband?: number;
+  pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
+}
 export type MeScalarsPatchInput = Partial<
-  Pick<MeMbsProject["me"], "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst">
+  Pick<
+    MeMbsProject["me"],
+    "pollPeriod" | "ansTimeout" | "controllerTout" | "writeMaxBurst" | "temperatureMode" | "consumptionEnabled"
+  >
 >;
 export type MeControllerPatchInput = Partial<
   Pick<MeControllerInfo, "description" | "enabled" | "ip" | "port" | "model" | "compatibility" | "addErrorSignals">
@@ -81,6 +93,7 @@ export type ProjectPatchInput =
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
   | { type: "setKnxExtendedAddresses"; enabled: boolean }
+  | { type: "updateMbmConfig"; patch: MbmConfigPatchInput }
   | { type: "addSignal" }
   | { type: "removeSignal"; id: number }
   | { type: "updateSignal"; id: number; patch: SignalPatchInput }

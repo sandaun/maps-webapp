@@ -124,6 +124,28 @@ describe("project service", () => {
     expect(knxProjectOf(after).mbm.rtuNodes[0].devices).toHaveLength(deviceCount);
   });
 
+  it("updates the global Modbus Master config (media, deadband, poll records)", async () => {
+    const meta = await loadDemoProject();
+
+    const view = await applyPatches(meta.id, [
+      {
+        type: "updateMbmConfig",
+        patch: { media: 2, deadband: 0.5, pollRecords: { enabled: true, maxRegisters: 60 } },
+      },
+    ]);
+    expect(knxProjectOf(view).mbm).toMatchObject({
+      media: 2,
+      deadband: 0.5,
+      pollRecords: { enabled: true, useMissingReg: false, maxRegisters: 60 },
+    });
+
+    // Survives a simulated restart.
+    resetProjectStoreForTests();
+    const reloaded = await getProjectView(meta.id);
+    expect(knxProjectOf(reloaded).mbm.media).toBe(2);
+    expect(knxProjectOf(reloaded).mbm.pollRecords.maxRegisters).toBe(60);
+  });
+
   it("backfills the family field on projects stored before it existed", async () => {
     const meta = await loadDemoProject();
     // Simulate a pre-2.5 stored meta: no family field.
@@ -165,14 +187,37 @@ describe("project service — me-mbs family", () => {
     const view = await applyPatches(meta.id, [
       { type: "updateSignal", id: 0, patch: { description: "Comm error (edited)" } },
       { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
+      {
+        type: "updateMbsConfig",
+        patch: {
+          addressMode: 1,
+          slaveAddressMode: 1,
+          slaves: [
+            { address: 3, description: "General Controller 1" },
+            { address: 5, description: "C1G2" },
+          ],
+        },
+      },
       { type: "updateRtuConfig", patch: { slaveNumber: 11 } },
       { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
+      { type: "updateMeScalars", patch: { temperatureMode: 1, consumptionEnabled: true } },
+      { type: "updateController", controllerIndex: 0, patch: { ip: "192.168.1.50", addErrorSignals: true } },
     ]);
     if (view.family !== "me-mbs") throw new Error("unreachable");
     expect(view.project.signals[0].description).toBe("Comm error (edited)");
     expect(view.project.mbs.commErrorTout).toBe(60);
+    expect(view.project.mbs.addressMode).toBe(1);
+    expect(view.project.mbs.slaveAddressMode).toBe(1);
+    expect(view.project.mbs.slaves).toEqual([
+      { address: 3, description: "General Controller 1" },
+      { address: 5, description: "C1G2" },
+    ]);
     expect(view.project.mbs.rtu.slaveNumber).toBe(11);
     expect(view.project.me.controllers[0].groups[0].description).toBe("Office (edited)");
+    expect(view.project.me.temperatureMode).toBe(1);
+    expect(view.project.me.consumptionEnabled).toBe(true);
+    expect(view.project.me.controllers[0].ip).toBe("192.168.1.50");
+    expect(view.project.me.controllers[0].addErrorSignals).toBe(true);
 
     // Survives a simulated restart.
     resetProjectStoreForTests();

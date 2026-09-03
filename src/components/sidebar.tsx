@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight, CircleDot, Wifi, WifiOff } from "lucide-react";
-import { NAV_SECTIONS } from "@/lib/nav";
+import { NAV_SECTIONS, navLabelFor } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
@@ -21,6 +21,10 @@ export function Sidebar() {
   const gatewayDetails = [...new Set([gateway?.appName, gateway?.platform])]
     .filter((value): value is string => !!value && value !== gatewayTitle);
   const gatewayIp = gateway?.ip ?? session?.host;
+  const enabledAcGroups =
+    view?.family === "me-mbs"
+      ? view.project.me.controllers.reduce((n, c) => n + c.groups.filter((g) => g.enabled).length, 0)
+      : null;
 
   return (
     <aside
@@ -77,12 +81,14 @@ export function Sidebar() {
         {NAV_SECTIONS.map((section) => {
           const active = pathname.startsWith(section.href);
           const Icon = section.icon;
+          const label = navLabelFor(section, view?.family);
+          const badge = section.href === "/devices" ? enabledAcGroups : null;
           return (
             <Link
               key={section.href}
               href={section.href}
-              aria-label={section.label}
-              title={sidebarCollapsed ? section.label : undefined}
+              aria-label={label}
+              title={sidebarCollapsed ? label : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex items-center gap-2.5 rounded-r px-3 py-2 text-[13px] transition-colors",
@@ -93,7 +99,12 @@ export function Sidebar() {
               )}
             >
               <Icon className="h-4 w-4 shrink-0" aria-hidden />
-              {!sidebarCollapsed && section.label}
+              {!sidebarCollapsed && label}
+              {!sidebarCollapsed && badge !== null && (
+                <span className="ml-auto rounded-full bg-white/10 px-1.5 py-px text-[10px] font-bold text-white/70">
+                  {badge}
+                </span>
+              )}
             </Link>
           );
         })}
