@@ -14,6 +14,9 @@ Dues categories, en carpetes separades:
   i seguiment per iteració.
 - `cloud-connector-architecture.md` — proposta d'arquitectura cloud (Connector,
   backend, POC). Encara no implementada.
+- `gaps-families-v11.md` — llista viva de gaps per família (ME–MBS i KNX–MBM)
+  respecte al desktop i al disseny V11, amb decisió per punt. Inclou la recerca
+  de l'**Add from Template** de Modbus Master (essencial, pendent de disseny).
 
 ## `reference/`
 
@@ -24,6 +27,12 @@ Dues categories, en carpetes separades:
   (770 Air): format del projecte, adreces, particularitats.
 - `adding-a-gateway-family.md` — recepta pas a pas per afegir una nova família
   de passarel·la, contrastada dues vegades amb hardware real.
+- `conversions.md` — sistema de conversions (filtres, operacions, RemapLUTs):
+  què tenim, com ho fa el desktop (manager + assignació per senyal amb refs
+  invertides) i per què falla la bidireccionalitat avui.
+- `com-analitzar-un-producte.md` — procés genèric per inventariar les
+  característiques d'un producte des del descompilat i implementar-les
+  (cadena model → xml-ops → zod → UI → XBL → tests).
 
 Nota: `temp/` conté el material d'investigació cru (captures, sondes, quadern
 `temp/maps-cloud/PROTOCOL.md`) i està **gitignorat** — és referència de
