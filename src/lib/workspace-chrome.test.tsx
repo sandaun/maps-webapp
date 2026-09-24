@@ -16,11 +16,11 @@ function UndoProbe() {
   );
 }
 
-const knxView = (signals: number) =>
-  ({ family: "knx-mbm", project: { signals: Array.from({ length: signals }, (_, id) => ({ id })) } }) as unknown as ProjectView;
+const view = (signals: number, family: ProjectView["family"] = "knx-mbm") =>
+  ({ family, project: { signals: Array.from({ length: signals }, (_, id) => ({ id })) } }) as unknown as ProjectView;
 
-function patched(before: number, next: number, patches: ProjectPatchInput[]) {
-  const detail: ProjectPatchedDetail = { before: knxView(before), next: knxView(next), patches };
+function patched(before: number, next: number, patches: ProjectPatchInput[], family?: ProjectView["family"]) {
+  const detail: ProjectPatchedDetail = { before: view(before, family), next: view(next, family), patches };
   act(() => {
     window.dispatchEvent(new CustomEvent(PROJECT_PATCHED_EVENT, { detail }));
   });
@@ -45,6 +45,12 @@ describe("workspace undo", () => {
   it("drops the undo entry after a deletion", () => {
     renderProbe();
     patched(8, 7, [{ type: "removeSignal", id: 2 }]);
+    expect(screen.getByRole("status")).toHaveTextContent("none");
+  });
+
+  it("drops it after an ME–MBS deletion too", () => {
+    renderProbe();
+    patched(9, 8, [{ type: "removeSignal", id: 2 }], "me-mbs");
     expect(screen.getByRole("status")).toHaveTextContent("none");
   });
 

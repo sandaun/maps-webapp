@@ -32,6 +32,7 @@ import {
   isMeMbsProject,
   projectFromXml as meMbsProjectFromXml,
   removeSignal as meRemoveSignal,
+  reorderSignalIds as meReorderSignalIds,
   setGatewayInfo as meSetGatewayInfo,
   setGeneralInfo as meSetGeneralInfo,
   updateController,
@@ -203,7 +204,7 @@ const ME_MBS: FamilyEntry = {
   accepts: (patch) =>
     ME_MBS_TYPES.has(patch.type) &&
     (patch.type !== "updateSignal" || !("knx" in patch.patch)),
-  applyPatches: (doc, patches) => patches.forEach((patch) => applyMeMbsPatch(doc, patch as MeMbsPatch)),
+  applyPatches: (doc, patches) => applyMeMbsPatches(doc, patches as MeMbsPatch[]),
 };
 
 export const FAMILIES: readonly FamilyEntry[] = [KNX_MBM, ME_MBS];
@@ -304,6 +305,18 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       knxRemoveDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.signals);
       break;
   }
+}
+
+/** Same batch rule as KNX–MBM: renumber signal IDs once, after the deletions. */
+function applyMeMbsPatches(doc: XmlDocument, patches: MeMbsPatch[]): void {
+  const signalCount = () => doc.findAll(["InternalProtocol", "Signals", "Signal"]).length;
+  let deleted = false;
+  for (const patch of patches) {
+    const before = patch.type === "removeSignal" ? signalCount() : 0;
+    applyMeMbsPatch(doc, patch);
+    if (patch.type === "removeSignal" && signalCount() < before) deleted = true;
+  }
+  if (deleted) meReorderSignalIds(doc);
 }
 
 function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
