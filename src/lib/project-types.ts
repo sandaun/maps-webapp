@@ -29,6 +29,8 @@ export interface ProjectMeta {
   family: FamilyId;
   fileName?: string;
   updatedAt: string; // ISO
+  /** Server write counter; sent back as `If-Match` when patching. */
+  revision?: number;
   /** Last XLSX signal-table import, when any. */
   lastImport?: { fileName: string; at: string; rows: number };
 }
@@ -104,7 +106,8 @@ export type ProjectPatchInput =
   | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatchInput }
   | { type: "addDevice"; locator: NodeLocator }
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatchInput }
-  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number }
+  /** `deviceIndex` is the device position; `signals` mirrors the MAPS delete dialog. */
+  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: "delete" | "unassign" }
   | { type: "updateMbsConfig"; patch: MbsConfigPatchInput }
   | { type: "updateRtuConfig"; patch: Partial<MbsConfig["rtu"]> }
   | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }

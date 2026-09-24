@@ -120,6 +120,11 @@ export class LocalProjectStore implements ProjectRepository, ProjectFileStore, P
 
   // --- internals -----------------------------------------------------------
 
+  /** Filesystem identity of a project id: ids that share it are the same project. */
+  storageId(id: string): string {
+    return this.safeId(id);
+  }
+
   /** Ids are reduced to a safe charset before touching the filesystem. */
   private safeId(id: string): string {
     const safe = id.toLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^\.+/, "");

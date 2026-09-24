@@ -16,8 +16,8 @@ export function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("space-y-1", className)}>
-      <label htmlFor={htmlFor} className="block text-xs font-medium text-text-body">
+    <div className={cn("pending-field space-y-1", className)}>
+      <label htmlFor={htmlFor} className="pending-label block text-xs font-medium text-text-body">
         {label}
       </label>
       {children}

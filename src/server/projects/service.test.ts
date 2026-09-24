@@ -81,6 +81,16 @@ describe("project service", () => {
     ).rejects.toThrow();
   });
 
+  it("does not persist earlier properties when a later patch in the same batch fails", async () => {
+    const meta = await loadDemoProject();
+    const before = await getProjectView(meta.id);
+    await expect(applyPatches(meta.id, [
+      { type: "setGeneralInfo", name: "Must not be saved" },
+      { type: "updateRtuNode", nodeIndex: 999, patch: { baudrate: 19200 } },
+    ])).rejects.toThrow();
+    expect((await getProjectView(meta.id)).project.name).toBe(before.project.name);
+  });
+
   it("adds and edits an RTU node, enforcing the node limit", async () => {
     const meta = await loadDemoProject();
     const before = await getProjectView(meta.id);
@@ -119,7 +129,7 @@ describe("project service", () => {
     expect(devices[deviceCount]).toMatchObject({ name: "Rooftop AHU", slave: 7 });
 
     const after = await applyPatches(meta.id, [
-      { type: "removeDevice", locator, deviceIndex: deviceCount },
+      { type: "removeDevice", locator, deviceIndex: deviceCount, signals: "delete" },
     ]);
     expect(knxProjectOf(after).mbm.rtuNodes[0].devices).toHaveLength(deviceCount);
   });
@@ -285,3 +295,83 @@ describe("project service — me-mbs family", () => {
     expect(file.body).toContain("1.0.3\tHeat pump on/off\t1.001");
   });
 });
+
+describe("project revisions and write serialization", () => {
+  it("starts new projects at revision 1 and bumps it on every write, including a re-open", async () => {
+    expect((await loadDemoProject()).revision).toBe(1);
+    const edited = await applyPatches("demo", [{ type: "setGeneralInfo", name: "Edited" }]);
+    expect(edited.meta.revision).toBe(2);
+    expect((await loadDemoProject()).revision).toBe(3);
+  });
+
+  it("serializes concurrent batches so neither overwrites the other", async () => {
+    await loadDemoProject();
+    await Promise.all([
+      applyPatches("demo", [{ type: "setGeneralInfo", name: "From tab A" }]),
+      applyPatches("demo", [{ type: "setGeneralInfo", description: "From tab B" }]),
+      applyPatches("demo", [{ type: "setGatewayInfo", name: "FROM-TAB-C" }]),
+    ]);
+    const view = await getProjectView("demo");
+    expect(view.project).toMatchObject({
+      name: "From tab A",
+      description: "From tab B",
+      gateway: { name: "FROM-TAB-C" },
+    });
+    expect(view.meta.revision).toBe(4);
+  });
+
+  it("rejects a stale expected revision with 409 revision-conflict and writes nothing", async () => {
+    await loadDemoProject();
+    await applyPatches("demo", [{ type: "setGeneralInfo", name: "Newer" }], { expectedRevision: 1 });
+    const error = await applyPatches("demo", [{ type: "setGeneralInfo", name: "Stale" }], {
+      expectedRevision: 1,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProjectServiceError);
+    expect(error).toMatchObject({ status: 409, code: "revision-conflict" });
+    const view = await getProjectView("demo");
+    expect(view.project.name).toBe("Newer");
+    expect(view.meta.revision).toBe(2);
+  });
+
+  it("checks the expected revision after earlier queued writes have landed", async () => {
+    await loadDemoProject();
+    const [, second] = await Promise.allSettled([
+      applyPatches("demo", [{ type: "setGeneralInfo", name: "First" }], { expectedRevision: 1 }),
+      applyPatches("demo", [{ type: "setGeneralInfo", name: "Second" }], { expectedRevision: 1 }),
+    ]);
+    expect(second).toMatchObject({ status: "rejected", reason: { code: "revision-conflict" } });
+    expect((await getProjectView("demo")).project.name).toBe("First");
+  });
+
+  it("reports legacy metas without a revision as an explicit revision 0 and accepts it back", async () => {
+    await loadDemoProject();
+    await writeLegacyMeta(["revision"]);
+    expect((await getProjectView("demo")).meta.revision).toBe(0);
+    expect((await listProjects()).find((m) => m.id === "demo")?.revision).toBe(0);
+    const view = await applyPatches("demo", [{ type: "setGeneralInfo", name: "Legacy" }], {
+      expectedRevision: 0,
+    });
+    expect(view.meta.revision).toBe(1);
+  });
+
+  it("never pairs a newer meta with an older XML when a read backfills the family", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await loadDemoProject();
+      await writeLegacyMeta(["revision", "family"]);
+      const write = applyPatches("demo", [{ type: "setGeneralInfo", name: `After ${attempt}` }]);
+      const read = getProjectView("demo");
+      const [, view] = await Promise.all([write, read]);
+      // Either the read ran before the write (revision 0, old name) or after it.
+      expect(view.project.name === `After ${attempt}`).toBe(view.meta.revision === 1);
+    }
+  });
+});
+
+/** Rewrite the demo meta as stored before the given fields existed. */
+async function writeLegacyMeta(fields: string[]) {
+  const metaPath = path.join(dir, "projects", "demo", "meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+  for (const field of fields) delete meta[field];
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(metaPath, JSON.stringify(meta));
+}

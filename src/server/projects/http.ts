@@ -3,7 +3,10 @@ import { ProjectServiceError } from "./service";
 
 export function errorResponse(error: unknown): NextResponse {
   if (error instanceof ProjectServiceError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json(
+      error.code ? { error: error.message, code: error.code } : { error: error.message },
+      { status: error.status },
+    );
   }
   // Any service error carrying an HTTP status (e.g. GatewayRequestError).
   const status = (error as { status?: unknown } | null)?.status;

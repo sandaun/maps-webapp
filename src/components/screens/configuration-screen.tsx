@@ -3,16 +3,17 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import { formatPhysicalAddress, parsePhysicalAddress } from "@/protocols/knx/address";
+import { formatPhysicalAddress } from "@/protocols/knx/address";
 import { BAUD_RATES, COMM_ERROR_TOUT_RANGE, SLAVE_ID_RANGE } from "@/protocols/modbus/slave";
 import { BYTE_ORDER_LABELS } from "@/protocols/modbus/master/types";
 import { FAMILY_LABELS, type FamilyId, type ProjectView } from "@/lib/project-types";
+import { MEDIA_OPTIONS } from "@/lib/property-option-labels";
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
+import { StickySaveBar } from "@/components/properties/sticky-save-bar";
+import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
 
 type SectionKey = "general" | "network" | "bms" | "device" | "conv";
@@ -38,7 +39,7 @@ function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
 export function ConfigurationScreen() {
   return (
     <ScreenGate>
-      {(view) => <ConfigurationWorkspace key={view.meta.updatedAt} view={view} />}
+      {(view) => <ConfigurationWorkspace key={view.meta.id} view={view} />}
     </ScreenGate>
   );
 }
@@ -46,11 +47,12 @@ export function ConfigurationScreen() {
 function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   const sections = sectionsFor(view.family);
   const [section, setSection] = React.useState<SectionKey>("general");
+  useRevealProperty(React.useCallback((next: string) => setSection(next as SectionKey), []));
   const [query, setQuery] = React.useState("");
   const shown = sections.filter((s) => s.label.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
-    <div className="-m-6 flex min-h-full">
+    <div className="-m-6 flex min-h-[calc(100%+3rem)]">
       {/* ---------- section rail (V10) ---------- */}
       <aside className="w-[236px] shrink-0 border-r border-border bg-white px-3 py-4">
         <div className="relative mb-3">
@@ -80,7 +82,8 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
 
       {/* ---------- section content ---------- */}
       <div className="min-w-0 flex-1">
-        <div className="max-w-[900px] px-[26px] pb-10 pt-[22px]">
+        <div className="flex min-h-full max-w-[900px] flex-col px-[26px] pb-1 pt-[22px]">
+          <div className="flex-1 pb-6">
           <ScreenIssues issues={view.issues} screen="configuration" />
           {section === "general" && <GeneralSection view={view} />}
           {section === "network" && <NetworkSection view={view} />}
@@ -97,6 +100,8 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
               <DeviceMeSection view={view} />
             ))}
           {section === "conv" && <ConversionsSection view={view} />}
+          </div>
+          <StickySaveBar screen="configuration" />
         </div>
       </div>
     </div>
@@ -162,9 +167,9 @@ function FieldRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-4 border-b border-[#F2F3F4] py-[11px]">
+    <div className="pending-field flex items-start gap-4 border-b border-[#F2F3F4] py-[11px]">
       <div className="w-[210px] shrink-0 pt-[5px]">
-        <div className="text-[12.5px] font-bold text-text-body">{label}</div>
+        <div className="pending-label text-[12.5px] font-bold text-text-body">{label}</div>
         {hint && <div className="mt-[2px] text-[11px] leading-[1.45] text-fg-subtle">{hint}</div>}
       </div>
       <div className="min-w-0 flex-1">{children}</div>
@@ -240,11 +245,13 @@ function SelectControl({
 }
 
 function ToggleControl({
+  id,
   label,
   checked,
   onToggle,
   disabled,
 }: {
+  id: string;
   label: string;
   checked: boolean;
   onToggle: (checked: boolean) => void;
@@ -252,8 +259,9 @@ function ToggleControl({
 }) {
   return (
     <div className="flex items-center gap-[10px] py-[3px]">
-      <Switch checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled} />
+      <PropertySwitch id={id} checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled} />
       <span className="text-[12px] text-fg-muted">{checked ? "Enabled" : "Disabled"}</span>
+      <ImmediatePropertyError id={id} />
     </div>
   );
 }
@@ -262,40 +270,15 @@ function ReadOnly({ value }: { value: string }) {
   return <div className="py-[6px] font-mono text-[12.5px] text-hms-blue">{value}</div>;
 }
 
-function SaveRow({
-  dirty,
-  busy,
-  error,
-  onSave,
-}: {
-  dirty: boolean;
-  busy: boolean;
-  error: string | null;
-  onSave: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-3 pt-1">
-      <Button size="sm" disabled={!dirty || busy} onClick={onSave}>
-        Save
-      </Button>
-      {error && (
-        <p role="alert" className="text-sm text-error">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------------------
  * Sections
  * ------------------------------------------------------------------------- */
 
 function GeneralSection({ view }: { view: ProjectView }) {
-  const { save, busy, error } = useSave();
-  const [name, setName] = React.useState(view.project.name);
-  const [description, setDescription] = React.useState(view.project.description);
-  const dirty = name !== view.project.name || description !== view.project.description;
+  const { form, set } = useDraftForm("general", { name: view.project.name, description: view.project.description });
+  const { name, description } = form;
+  const setName = (value: string) => set("name", value);
+  const setDescription = (value: string) => set("description", value);
 
   return (
     <>
@@ -326,26 +309,18 @@ function GeneralSection({ view }: { view: ProjectView }) {
           <ReadOnly value={FAMILY_LABELS[view.family]} />
         </FieldRow>
       </GroupCard>
-      <SaveRow
-        dirty={dirty}
-        busy={busy}
-        error={error}
-        onSave={() => void save([{ type: "setGeneralInfo", name, description }])}
-      />
     </>
   );
 }
 
 function NetworkSection({ view }: { view: ProjectView }) {
-  const { save, busy, error } = useSave();
-  const gw = view.project.gateway;
-  const [name, setName] = React.useState(gw.name);
-  const [ip, setIp] = React.useState(gw.ip);
-  const [netmask, setNetmask] = React.useState(gw.netmask);
-  const [gateway, setGateway] = React.useState(gw.gateway);
-  const [dhcp, setDhcp] = React.useState(gw.dhcp);
-  const dirty =
-    name !== gw.name || ip !== gw.ip || netmask !== gw.netmask || gateway !== gw.gateway || dhcp !== gw.dhcp;
+  const { form, set } = useDraftForm("gateway", view.project.gateway);
+  const { name, ip, netmask, gateway, dhcp } = form;
+  const setName = (value: string) => set("name", value);
+  const setIp = (value: string) => set("ip", value);
+  const setNetmask = (value: string) => set("netmask", value);
+  const setGateway = (value: string) => set("gateway", value);
+  const setDhcp = (value: boolean) => set("dhcp", value);
 
   return (
     <>
@@ -394,35 +369,17 @@ function NetworkSection({ view }: { view: ProjectView }) {
           />
         </FieldRow>
         <FieldRow label="DHCP" hint="Use this option on networks with a DHCP server">
-          <ToggleControl label="DHCP" checked={dhcp} onToggle={setDhcp} />
+          <ToggleControl id="cfg-gw-dhcp" label="DHCP" checked={dhcp} onToggle={setDhcp} />
         </FieldRow>
       </GroupCard>
-      <SaveRow
-        dirty={dirty}
-        busy={busy}
-        error={error}
-        onSave={() => void save([{ type: "setGatewayInfo", name, ip, netmask, gateway, dhcp }])}
-      />
     </>
   );
 }
 
 function BmsKnxSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
-  const { save, busy, error } = useSave();
   const knx = view.project.knx;
-  const [address, setAddress] = React.useState(formatPhysicalAddress(knx.physicalAddress));
-  const [invalid, setInvalid] = React.useState<string | null>(null);
-  const dirty = address !== formatPhysicalAddress(knx.physicalAddress);
-
-  async function saveAddress() {
-    const parsed = parsePhysicalAddress(address);
-    if (parsed === undefined) {
-      setInvalid("Invalid physical address — expected area.line.device, e.g. 15.15.255");
-      return;
-    }
-    setInvalid(null);
-    await save([{ type: "setKnxPhysicalAddress", address: parsed }]);
-  }
+  const { form, set } = useDraftForm("knx", { address: formatPhysicalAddress(knx.physicalAddress), extendedAddresses: knx.extendedAddresses });
+  const address = form.address;
 
   return (
     <>
@@ -441,28 +398,18 @@ function BmsKnxSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm
               value={address}
               width={110}
               mono
-              onChange={(e) => {
-                setAddress(e.target.value);
-                setInvalid(null);
-              }}
+              onChange={(e) => set("address", e.target.value)}
             />
-            {invalid && (
-              <p role="alert" className="mt-[7px] text-[11.5px] text-error">
-                {invalid}
-              </p>
-            )}
           </div>
         </FieldRow>
         <FieldRow label="Extended addresses" hint="Extends the group address range up to 31/7/255">
           <ToggleControl
-            label="Extended addresses"
+            id="cfg-knx-extended" label="Extended addresses"
             checked={knx.extendedAddresses}
-            disabled={busy}
-            onToggle={(enabled) => void save([{ type: "setKnxExtendedAddresses", enabled }])}
+            onToggle={(enabled) => set("extendedAddresses", enabled)}
           />
         </FieldRow>
       </GroupCard>
-      <SaveRow dirty={dirty} busy={busy} error={error} onSave={() => void saveAddress()} />
     </>
   );
 }
@@ -470,41 +417,14 @@ function BmsKnxSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm
 
 /** KNX-MBM: global Modbus Master settings (per-node RTU/TCP settings live on the Devices screen). */
 function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
-  const { save, busy, error } = useSave();
   const { mbm } = view.project;
-  const [form, setForm] = React.useState({
+  const { form, set, dirtyKeys } = useDraftForm("mbm", {
     media: mbm.media as number,
     deadband: mbm.deadband,
     pollEnabled: mbm.pollRecords.enabled,
     useMissingReg: mbm.pollRecords.useMissingReg,
     maxRegisters: mbm.pollRecords.maxRegisters,
   });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty = JSON.stringify(form) !== JSON.stringify({
-    media: mbm.media as number,
-    deadband: mbm.deadband,
-    pollEnabled: mbm.pollRecords.enabled,
-    useMissingReg: mbm.pollRecords.useMissingReg,
-    maxRegisters: mbm.pollRecords.maxRegisters,
-  });
-
-  function handleSave() {
-    void save([
-      {
-        type: "updateMbmConfig",
-        patch: {
-          media: form.media,
-          deadband: form.deadband,
-          pollRecords: {
-            enabled: form.pollEnabled,
-            useMissingReg: form.useMissingReg,
-            maxRegisters: form.maxRegisters,
-          },
-        },
-      },
-    ]);
-  }
 
   return (
     <>
@@ -550,12 +470,12 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
       <GroupCard label="Modbus poll records">
         <FieldRow label="Enable poll records" hint="Groups poll requests into multi-register reads">
           <ToggleControl
-            label="Enable poll records"
+            id="cfg-mbm-pollEnabled" label="Enable poll records"
             checked={form.pollEnabled}
             onToggle={(v) => set("pollEnabled", v)}
           />
         </FieldRow>
-        {form.pollEnabled && (
+        {(form.pollEnabled || dirtyKeys.has("maxRegisters")) && (
           <>
             <FieldRow label="Max registers per record" hint="1–255 · default 100">
               <TextControl
@@ -573,7 +493,7 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
               hint="Allows records to span gaps left by unmapped registers"
             >
               <ToggleControl
-                label="Use missing registers"
+                id="cfg-mbm-useMissingReg" label="Use missing registers"
                 checked={form.useMissingReg}
                 onToggle={(v) => set("useMissingReg", v)}
               />
@@ -581,22 +501,28 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
           </>
         )}
       </GroupCard>
-      <SaveRow dirty={dirty} busy={busy} error={error} onSave={handleSave} />
     </>
   );
 }
 
-const MEDIA_OPTIONS = [
-  { value: 0, label: "RTU" },
-  { value: 1, label: "TCP" },
-  { value: 2, label: "RTU + TCP" },
-] as const;
-
 /** ME–MBS: Modbus Slave (server) configuration. */
 function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs" }> }) {
   const { save, busy, error } = useSave();
+  const drafts = usePropertyDrafts();
   const { mbs } = view.project;
-  const [form, setForm] = React.useState({
+  const pendingForSlave = (index: number) =>
+    (["address", "description"] as const).filter(
+      (key) => drafts.snapshot.projects[view.meta.id]?.edits[`cfg-mbs-slaves-${index}-${key}`],
+    ).length;
+  const confirmRemoveSlave = (index: number) => {
+    const pending = pendingForSlave(index);
+    return window.confirm(
+      pending
+        ? `Remove slave ${index + 1}? Its ${pending} unsaved ${pending === 1 ? "edit" : "edits"} will be discarded.`
+        : `Remove slave ${index + 1}?`,
+    );
+  };
+  const { form, set, dirtyKeys } = useDraftForm("mbs", {
     media: mbs.media as number,
     byteOrder: mbs.byteOrder,
     updateCOV: mbs.updateCOV,
@@ -613,63 +539,13 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
     tcpPort: mbs.tcp.port,
     keepAlive: mbs.tcp.keepAlive,
   });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const setSlave = (index: number, patch: Partial<{ address: number; description: string }>) =>
-    setForm((prev) => ({
-      ...prev,
-      slaves: prev.slaves.map((s, i) => (i === index ? { ...s, ...patch } : s)),
-    }));
-  const baseline = {
-    media: mbs.media as number,
-    byteOrder: mbs.byteOrder,
-    updateCOV: mbs.updateCOV,
-    addressMode: mbs.addressMode as number,
-    slaveAddressMode: mbs.slaveAddressMode as number,
-    slaves: mbs.slaves.map((s) => ({ ...s })),
-    commErrorTout: mbs.commErrorTout,
-    registerBase: mbs.registerBase as number,
-    baudrate: mbs.rtu.baudrate,
-    dataBits: mbs.rtu.dataBits,
-    parity: mbs.rtu.parity as number,
-    stopBits: mbs.rtu.stopBits as number,
-    slaveNumber: mbs.rtu.slaveNumber,
-    tcpPort: mbs.tcp.port,
-    keepAlive: mbs.tcp.keepAlive,
+  const setSlave = (index: number, patch: Partial<{ address: number; description: string }>) => {
+    for (const [key, value] of Object.entries(patch)) set(`slaves.${index}.${key}`, value);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
-
-  function handleSave() {
-    void save([
-      {
-        type: "updateMbsConfig",
-        patch: {
-          media: form.media as 0 | 1 | 2,
-          byteOrder: form.byteOrder,
-          updateCOV: form.updateCOV,
-          addressMode: form.addressMode as 0 | 1 | 2,
-          slaveAddressMode: form.slaveAddressMode as 0 | 1,
-          slaves: form.slaves,
-          commErrorTout: form.commErrorTout,
-          registerBase: form.registerBase as 0 | 1,
-        },
-      },
-      {
-        type: "updateRtuConfig",
-        patch: {
-          baudrate: form.baudrate,
-          dataBits: form.dataBits,
-          parity: form.parity as 0 | 1 | 2,
-          stopBits: form.stopBits as 1 | 2,
-          slaveNumber: form.slaveNumber,
-        },
-      },
-      { type: "updateTcpConfig", patch: { port: form.tcpPort, keepAlive: form.keepAlive } },
-    ]);
-  }
 
   return (
     <>
+      {error && <p role="alert" className="mb-3 text-sm text-error">{error}</p>}
       <SectionHeader
         title="BMS protocol · Modbus server"
         desc="The Modbus side of the gateway. Registers, formats and scaling are assigned per signal in the signal table."
@@ -745,7 +621,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
         </FieldRow>
         <FieldRow label="Update on change of value (COV)">
           <ToggleControl
-            label="Update on change of value (COV)"
+            id="cfg-mbs-updateCOV" label="Update on change of value (COV)"
             checked={form.updateCOV}
             onToggle={(v) => set("updateCOV", v)}
           />
@@ -827,7 +703,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
             <option value={1}>Multiple Slaves</option>
           </SelectControl>
         </FieldRow>
-        {form.slaveAddressMode === 1 && (
+        {(form.slaveAddressMode === 1 || [...dirtyKeys].some((key) => key.startsWith("slaves."))) && (
           <FieldRow
             label="Slave list"
             hint="Each AC group answers on its own server address with the same register block"
@@ -836,6 +712,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
               {form.slaves.map((slave, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
+                    id={`cfg-mbs-slaves-${i}-address`}
                     type="number"
                     aria-label={`Slave ${i + 1} address`}
                     min={SLAVE_ID_RANGE.min}
@@ -846,6 +723,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                     className="h-auto rounded-[4px] px-[9px] py-[6px] font-mono text-[12.5px]"
                   />
                   <Input
+                    id={`cfg-mbs-slaves-${i}-description`}
                     aria-label={`Slave ${i + 1} description`}
                     value={slave.description}
                     maxLength={128}
@@ -856,8 +734,10 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                   />
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={() =>
-                      setForm((prev) => ({ ...prev, slaves: prev.slaves.filter((_, j) => j !== i) }))
+                      confirmRemoveSlave(i) &&
+                      void save([{ type: "updateMbsConfig", patch: { slaves: mbs.slaves.filter((_, j) => j !== i) } }])
                     }
                     className="text-[12px] font-medium text-fg-subtle hover:text-error"
                   >
@@ -870,11 +750,9 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                   type="button"
                   size="sm"
                   variant="secondary"
+                  disabled={busy}
                   onClick={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      slaves: [...prev.slaves, { address: prev.slaves.length + 1, description: "" }],
-                    }))
+                    void save([{ type: "updateMbsConfig", patch: { slaves: [...mbs.slaves, { address: mbs.slaves.length + 1, description: "" }] } }])
                   }
                 >
                   Add slave
@@ -909,7 +787,6 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
           />
         </FieldRow>
       </GroupCard>
-      <SaveRow dirty={dirty} busy={busy} error={error} onSave={handleSave} />
     </>
   );
 }
@@ -917,19 +794,8 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
 /** ME–MBS: global Mitsubishi Electric parameters; controllers and groups live in AC units. */
 function DeviceMeSection({ view }: { view: Extract<ProjectView, { family: "me-mbs" }> }) {
   const router = useRouter();
-  const { save, busy, error } = useSave();
   const { me } = view.project;
-  const [form, setForm] = React.useState({
-    pollPeriod: me.pollPeriod,
-    ansTimeout: me.ansTimeout,
-    controllerTout: me.controllerTout,
-    writeMaxBurst: me.writeMaxBurst,
-    temperatureMode: me.temperatureMode as number,
-    consumptionEnabled: me.consumptionEnabled,
-  });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty = JSON.stringify(form) !== JSON.stringify({
+  const { form, set } = useDraftForm("me", {
     pollPeriod: me.pollPeriod,
     ansTimeout: me.ansTimeout,
     controllerTout: me.controllerTout,
@@ -1018,7 +884,7 @@ function DeviceMeSection({ view }: { view: Extract<ProjectView, { family: "me-mb
           hint="Adds consumption signals to every group · the AC system and energy meters must already be commissioned"
         >
           <ToggleControl
-            label="Consumption function"
+            id="cfg-me-consumptionEnabled" label="Consumption function"
             checked={form.consumptionEnabled}
             onToggle={(v) => set("consumptionEnabled", v)}
           />
@@ -1027,19 +893,6 @@ function DeviceMeSection({ view }: { view: Extract<ProjectView, { family: "me-mb
           <ReadOnly value={`${groupsIntegrated} of 100 licensed`} />
         </FieldRow>
       </GroupCard>
-      <SaveRow
-        dirty={dirty}
-        busy={busy}
-        error={error}
-        onSave={() =>
-          void save([
-            {
-              type: "updateMeScalars",
-              patch: { ...form, temperatureMode: form.temperatureMode as 0 | 1 },
-            },
-          ])
-        }
-      />
     </>
   );
 }

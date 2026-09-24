@@ -20,9 +20,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className={cn("flex h-full flex-col", sidebarCollapsed ? "ml-[56px]" : "ml-[228px]")}>
         <Header />
         {!projectsArea && <DemoBanner />}
+        {/* tabIndex -1: focus target when transient UI (the save bar) closes under the user. */}
         <main
+          id="main-content"
+          tabIndex={-1}
           className={cn(
-            "flex min-h-0 w-full flex-1 flex-col overflow-auto",
+            "flex min-h-0 w-full flex-1 flex-col overflow-auto focus:outline-none",
             projectsArea ? "px-[22px] pt-[22px] pb-10" : "p-6",
           )}
         >

@@ -6,6 +6,11 @@ export interface SwitchProps {
   onCheckedChange: (checked: boolean) => void;
   "aria-label": string;
   disabled?: boolean;
+  /**
+   * Temporarily unavailable (e.g. its own value is being saved): announced as
+   * disabled but stays focusable, so keyboard users keep their place.
+   */
+  busy?: boolean;
   /** `sm` = 28×16 spec toggle (tree rows) · `lg` = 34×19 V11 card-field toggle. */
   size?: "sm" | "lg";
   title?: string;
@@ -18,6 +23,7 @@ export function Switch({
   onCheckedChange,
   "aria-label": ariaLabel,
   disabled,
+  busy,
   size = "sm",
   title,
   className,
@@ -28,17 +34,19 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
       disabled={disabled}
       title={title}
       className={cn(
-        "relative shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "relative shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-progress aria-disabled:opacity-50",
         size === "lg" ? "h-[19px] w-[34px]" : "h-4 w-7",
         checked ? "bg-hms-accent" : "bg-toggle-off",
         className,
       )}
       onClick={(e) => {
         e.stopPropagation();
-        onCheckedChange(!checked);
+        if (!busy) onCheckedChange(!checked);
       }}
     >
       <span

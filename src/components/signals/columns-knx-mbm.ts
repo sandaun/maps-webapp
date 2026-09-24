@@ -99,14 +99,15 @@ export function knxDeviceLabel(mbm: MbmConfig, signal: KnxMbmSignal): string {
   if (signal.modbus.isBroadcast) return "Broadcast";
   const ref = nodeForPort(mbm, signal.modbus.port);
   if (!ref) return "—";
-  const device = ref.node.devices.find((d) => d.index === signal.modbus.deviceIndex);
+  // Signals reference devices by position (MAPS and the XBL generator agree).
+  const device = signal.modbus.deviceIndex >= 0 ? ref.node.devices[signal.modbus.deviceIndex] : undefined;
   return device ? device.name : "—";
 }
 
 export function knxSlaveLabel(mbm: MbmConfig, signal: KnxMbmSignal): string {
   if (signal.modbus.isBroadcast) return "—";
   const ref = nodeForPort(mbm, signal.modbus.port);
-  const device = ref?.node.devices.find((d) => d.index === signal.modbus.deviceIndex);
+  const device = signal.modbus.deviceIndex >= 0 ? ref?.node.devices[signal.modbus.deviceIndex] : undefined;
   return device ? String(device.slave) : "—";
 }
 
@@ -155,8 +156,8 @@ function deviceOptions(mbm: MbmConfig, row: KnxSignalRow) {
   return [
     { value: "broadcast", label: "Broadcast" },
     { value: "-1", label: "Not set" },
-    ...devices.map((device) => ({
-      value: String(device.index),
+    ...devices.map((device, position) => ({
+      value: String(position),
       label: `${device.name} (slave ${device.slave})`,
     })),
   ];

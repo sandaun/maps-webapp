@@ -6,6 +6,8 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** Machine-readable reason from the server, e.g. "revision-conflict". */
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -20,7 +22,11 @@ export async function request<T>(input: string, init?: RequestInit): Promise<T> 
       typeof body === "object" && body !== null && "error" in body
         ? String((body as { error: unknown }).error)
         : `Request failed (${res.status})`;
-    throw new ApiError(res.status, message);
+    const code =
+      typeof body === "object" && body !== null && "code" in body
+        ? String((body as { code: unknown }).code)
+        : undefined;
+    throw new ApiError(res.status, message, code);
   }
   return body as T;
 }
@@ -35,10 +41,21 @@ export async function getProjectView(id: string): Promise<ProjectView> {
   return request<ProjectView>(`/api/projects/${encodeURIComponent(id)}`);
 }
 
-export async function patchProject(id: string, patches: ProjectPatchInput[]): Promise<ProjectView> {
+/**
+ * `revision` is the `meta.revision` the patches were computed against; the
+ * server rejects the batch with 409 "revision-conflict" if the project moved on.
+ */
+export async function patchProject(
+  id: string,
+  patches: ProjectPatchInput[],
+  revision?: number,
+): Promise<ProjectView> {
   return request<ProjectView>(`/api/projects/${encodeURIComponent(id)}/patch`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(revision === undefined ? {} : { "If-Match": `"${revision}"` }),
+    },
     body: JSON.stringify({ patches }),
   });
 }

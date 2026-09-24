@@ -1,6 +1,7 @@
 import {
   element,
   getAttr,
+  getText,
   setAttr,
   setText,
   text,
@@ -191,7 +192,27 @@ export function addSignal(doc: XmlDocument): number {
   return id;
 }
 
-/** Remove a signal from both protocol sides. */
+/**
+ * MAPS `DeleteObject` with `isLastObject` (IntesisProjectMbsMe_RT +
+ * ExternalME.ReorderIdxConfigs), run after deleting signals: the i-th signal
+ * of each side gets ID = idxConfig = idxExternal = i. Both sides are
+ * renumbered by position because MAPS and the XBL generator pair them by
+ * position. Run it once after a batch of removals, so every ID in the batch
+ * keeps referring to the signal it named before the batch.
+ */
+export function reorderSignalIds(doc: XmlDocument): void {
+  for (const side of ["InternalProtocol", "ExternalProtocol"] as const) {
+    doc.findAll([side, "Signals", "Signal"]).forEach((el, i) => {
+      setAttr(el, "ID", String(i));
+      for (const tag of ["idxConfig", "idxExternal"]) {
+        const child = el.children.find((c): c is XmlElement => c.kind === "element" && c.tag === tag);
+        if (child && getText(child) !== String(i)) setText(child, String(i));
+      }
+    });
+  }
+}
+
+/** Remove a signal from both protocol sides. IDs are renumbered per batch (`reorderSignalIds`). */
 export function removeSignal(doc: XmlDocument, id: number): boolean {
   const mbs = doc.find(["InternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: String(id) }]);
   const me = doc.find(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: String(id) }]);

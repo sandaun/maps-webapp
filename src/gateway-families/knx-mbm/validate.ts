@@ -84,23 +84,56 @@ function validateDeviceTopology(project: KnxMbmProject, issues: ValidationIssue[
   }
   checkSlaveUniqueness(project.mbm.rtuNodes, "rtu", issues);
   checkSlaveUniqueness(project.mbm.tcpNodes, "tcp", issues);
+  checkIndexPositions(project.mbm, issues);
+}
+
+/**
+ * MAPS keeps each device `Index` (and TCP `NodeIndex`) equal to its position,
+ * and signals reference devices by position. Imported files that break this
+ * are reported rather than silently rewritten.
+ */
+function checkIndexPositions(mbm: MbmConfig, issues: ValidationIssue[]): void {
+  mbm.tcpNodes.forEach((node, position) => {
+    if (node.nodeIndex !== position) {
+      issues.push({
+        code: "MB-NODE-INDEX",
+        severity: "warning",
+        message: `TCP node ${position} has NodeIndex ${node.nodeIndex}; MAPS expects it to match the node position.`,
+        ref: { screen: "devices", entity: "project" },
+      });
+    }
+  });
+  for (const kind of ["rtu", "tcp"] as const) {
+    (kind === "rtu" ? mbm.rtuNodes : mbm.tcpNodes).forEach((node, nodeIndex) => {
+      node.devices.forEach((device, position) => {
+        if (device.index !== position) {
+          issues.push({
+            code: "MB-DEVICE-INDEX",
+            severity: "warning",
+            message: `Device "${device.name}" on ${kind.toUpperCase()} node ${nodeIndex} has Index ${device.index} but is at position ${position}; signals reference devices by position.`,
+            ref: { screen: "devices", entity: "device", id: `${kind}:${nodeIndex}:${position}` },
+          });
+        }
+      });
+    });
+  }
 }
 
 function checkSlaveUniqueness(
-  nodes: Array<{ devices: Array<{ slave: number; name: string; index: number }> }>,
+  nodes: Array<{ devices: Array<{ slave: number; name: string }> }>,
   kind: "rtu" | "tcp",
   issues: ValidationIssue[],
 ): void {
   const range = kind === "rtu" ? SLAVE_RANGE_RTU : SLAVE_RANGE_TCP;
   nodes.forEach((node, nodeIndex) => {
     const seen = new Map<number, number>();
-    for (const device of node.devices) {
+    for (const [position, device] of node.devices.entries()) {
       if (device.slave < range.min || device.slave > range.max) {
         issues.push({
           code: "MB-SLAVE-RANGE",
           severity: "error",
           message: `Slave id ${device.slave} out of range (${range.min}–${range.max}) on ${kind.toUpperCase()} node ${nodeIndex}.`,
-          ref: { screen: "devices", entity: "device", id: `${kind}:${nodeIndex}:${device.index}`, field: "slave" },
+          ref: { screen: "devices", entity: "device", id: `${kind}:${nodeIndex}:${position}`, field: "slave" },
         });
       }
       const first = seen.get(device.slave);
@@ -108,11 +141,11 @@ function checkSlaveUniqueness(
         issues.push({
           code: "MB-SLAVE-DUP",
           severity: "error",
-          message: `Slave id ${device.slave} is used by both device ${first} and device ${device.index} on ${kind.toUpperCase()} node ${nodeIndex}.`,
-          ref: { screen: "devices", entity: "device", id: `${kind}:${nodeIndex}:${device.index}`, field: "slave" },
+          message: `Slave id ${device.slave} is used by both device ${first} and device ${position} on ${kind.toUpperCase()} node ${nodeIndex}.`,
+          ref: { screen: "devices", entity: "device", id: `${kind}:${nodeIndex}:${position}`, field: "slave" },
         });
       } else {
-        seen.set(device.slave, device.index);
+        seen.set(device.slave, position);
       }
     }
   });

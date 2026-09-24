@@ -20,6 +20,7 @@ import { buildPollPlanXlsx } from "../exports/xlsx-poll-plan";
 import { buildSignalsXlsx } from "../exports/xlsx-signals";
 import { applySignalsXlsx } from "../imports/xlsx-signals";
 import { ProjectServiceError } from "./errors";
+import { withProjectLock } from "./project-lock";
 import {
   detectFamily,
   familyById,
@@ -55,16 +56,26 @@ export async function listProjects(): Promise<ProjectMeta[]> {
   const store = getProjectStore();
   const metas = await store.list();
   // Backfill the family field for projects stored before it existed.
-  return Promise.all(metas.map((meta) => withFamily(store, meta)));
+  return Promise.all(metas.map(async (meta) => withRevision(await withFamily(store, meta))));
 }
 
 export async function getProjectView(id: string): Promise<ProjectView> {
+  return readProjectView(id, { locked: false });
+}
+
+/** `locked`: the caller already holds the project lock (writes return the new view). */
+async function readProjectView(id: string, { locked }: { locked: boolean }): Promise<ProjectView> {
   const store = getProjectStore();
   const stored = await store.get(id);
   if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+  // A family backfill rewrites the meta, so that read (meta + XML) happens
+  // entirely under the lock: otherwise a newer meta could pair with an older XML.
+  if (!stored.family && !locked) {
+    return withProjectLock(store.storageId(id), () => readProjectView(id, { locked: true }));
+  }
   const xml = await store.readXml(id);
   const doc = XmlDocument.parse(xml);
-  const meta = await withFamily(store, stored, doc);
+  const meta = withRevision(await withFamily(store, stored, doc, true));
   const hasCompleteBlob = await store.hasCompleteBlob(id);
   if (meta.family === "me-mbs") {
     const project = meMbsProjectFromXml(doc);
@@ -77,7 +88,7 @@ export async function getProjectView(id: string): Promise<ProjectView> {
 /** Open a local .ibmaps XML text as a project. */
 export async function openIbmaps(
   xml: string,
-  opts: { id: string; name?: string; source?: ProjectSource },
+  opts: { id: string; name?: string; source?: ProjectSource; completeBlob?: Uint8Array },
 ): Promise<ProjectMeta> {
   const doc = XmlDocument.parse(xml);
   const family = detectFamily(doc);
@@ -90,6 +101,7 @@ export async function openIbmaps(
   return persistNewProject(opts.id, xml, family.id, {
     name: opts.name ?? opts.id,
     source: opts.source ?? "file",
+    completeBlob: opts.completeBlob,
   });
 }
 
@@ -100,9 +112,7 @@ export async function openCompleteBlob(
 ): Promise<ProjectMeta> {
   const blob = parseCompleteBlob(data); // throws on bad length/CRC
   const ibmaps = extractIbmaps(blob.zip);
-  const meta = await openIbmaps(ibmaps.xml, { ...opts, name: opts.name ?? ibmaps.name });
-  await getProjectStore().writeCompleteBlob(meta.id, data);
-  return meta;
+  return openIbmaps(ibmaps.xml, { ...opts, name: opts.name ?? ibmaps.name, completeBlob: data });
 }
 
 /** Explicit demo project from the synthetic fixture — always labelled demo. */
@@ -123,29 +133,46 @@ export async function createTemplateProject(
   return persistNewProject(id, xml, family, { name, source: "template" });
 }
 
-export async function applyPatches(id: string, patches: ProjectPatch[]): Promise<ProjectView> {
+/**
+ * Apply a batch atomically under the project lock. With `expectedRevision`,
+ * the batch is rejected with 409 "revision-conflict" when the project changed
+ * since the caller read it (the webapp sends it as `If-Match`).
+ */
+export async function applyPatches(
+  id: string,
+  patches: ProjectPatch[],
+  options: { expectedRevision?: number } = {},
+): Promise<ProjectView> {
   const store = getProjectStore();
-  const xml = await store.readXml(id);
-  const doc = XmlDocument.parse(xml);
-  const family = detectFamily(doc);
-  if (!family) {
-    throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
-  }
-  for (const patch of patches) {
-    if (!family.accepts(patch)) {
+  return withProjectLock(store.storageId(id), async () => {
+    const stored = await store.get(id);
+    if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+    if (options.expectedRevision !== undefined && options.expectedRevision !== revisionOf(stored)) {
       throw new ProjectServiceError(
         409,
-        `Patch "${patch.type}" does not apply to a ${family.displayName} project.`,
+        "The project was changed elsewhere since it was loaded. Reload it and try again.",
+        "revision-conflict",
       );
     }
-    family.applyPatch(doc, patch);
-  }
-  const serialized = doc.serialize();
-  await store.writeXml(id, serialized);
-  const meta = await store.get(id);
-  if (meta) await store.upsert({ ...meta, updatedAt: new Date().toISOString() });
-  await snapshotDraft(id, "Edited project");
-  return getProjectView(id);
+    const doc = XmlDocument.parse(await store.readXml(id));
+    const family = detectFamily(doc);
+    if (!family) {
+      throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+    }
+    for (const patch of patches) {
+      if (!family.accepts(patch)) {
+        throw new ProjectServiceError(
+          409,
+          `Patch "${patch.type}" does not apply to a ${family.displayName} project.`,
+        );
+      }
+    }
+    family.applyPatches(doc, patches);
+    await store.writeXml(id, doc.serialize());
+    await store.upsert(nextRevision(stored));
+    await snapshotDraft(id, "Edited project");
+    return readProjectView(id, { locked: true });
+  });
 }
 
 /** Rebuild the "complete" blob with the current XML and the ORIGINAL XBL. */
@@ -170,34 +197,57 @@ async function withFamily(
   store: ReturnType<typeof getProjectStore>,
   meta: ProjectMeta,
   doc?: XmlDocument,
+  locked = false,
 ): Promise<ProjectMeta> {
   const family = meta.family as FamilyId | undefined;
   if (family) return meta;
-  const parsed = doc ?? XmlDocument.parse(await store.readXml(meta.id));
-  const detected = detectFamily(parsed)?.id ?? "knx-mbm";
-  const upgraded = { ...meta, family: detected };
-  await store.upsert(upgraded);
-  return upgraded;
+  const backfill = async () => {
+    // Re-read under the lock so the backfill never rolls back a newer write.
+    const current = (await store.get(meta.id)) ?? meta;
+    if (current.family) return current;
+    const parsed = doc ?? XmlDocument.parse(await store.readXml(meta.id));
+    const upgraded = { ...current, family: detectFamily(parsed)?.id ?? "knx-mbm" };
+    // Metadata backfill only: the project itself is unchanged, so no new revision.
+    await store.upsert(upgraded);
+    return upgraded;
+  };
+  return locked ? backfill() : withProjectLock(store.storageId(meta.id), backfill);
 }
 
 async function persistNewProject(
   id: string,
   xml: string,
   family: FamilyId,
-  opts: { name: string; source: ProjectSource },
+  opts: { name: string; source: ProjectSource; completeBlob?: Uint8Array },
 ): Promise<ProjectMeta> {
   const store = getProjectStore();
-  const meta: ProjectMeta = {
-    id,
-    name: opts.name,
-    description: XmlDocument.parse(xml).getAttr([], "ProjectDescription") ?? "",
-    source: opts.source,
-    family,
-    updatedAt: new Date().toISOString(),
-  };
-  await store.writeXml(id, xml);
-  await store.upsert(meta);
-  return meta;
+  return withProjectLock(store.storageId(id), async () => {
+    // Re-opening an existing id replaces the project, so its revision moves on.
+    const existing = await store.get(id);
+    const meta: ProjectMeta = {
+      id,
+      name: opts.name,
+      description: XmlDocument.parse(xml).getAttr([], "ProjectDescription") ?? "",
+      source: opts.source,
+      family,
+      updatedAt: new Date().toISOString(),
+      revision: existing ? revisionOf(existing) + 1 : 1,
+    };
+    await store.writeXml(id, xml);
+    if (opts.completeBlob) await store.writeCompleteBlob(id, opts.completeBlob);
+    await store.upsert(meta);
+    return meta;
+  });
+}
+
+const revisionOf = (meta: ProjectMeta) => meta.revision ?? 0;
+
+/** Clients always receive an explicit revision (legacy metas are revision 0). */
+const withRevision = (meta: ProjectMeta): ProjectMeta => ({ ...meta, revision: revisionOf(meta) });
+
+/** Meta for a write that changed the project: new revision and timestamp. */
+function nextRevision(meta: ProjectMeta, changes: Partial<ProjectMeta> = {}): ProjectMeta {
+  return { ...meta, ...changes, updatedAt: new Date().toISOString(), revision: revisionOf(meta) + 1 };
 }
 
 export async function exportSignalsXlsx(
@@ -239,22 +289,20 @@ export async function exportPollPlanXlsx(
 
 export async function importSignalsXlsx(id: string, data: Uint8Array, fileName: string): Promise<ProjectView> {
   const store = getProjectStore();
-  const stored = await store.get(id);
-  if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
-  const xml = await store.readXml(id);
-  const doc = XmlDocument.parse(xml);
-  const family = detectFamily(doc);
-  if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
-  const result = await applySignalsXlsx(doc, family.id, data);
-  await store.writeXml(id, doc.serialize());
-  const now = new Date().toISOString();
-  await store.upsert({
-    ...stored,
-    updatedAt: now,
-    lastImport: { fileName, at: now, rows: result.rows },
+  return withProjectLock(store.storageId(id), async () => {
+    const stored = await store.get(id);
+    if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+    const xml = await store.readXml(id);
+    const doc = XmlDocument.parse(xml);
+    const family = detectFamily(doc);
+    if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+    const result = await applySignalsXlsx(doc, family.id, data);
+    await store.writeXml(id, doc.serialize());
+    const now = new Date().toISOString();
+    await store.upsert(nextRevision(stored, { lastImport: { fileName, at: now, rows: result.rows } }));
+    await snapshotDraft(id, `Imported ${fileName}`);
+    return readProjectView(id, { locked: true });
   });
-  await snapshotDraft(id, `Imported ${fileName}`);
-  return getProjectView(id);
 }
 
 export async function listProjectHistory(id: string): Promise<ProjectHistoryEntry[]> {
@@ -265,26 +313,31 @@ export async function listProjectHistory(id: string): Promise<ProjectHistoryEntr
 
 export async function restoreProjectHistory(id: string, entryId: string): Promise<ProjectView> {
   const store = getProjectStore();
-  const stored = await store.get(id);
-  if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
-  try {
-    await store.restoreHistory(id, entryId);
-  } catch (error) {
-    throw new ProjectServiceError(404, error instanceof Error ? error.message : "History entry not found");
-  }
-  await store.upsert({ ...stored, updatedAt: new Date().toISOString() });
-  return getProjectView(id);
+  return withProjectLock(store.storageId(id), async () => {
+    const stored = await store.get(id);
+    if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
+    try {
+      await store.restoreHistory(id, entryId);
+    } catch (error) {
+      throw new ProjectServiceError(404, error instanceof Error ? error.message : "History entry not found");
+    }
+    await store.upsert(nextRevision(stored));
+    return readProjectView(id, { locked: true });
+  });
 }
 
+/** Records a deploy in the history; the project itself is unchanged (no new revision). */
 export async function snapshotDeploy(id: string): Promise<void> {
   const store = getProjectStore();
-  const existing = await store.listHistory(id);
-  let max = 0;
-  for (const entry of existing) {
-    const match = /^v(\d+)$/.exec(entry.tag);
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  await store.snapshotHistory(id, { tag: `v${max + 1}`, text: "Deployed", who: "local" });
+  await withProjectLock(store.storageId(id), async () => {
+    const existing = await store.listHistory(id);
+    let max = 0;
+    for (const entry of existing) {
+      const match = /^v(\d+)$/.exec(entry.tag);
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+    await store.snapshotHistory(id, { tag: `v${max + 1}`, text: "Deployed", who: "local" });
+  });
 }
 
 async function snapshotDraft(id: string, text: string): Promise<void> {

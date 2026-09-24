@@ -42,6 +42,13 @@ describe("validateProject", () => {
     expect(errs).toEqual([]);
   });
 
+  it("warns when a device Index or TCP NodeIndex does not match its position", () => {
+    const project = validProject();
+    project.mbm.rtuNodes[0].devices[0].index = 2;
+    const issue = validateProject(project).find((i) => i.code === "MB-DEVICE-INDEX");
+    expect(issue).toMatchObject({ severity: "warning", ref: { id: "rtu:0:0" } });
+  });
+
   it("requires at least one flag", () => {
     const project = validProject();
     project.signals[0].knx.flags = { u: false, t: false, ri: false, w: false, r: false };

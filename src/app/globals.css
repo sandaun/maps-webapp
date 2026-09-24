@@ -70,3 +70,31 @@ body {
   font-family: var(--font-family-body);
   font-size: 13.5px;
 }
+
+@keyframes property-save-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.property-save-bar { animation: property-save-up .22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .property-save-bar { animation: none; }
+}
+
+/*
+ * V12 pending marks: a 6px amber dot after the label of a field whose draft
+ * control is dirty (`data-dirty` is set by the draft controls), or before the
+ * control itself where there is no per-row label (`.pending-dot`).
+ */
+.pending-field:has([data-dirty="true"]) .pending-label::after,
+.pending-dot {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-warning);
+  vertical-align: middle;
+}
+.pending-field:has([data-dirty="true"]) .pending-label::after {
+  margin-left: 6px;
+}
