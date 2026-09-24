@@ -45,7 +45,10 @@ export interface DraftSnapshot {
   projects: Record<string, ProjectDraft>;
   states: Record<string, SaveState>;
   ready: boolean;
+  /** Some pending drafts have no local recovery copy (storage closed or writes failing). */
   storageWarning?: string;
+  /** Some drafts from an earlier session could not be read (and were ignored). */
+  recoveryWarning?: string;
   toast?: string;
 }
 export const scopeKey = (projectId: string, screen: PropertyScreen) =>
@@ -91,25 +94,43 @@ export function createPropertyDraftStore() {
   let snapshot: DraftSnapshot = { projects: {}, states: {}, ready: false };
   const listeners = new Set<() => void>();
   let storage: Storage | undefined;
+  /** Storage could not be opened: no draft can have a recovery copy. */
+  let storageUnavailable = false;
+  /** Projects whose current drafts are not (or not correctly) stored locally. */
+  const uncopied = new Set<string>();
   const emit = (patch: Partial<DraftSnapshot>) => {
     snapshot = { ...snapshot, ...patch };
     listeners.forEach((listener) => listener());
   };
-  const warn = () =>
-    emit({
-      storageWarning:
-        "Recovery copy unavailable. Keep this tab open until you save your changes.",
-    });
-  function persist(project: ProjectDraft) {
+  function syncStorageWarning() {
+    const storageWarning =
+      storageUnavailable || uncopied.size
+        ? "Recovery copy unavailable. Keep this tab open until you save your changes."
+        : undefined;
+    if (storageWarning !== snapshot.storageWarning) emit({ storageWarning });
+  }
+  function writeCopy(project: ProjectDraft) {
     if (!storage) return;
     try {
       const key = DRAFT_STORAGE_PREFIX + encodeURIComponent(project.projectId);
       if (Object.keys(project.edits).length)
         storage.setItem(key, JSON.stringify(project));
       else storage.removeItem(key);
+      uncopied.delete(project.projectId);
     } catch {
-      warn();
+      uncopied.add(project.projectId);
     }
+  }
+  /**
+   * Store this project's copy and retry the ones that failed before, so the
+   * warning only clears once every pending draft really has a copy.
+   */
+  function persist(project: ProjectDraft) {
+    writeCopy(project);
+    for (const id of [...uncopied])
+      if (id !== project.projectId && snapshot.projects[id])
+        writeCopy(snapshot.projects[id]);
+    syncStorageWarning();
   }
   function put(project: ProjectDraft) {
     emit({ projects: { ...snapshot.projects, [project.projectId]: project } });
@@ -204,7 +225,18 @@ export function createPropertyDraftStore() {
         conflict: existing?.conflict,
       };
     put({ ...project, edits });
-    state(view.meta.id, field.screen, {});
+    clearInvalid(view.meta.id, field.screen, field.id);
+  }
+  /** Editing or resolving one property only clears that property's message. */
+  function clearInvalid(projectId: string, screen: PropertyScreen, id: string) {
+    const current = snapshot.states[scopeKey(projectId, screen)];
+    if (!current?.invalid?.[id]) return;
+    const invalid = { ...current.invalid };
+    delete invalid[id];
+    state(projectId, screen, {
+      ...current,
+      invalid: Object.keys(invalid).length ? invalid : undefined,
+    });
   }
   return {
     subscribe(listener: () => void) {
@@ -217,7 +249,8 @@ export function createPropertyDraftStore() {
     hydrate(getStorage: () => Storage) {
       if (snapshot.ready) return;
       const projects: Record<string, ProjectDraft> = {};
-      let failed = false;
+      let unreadable = false,
+        unavailable = false;
       try {
         storage = getStorage();
         for (let i = 0; i < storage.length; i++) {
@@ -232,19 +265,22 @@ export function createPropertyDraftStore() {
               throw new Error("Wrong project");
             projects[project.projectId] = project;
           } catch {
-            failed = true;
+            unreadable = true;
           }
         }
       } catch {
-        failed = true;
+        storage = undefined;
+        unavailable = true;
       }
+      storageUnavailable = unavailable;
       emit({
         ready: true,
         projects,
-        storageWarning: failed
-          ? "Some recovery data could not be loaded. Keep this tab open until you save your changes."
+        recoveryWarning: unreadable
+          ? "Some unsaved changes from an earlier session could not be read and were ignored."
           : undefined,
       });
+      syncStorageWarning();
     },
     reconcile,
     editsFor,
@@ -252,6 +288,9 @@ export function createPropertyDraftStore() {
     state,
     toast(message?: string) {
       emit({ toast: message });
+    },
+    dismissRecoveryWarning() {
+      emit({ recoveryWarning: undefined });
     },
     discard(projectId: string, screen: PropertyScreen) {
       if (snapshot.states[scopeKey(projectId, screen)]?.saving) return;
@@ -287,12 +326,17 @@ export function createPropertyDraftStore() {
       else if (field && entry.conflict === "value")
         edits[id] = { ...entry, base: field.base, conflict: undefined };
       put({ ...project, edits });
-      state(view.meta.id, entry.screen, {});
+      clearInvalid(view.meta.id, entry.screen, id);
     },
     prepare(view: ProjectView, screen: PropertyScreen) {
       reconcile(view);
-      const edits = editsFor(view.meta.id, screen);
       const fields = propertyFields(view);
+      // Catalog order follows the screens' layout, so the first invalid edit
+      // is the first one the user would meet, not the first one typed.
+      const order = new Map(fields.map((field, index) => [field.id, index]));
+      const edits = editsFor(view.meta.id, screen).sort(
+        (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity),
+      );
       const invalid: Record<string, string> = {};
       for (const entry of edits) {
         const field = fields.find((field) => field.id === entry.id);

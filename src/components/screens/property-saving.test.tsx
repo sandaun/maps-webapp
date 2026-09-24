@@ -99,7 +99,10 @@ function Workspace({ devices = false }: { devices?: boolean }) {
     <CurrentProjectProvider>
       <PropertyDraftProvider>
         <ProjectSwitcher />
-        {devices ? <DevicesScreen /> : <ConfigurationScreen />}
+        {/* Same focus target as the app shell's <main>. */}
+        <main id="main-content" tabIndex={-1}>
+          {devices ? <DevicesScreen /> : <ConfigurationScreen />}
+        </main>
       </PropertyDraftProvider>
     </CurrentProjectProvider>
   );
@@ -489,6 +492,96 @@ describe("V12 property saving", () => {
       expect(screen.getAllByRole("button", { name: "Add node" })[0]).toBeDisabled();
       await release();
       await waitFor(() => expect(screen.getByRole("button", { name: "Add device" })).toBeEnabled());
+    });
+  });
+
+  describe("bar details", () => {
+    it("is a labelled region and returns focus to the content when Discard closes it", async () => {
+      render(<Workspace />);
+      fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), {
+        target: { value: "Going away" },
+      });
+      expect(screen.getByRole("region", { name: "Pending property changes" })).toBeInTheDocument();
+      const discard = screen.getByRole("button", { name: "Discard" });
+      discard.focus();
+      fireEvent.click(discard);
+      expect(screen.queryByRole("region", { name: "Pending property changes" })).toBeNull();
+      await waitFor(() => expect(document.activeElement).toBe(document.getElementById("main-content")));
+    });
+
+    it("returns focus to the content after a successful Save, but not after a failed one", async () => {
+      render(<Workspace />);
+      fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), {
+        target: { value: "Saved soon" },
+      });
+      mocks.patch.mockRejectedValueOnce(new Error("Connection lost"));
+      const save = screen.getByRole("button", { name: "Save" });
+      save.focus();
+      fireEvent.click(save);
+      const retry = await screen.findByRole("button", { name: "Retry" });
+      expect(document.activeElement).toBe(retry);
+      fireEvent.click(retry);
+      await screen.findByText("1 change saved to the project");
+      await waitFor(() => expect(document.activeElement).toBe(document.getElementById("main-content")));
+    });
+
+    it("shows conflicting values with the labels the form uses", async () => {
+      setup("me-mbs");
+      const app = render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
+      fireEvent.change(screen.getByRole("combobox", { name: "Parity" }), { target: { value: "2" } });
+      app.unmount();
+      familyById(family).applyPatches(xml, [{ type: "updateRtuConfig", patch: { parity: 1 } }]);
+      revision++;
+      render(<Workspace />);
+      expect(await screen.findByText(/Saved: Odd/)).toHaveTextContent("Saved: Odd · Pending: Even");
+    });
+
+    it("keeps other fields' validation messages while one of them is corrected", async () => {
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "Network & time" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Gateway name" }), { target: { value: "x".repeat(40) } });
+      fireEvent.change(screen.getByRole("textbox", { name: "IP address" }), { target: { value: "y".repeat(50) } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findAllByText(/Maximum \d+ characters/)).toHaveLength(2);
+      fireEvent.change(screen.getByRole("textbox", { name: "Gateway name" }), { target: { value: "Fine" } });
+      expect(screen.getAllByText(/Maximum \d+ characters/)).toHaveLength(1);
+      expect(screen.getByText(/Check the highlighted properties/)).toBeInTheDocument();
+    });
+
+    it("shows unreadable recovery data even when nothing could be recovered", async () => {
+      localStorage.setItem("maps.propertyDrafts.v1:demo", "{not json");
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      expect(screen.queryByRole("region", { name: "Pending property changes" })).toBeNull();
+      expect(screen.getByRole("alert")).toHaveTextContent(/could not be read and were ignored/);
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss recovery warning" }));
+      expect(screen.queryByText(/could not be read/)).toBeNull();
+    });
+
+    it("mentions pending edits only when removing a slave would discard them", async () => {
+      setup("me-mbs");
+      familyById(family).applyPatches(xml, [
+        {
+          type: "updateMbsConfig",
+          patch: { slaveAddressMode: 1, slaves: [{ address: 1, description: "A" }, { address: 2, description: "B" }] },
+        },
+      ]);
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Slave 1 description" }), { target: { value: "Edited" } });
+      const removes = screen.getAllByRole("button", { name: "Remove" });
+      fireEvent.click(removes[0]);
+      fireEvent.click(removes[1]);
+      expect(confirm.mock.calls.map(([text]) => text)).toEqual([
+        "Remove slave 1? Its 1 unsaved edit will be discarded.",
+        "Remove slave 2?",
+      ]);
+      confirm.mockRestore();
     });
   });
 

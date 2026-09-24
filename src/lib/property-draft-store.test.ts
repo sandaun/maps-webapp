@@ -8,6 +8,7 @@ import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthet
 import type { FamilyId, ProjectView, ProjectPatchInput } from "./project-types";
 import {
   buildPropertyPatches,
+  formatFieldValue,
   propertyFields,
   validateField,
 } from "./property-fields";
@@ -414,8 +415,115 @@ describe("property drafts", () => {
     expect(draft.getSnapshot().storageWarning).toMatch(/unavailable/);
   });
 
-  it("ignores malformed recovery records without crashing", () => {
+  it("ignores malformed recovery records without crashing and says so", () => {
     localStorage.setItem(DRAFT_STORAGE_PREFIX + "broken", "{oops");
-    expect(store().getSnapshot()).toMatchObject({ ready: true, projects: {} });
+    const snapshot = store().getSnapshot();
+    expect(snapshot).toMatchObject({ ready: true, projects: {} });
+    expect(snapshot.recoveryWarning).toMatch(/could not be read/);
+    expect(snapshot.storageWarning).toBeUndefined();
+  });
+
+  it("clears the unavailable warning once a later write succeeds", () => {
+    let full = true;
+    const flaky = {
+      length: 0,
+      key: () => null,
+      getItem: () => null,
+      removeItem: vi.fn(),
+      setItem: vi.fn(() => {
+        if (full) throw new Error("Quota");
+      }),
+    } as unknown as Storage;
+    const draft = createPropertyDraftStore();
+    draft.hydrate(() => flaky);
+    const a = fixture().view();
+    draft.stage(a, field(a, "cfg-name"), "First");
+    expect(draft.getSnapshot().storageWarning).toMatch(/unavailable/);
+    full = false;
+    draft.stage(a, field(a, "cfg-name"), "Second");
+    expect(draft.getSnapshot().storageWarning).toBeUndefined();
+  });
+
+  it("keeps the copy warning until every project with drafts has a copy", () => {
+    const data = new Map<string, string>();
+    let blockKnx = true;
+    const knxKey = DRAFT_STORAGE_PREFIX + "knx-mbm";
+    const partial = {
+      get length() {
+        return data.size;
+      },
+      key: (i: number) => [...data.keys()][i] ?? null,
+      getItem: (key: string) => data.get(key) ?? null,
+      removeItem: (key: string) => data.delete(key),
+      setItem: (key: string, value: string) => {
+        if (key === knxKey && blockKnx) throw new Error("Quota");
+        data.set(key, value);
+      },
+    } as unknown as Storage;
+    const draft = createPropertyDraftStore();
+    draft.hydrate(() => partial);
+    const a = fixture().view(),
+      b = fixture("me-mbs").view();
+    draft.stage(a, field(a, "cfg-name"), "Project A has no copy");
+    expect(draft.getSnapshot().storageWarning).toMatch(/unavailable/);
+    // A later successful write for another project must not hide A's problem.
+    draft.stage(b, field(b, "cfg-name"), "Project B is stored");
+    expect(data.has(DRAFT_STORAGE_PREFIX + "me-mbs")).toBe(true);
+    expect(draft.getSnapshot().storageWarning).toMatch(/unavailable/);
+    // Once storage accepts A again, the next write retries it and the warning clears.
+    blockKnx = false;
+    draft.stage(b, field(b, "cfg-name"), "Project B again");
+    expect(JSON.parse(data.get(knxKey)!).edits["cfg-name"].value).toBe("Project A has no copy");
+    expect(draft.getSnapshot().storageWarning).toBeUndefined();
+  });
+
+  it("keeps the unavailable warning when storage cannot be opened at all", () => {
+    const draft = createPropertyDraftStore();
+    draft.hydrate(() => {
+      throw new Error("SecurityError");
+    });
+    const a = fixture().view();
+    draft.stage(a, field(a, "cfg-name"), "Memory only");
+    expect(draft.getSnapshot().storageWarning).toMatch(/unavailable/);
+  });
+
+  it("clears only the edited property's validation message", () => {
+    const f = fixture(),
+      a = f.view(),
+      draft = store();
+    draft.stage(a, field(a, "cfg-mbm-maxreg"), "0");
+    draft.stage(a, field(a, "cfg-gw-name"), "x".repeat(40));
+    const { invalid } = draft.prepare(a, "configuration");
+    draft.state(a.meta.id, "configuration", { invalid });
+    draft.stage(a, field(a, "cfg-gw-name"), "Fixed");
+    expect(Object.keys(draft.getSnapshot().states[`${a.meta.id}:configuration`].invalid ?? {})).toEqual([
+      "cfg-mbm-maxreg",
+    ]);
+  });
+
+  it("lists invalid edits in screen order rather than typing order", () => {
+    const f = fixture(),
+      a = f.view(),
+      draft = store();
+    draft.stage(a, field(a, "cfg-mbm-maxreg"), "0");
+    draft.stage(a, field(a, "cfg-gw-name"), "x".repeat(40));
+    const { edits, invalid } = draft.prepare(a, "configuration");
+    expect(edits.filter((edit) => invalid[edit.id]).map((edit) => edit.id)).toEqual([
+      "cfg-gw-name",
+      "cfg-mbm-maxreg",
+    ]);
+  });
+});
+
+describe("formatFieldValue", () => {
+  it("shows values as the form shows them", () => {
+    const knx = fixture().view(),
+      me = fixture("me-mbs").view();
+    expect(formatFieldValue(field(knx, "rtu-0-parity"), "2")).toBe("Even");
+    expect(formatFieldValue(field(knx, "cfg-mbm-media"), 2)).toBe("RTU + TCP");
+    expect(formatFieldValue(field(me, "dev-g-0-0-setpoint"), false)).toBe("Single Setpoint");
+    expect(formatFieldValue(field(me, "dev-g-0-0-urc"), "1")).toBe("Available");
+    expect(formatFieldValue(field(knx, "rtu-0-baud"), "")).toBe("(empty)");
+    expect(formatFieldValue(field(knx, "cfg-name"), "Plain")).toBe("Plain");
   });
 });

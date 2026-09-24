@@ -3,6 +3,7 @@ import {
   parsePhysicalAddress,
 } from "@/protocols/knx/address";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
+import { OPTION_LABELS, type OptionLabels } from "./property-option-labels";
 
 export type PropertyScreen = "configuration" | "devices";
 export type PropertyValue = string | number | boolean;
@@ -20,6 +21,8 @@ export interface PropertyField {
   integer?: boolean;
   maxLength?: number;
   options?: readonly PropertyValue[];
+  /** Display labels by option value (booleans as 0/1), as the select shows them. */
+  optionLabels?: OptionLabels;
   address?: boolean;
   /**
    * Addressed by list position (KNX nodes/devices, ME slave list): another
@@ -39,11 +42,14 @@ type Rule = Partial<
     | "integer"
     | "maxLength"
     | "options"
+    | "optionLabels"
     | "address"
   >
 >;
 const integer = (min = 0, max?: number): Rule => ({ integer: true, min, max });
 const choices = (...options: PropertyValue[]): Rule => ({ options });
+const labelled = (rule: Rule, optionLabels: OptionLabels): Rule => ({ ...rule, optionLabels });
+const L = OPTION_LABELS;
 const text = (maxLength = 128): Rule => ({ maxLength });
 const toggle: Rule = { immediate: true };
 
@@ -157,7 +163,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
           : { [key]: value },
       }),
       [
-        ["media", "media", "Connection type", choices(0, 1, 2)],
+        ["media", "media", "Connection type", labelled(choices(0, 1, 2), L.media)],
         [
           "deadband",
           "deadband",
@@ -179,10 +185,10 @@ export function propertyFields(view: ProjectView): PropertyField[] {
             ? [
                 ["baudrate", "baud", "Baudrate", integer(1200, 115200)],
                 ["dataBits", "databits", "Data bits", integer(5, 8)],
-                ["parity", "parity", "Parity", choices(0, 1, 2)],
+                ["parity", "parity", "Parity", labelled(choices(0, 1, 2), L.parity)],
                 ["stopBits", "stopbits", "Stop bits", choices(1, 2)],
                 ["timeInterFrame", "tir", "Inter-frame", integer()],
-                ["physicalPort", "port", "Physical port", choices(0, 1)],
+                ["physicalPort", "port", "Physical port", labelled(choices(0, 1), L.physicalPort)],
                 [
                   "pollAfterWrite",
                   "pollAfterWrite",
@@ -254,7 +260,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
                 "Slave",
                 integer(kind === "rtu" ? 1 : 0, kind === "rtu" ? 254 : 255),
               ],
-              ["baseRegister", "baseRegister", "Base register", choices(0, 1)],
+              ["baseRegister", "baseRegister", "Base register", labelled(choices(0, 1), L.registerBase)],
               ["timeout", "timeout", "Timeout", integer(100, 30000)],
               ["enabled", "enabled", "Enabled", toggle],
             ].map((row) => {
@@ -286,13 +292,13 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       mbs,
       (key, value) => ({ type: "updateMbsConfig", patch: { [key]: value } }),
       [
-        ["media", "media", "Media", choices(0, 1, 2)],
-        ["addressMode", "addrmode", "Modbus addresses", choices(0, 1, 2)],
-        ["byteOrder", "byteorder", "Byte order", choices(0, 1, 2, 3)],
-        ["registerBase", "regbase", "Register base", choices(0, 1)],
+        ["media", "media", "Media", labelled(choices(0, 1, 2), L.media)],
+        ["addressMode", "addrmode", "Modbus addresses", labelled(choices(0, 1, 2), L.addressMode)],
+        ["byteOrder", "byteorder", "Byte order", labelled(choices(0, 1, 2, 3), L.byteOrder)],
+        ["registerBase", "regbase", "Register base", labelled(choices(0, 1), L.registerBase)],
         ["commErrorTout", "commerr", "Comm. error timeout", integer(0, 3600)],
         ["updateCOV", "updateCOV", "Update on change of value", toggle],
-        ["slaveAddressMode", "slavemode", "Slave addressing", choices(0, 1)],
+        ["slaveAddressMode", "slavemode", "Slave addressing", labelled(choices(0, 1), L.slaveAddressMode)],
       ],
     );
     add(
@@ -305,7 +311,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       [
         ["baudrate", "baud", "Baudrate", integer(1200, 115200)],
         ["dataBits", "databits", "Data bits", integer(5, 8)],
-        ["parity", "parity", "Parity", choices(0, 1, 2)],
+        ["parity", "parity", "Parity", labelled(choices(0, 1, 2), L.parity)],
         ["stopBits", "stopbits", "Stop bits", choices(1, 2)],
         ["slaveNumber", "slave", "Slave ID", integer(1, 247)],
       ],
@@ -356,7 +362,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       me,
       (key, value) => ({ type: "updateMeScalars", patch: { [key]: value } }),
       [
-        ["temperatureMode", "tempMode", "Temperature units", choices(0, 1)],
+        ["temperatureMode", "tempMode", "Temperature units", labelled(choices(0, 1), L.temperatureMode)],
         ["pollPeriod", "pollPeriod", "Polling period", integer()],
         ["ansTimeout", "ansTimeout", "Answer timeout", integer()],
         [
@@ -392,9 +398,9 @@ export function propertyFields(view: ProjectView): PropertyField[] {
           ["description", "desc", "Description", text()],
           ["ip", "ip", "IP address", text(45)],
           ["port", "port", "Port", integer(1, 65535)],
-          ["type", "type", "Type", choices(0, 1, 2, 3)],
-          ["model", "model", "Model", choices(0, 1, 2, 3)],
-          ["compatibility", "compat", "Compatibility", choices(0, 1)],
+          ["type", "type", "Type", labelled(choices(0, 1, 2, 3), L.controllerType)],
+          ["model", "model", "Model", labelled(choices(0, 1, 2, 3), L.controllerModel)],
+          ["compatibility", "compat", "Compatibility", labelled(choices(0, 1), L.compatibility)],
           ["addErrorSignals", "addErrorSignals", "Error signals", toggle],
         ].map((row) => {
           const [key, suffix, label, rule] = row as [
@@ -428,10 +434,10 @@ export function propertyFields(view: ProjectView): PropertyField[] {
           [
             ["enabled", "enabled", "Integrated", toggle],
             ["description", "desc", "Description", text()],
-            ["type", "type", "Unit type", choices(0, 1, 2, 3, 4, 5, 6)],
+            ["type", "type", "Unit type", labelled(choices(0, 1, 2, 3, 4, 5, 6), L.groupType)],
             ["fanSpeeds", "fans", "Num of fan speeds", choices(0, 2, 3, 4)],
-            ["dualSetPoint", "setpoint", "Setpoint type", choices(false, true)],
-            ["urc", "urc", "URC controller", choices(false, true)],
+            ["dualSetPoint", "setpoint", "Setpoint type", labelled(choices(false, true), L.dualSetPoint)],
+            ["urc", "urc", "URC controller", labelled(choices(false, true), L.urc)],
             ["capacity", "capacity", "Capacity", integer(-1)],
           ].map((row) => {
             const [key, suffix, label, rule] = row as [
@@ -463,6 +469,18 @@ export function fieldValue(
   if (typeof field.base === "boolean")
     return raw === true || raw === "true" || raw === "1" || raw === 1;
   return String(raw);
+}
+
+/** A value as the user sees it in the form (option labels, empty numbers). */
+export function formatFieldValue(field: PropertyField, raw: PropertyValue): string {
+  const value = fieldValue(field, raw);
+  if (typeof value === "number" && Number.isNaN(value)) return "(empty)";
+  if (field.optionLabels) {
+    const label = field.optionLabels[String(typeof value === "boolean" ? Number(value) : value)];
+    if (label !== undefined) return label;
+  }
+  if (typeof value === "boolean") return value ? "On" : "Off";
+  return value === "" ? "(empty)" : String(value);
 }
 
 export function validateField(

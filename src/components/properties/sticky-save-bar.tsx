@@ -1,24 +1,38 @@
 "use client";
 
+import * as React from "react";
 import { usePropertyDrafts } from "@/lib/property-drafts";
 import { scopeKey } from "@/lib/property-draft-store";
-import type { PropertyScreen } from "@/lib/property-fields";
+import { formatFieldValue, type PropertyScreen } from "@/lib/property-fields";
 import { cn } from "@/lib/utils";
 
 export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
   const { store, snapshot, view, save, fields, immediateBusy } =
     usePropertyDrafts();
-  if (!view) return null;
-  const edits = store.editsFor(view.meta.id, screen);
-  if (!edits.length) return null;
-  const state = snapshot.states[scopeKey(view.meta.id, screen)] ?? {};
+  const edits = view ? store.editsFor(view.meta.id, screen) : [];
+  const state = (view && snapshot.states[scopeKey(view.meta.id, screen)]) || {};
   const count = edits.length;
+  // Save/Discard close the bar under the keyboard user: hand focus to the
+  // main content instead of letting it fall back to <body>.
+  const returnFocus = React.useRef(false);
+  React.useEffect(() => {
+    if (!returnFocus.current) return;
+    if (count === 0) {
+      returnFocus.current = false;
+      document.getElementById("main-content")?.focus();
+    } else if (!state.saving) returnFocus.current = false;
+  }, [count, state.saving]);
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const noteFocus = () => {
+    returnFocus.current = !!barRef.current?.contains(document.activeElement);
+  };
+  if (!view || !count) return null;
   const conflicts = edits.filter((edit) => edit.conflict);
   const invalid = Object.keys(state.invalid ?? {}).length;
   const error =
     state.error ||
     (conflicts.length
-      ? "Some recovered properties need your review. Your edits are still here."
+      ? "Some pending properties need your review. Your edits are still here."
       : invalid
         ? "Check the highlighted properties before saving. Your edits are still here."
         : undefined);
@@ -29,6 +43,8 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
   const saveBlocked = !!state.saving || immediatePending || conflicts.length > 0;
   return (
     <div
+      ref={barRef}
+      role="region"
       className="sticky bottom-0 z-[8] pt-[14px] pb-1"
       aria-label="Pending property changes"
     >
@@ -36,14 +52,16 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
         <div className="mb-2 max-h-[220px] overflow-auto rounded-lg border border-[#FF9E91] bg-white p-3 text-[12px]">
           {conflicts.map((edit) => {
             const field = fields.find((candidate) => candidate.id === edit.id);
+            const show = (raw: typeof edit.value) =>
+              field ? formatFieldValue(field, raw) : String(raw);
             return (
               <div key={edit.id} className="mb-3 last:mb-0">
                 <strong className="text-hms-blue">{edit.label}</strong>
                 <p className="mt-1 text-fg-muted">
                   {edit.conflict === "entity"
                     ? "The project was changed elsewhere, so this node or device may have been replaced or removed. The pending value cannot be applied safely."
-                    : `Saved: ${String(field?.base ?? "—")}`}{" "}
-                  · Pending: {String(edit.value)}
+                    : `Saved: ${field ? show(field.base) : "—"}`}{" "}
+                  · Pending: {show(edit.value)}
                 </p>
                 <div className="mt-2 flex gap-3">
                   {edit.conflict !== "entity" && (
@@ -125,7 +143,9 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
             type="button"
             aria-disabled={discardBlocked || undefined}
             onClick={() => {
-              if (!discardBlocked) store.discard(view.meta.id, screen);
+              if (discardBlocked) return;
+              noteFocus();
+              store.discard(view.meta.id, screen);
             }}
             className="cursor-pointer whitespace-nowrap rounded border border-white/[0.28] bg-transparent px-[13px] py-[7px] text-[12px] font-bold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
           >
@@ -136,7 +156,9 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
             aria-disabled={saveBlocked || undefined}
             aria-busy={state.saving || undefined}
             onClick={() => {
-              if (!saveBlocked) void save(screen);
+              if (saveBlocked) return;
+              noteFocus();
+              void save(screen);
             }}
             className="inline-flex cursor-pointer items-center gap-[7px] whitespace-nowrap rounded bg-hms-accent px-[15px] py-[7px] text-[12px] font-bold text-white focus-visible:outline-2 focus-visible:outline-white aria-disabled:cursor-default aria-disabled:bg-[rgba(18,104,179,0.55)]"
           >

@@ -202,6 +202,23 @@ export function PropertyDraftProvider({
       }}
     >
       {children}
+      {/* Independent of the save bar: all recovered drafts may have been unreadable. */}
+      {snapshot.recoveryWarning && (
+        <div
+          role="alert"
+          className="fixed right-4 top-16 z-50 flex max-w-[min(380px,calc(100vw-32px))] items-start gap-3 rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-[12.5px] text-warning-text shadow-lg"
+        >
+          <span>{snapshot.recoveryWarning}</span>
+          <button
+            type="button"
+            aria-label="Dismiss recovery warning"
+            className="cursor-pointer"
+            onClick={() => store.dismissRecoveryWarning()}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {snapshot.toast && (
         <div
           role="status"

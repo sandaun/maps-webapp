@@ -7,12 +7,13 @@ import { formatPhysicalAddress } from "@/protocols/knx/address";
 import { BAUD_RATES, COMM_ERROR_TOUT_RANGE, SLAVE_ID_RANGE } from "@/protocols/modbus/slave";
 import { BYTE_ORDER_LABELS } from "@/protocols/modbus/master/types";
 import { FAMILY_LABELS, type FamilyId, type ProjectView } from "@/lib/project-types";
+import { MEDIA_OPTIONS } from "@/lib/property-option-labels";
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
-import { useDraftForm, useRevealProperty } from "@/lib/property-drafts";
+import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
 
 type SectionKey = "general" | "network" | "bms" | "device" | "conv";
@@ -504,16 +505,23 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
   );
 }
 
-const MEDIA_OPTIONS = [
-  { value: 0, label: "RTU" },
-  { value: 1, label: "TCP" },
-  { value: 2, label: "RTU + TCP" },
-] as const;
-
 /** ME–MBS: Modbus Slave (server) configuration. */
 function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs" }> }) {
   const { save, busy, error } = useSave();
+  const drafts = usePropertyDrafts();
   const { mbs } = view.project;
+  const pendingForSlave = (index: number) =>
+    (["address", "description"] as const).filter(
+      (key) => drafts.snapshot.projects[view.meta.id]?.edits[`cfg-mbs-slaves-${index}-${key}`],
+    ).length;
+  const confirmRemoveSlave = (index: number) => {
+    const pending = pendingForSlave(index);
+    return window.confirm(
+      pending
+        ? `Remove slave ${index + 1}? Its ${pending} unsaved ${pending === 1 ? "edit" : "edits"} will be discarded.`
+        : `Remove slave ${index + 1}?`,
+    );
+  };
   const { form, set, dirtyKeys } = useDraftForm("mbs", {
     media: mbs.media as number,
     byteOrder: mbs.byteOrder,
@@ -728,7 +736,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                     type="button"
                     disabled={busy}
                     onClick={() =>
-                      window.confirm("Remove this slave and discard its pending property edits?") &&
+                      confirmRemoveSlave(i) &&
                       void save([{ type: "updateMbsConfig", patch: { slaves: mbs.slaves.filter((_, j) => j !== i) } }])
                     }
                     className="text-[12px] font-medium text-fg-subtle hover:text-error"

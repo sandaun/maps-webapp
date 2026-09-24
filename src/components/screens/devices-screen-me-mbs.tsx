@@ -13,6 +13,7 @@ import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
 import { useDraftForm, usePropertyDrafts, useRevealProperty, useSaveInProgress } from "@/lib/property-drafts";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
+import { CONTROLLER_TYPE_LABELS, GROUP_TYPE_OPTIONS, ME_MODEL_OPTIONS } from "@/lib/property-option-labels";
 import { cn } from "@/lib/utils";
 import { ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
@@ -33,22 +34,6 @@ const CONTROLLER_MODEL_LABELS: Record<number, string> = {
   3: "AE-C400E",
 };
 
-/** V11 select labels for the controller model. */
-const ME_MODEL_OPTIONS = [
-  { value: 0, label: "AG-150A or older" },
-  { value: 1, label: "EB-50GU" },
-  { value: 2, label: "AE-200, EW-50" },
-  { value: 3, label: "AE-C400E, EW-C50" },
-];
-
-/** Desktop `GetControllerTypeString` (frmDiscoverMe.cs). */
-const CONTROLLER_TYPE_LABELS: Record<number, string> = {
-  0: "Controller Direct Connection",
-  1: "Expansion Controller 1",
-  2: "Expansion Controller 2",
-  3: "Expansion Controller 3",
-};
-
 const GROUP_TYPE_SHORT: Record<number, string> = {
   0: "IC",
   1: "LC",
@@ -58,17 +43,6 @@ const GROUP_TYPE_SHORT: Record<number, string> = {
   5: "CEh",
   6: "SYS",
 };
-
-/** V11 select labels for the group unit type. */
-const GROUP_TYPE_OPTIONS = [
-  { value: 0, label: "IC: Air Conditioning Unit" },
-  { value: 1, label: "LC: Lossnay" },
-  { value: 2, label: "FU: Outdoor-Air Processing Unit" },
-  { value: 3, label: "BU: Air to Water Booster Unit" },
-  { value: 4, label: "WH: Air to Water HEX Unit" },
-  { value: 5, label: "CEh: Heat Pump" },
-  { value: 6, label: "System Component" },
-];
 
 /**
  * Which settings apply to each unit type (V11 `CAPS` matrix): fan speeds,
