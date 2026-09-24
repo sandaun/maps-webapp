@@ -16,6 +16,17 @@ Llegenda: **[fet]** · **[falta]** · **[blocat]** (depèn d'API de gateway en v
 
 ## 1. Mitsubishi Electric AC ↔ Modbus Slave (770 Air, `me-mbs`)
 
+### 1.0 Regeneració de senyals a partir del model — **PRIORITARI** [falta]
+
+La webapp no crea ni esborra senyals quan canvien grups, controladors o
+paràmetres globals; MAPS sí (habilitar un grup a la web no genera els seus
+registres Modbus i el projecte queda incomplet). Anàlisi i correspondència
+completa a `docs/reference/me-mbs-regeneracio-senyals.md`; fitxers de
+referència desats amb MAPS a `signal-ai/src/tmp/maps-ref/` (fora de Git).
+Branca pròpia. Abast pactat: adreces FIXED i esclau SINGLE, més
+`HvacAddresses` per als camps de senyal que la web ja deixa editar; V4_COMP,
+MULTIPLE i CUSTOM després.
+
 ### 1.1 Configuration
 
 | Punt | Estat | Notes |
