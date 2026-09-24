@@ -25,6 +25,8 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
   const immediatePending = Object.entries(immediateBusy).some(
     ([key, value]) => key.startsWith(`${view.meta.id}:`) && value,
   );
+  const discardBlocked = !!state.saving;
+  const saveBlocked = !!state.saving || immediatePending || conflicts.length > 0;
   return (
     <div
       className="sticky bottom-0 z-[8] pt-[14px] pb-1"
@@ -118,19 +120,25 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {/* aria-disabled rather than disabled: the pressed button keeps keyboard focus while it waits. */}
           <button
             type="button"
-            disabled={state.saving}
-            onClick={() => store.discard(view.meta.id, screen)}
-            className="cursor-pointer whitespace-nowrap rounded border border-white/[0.28] bg-transparent px-[13px] py-[7px] text-[12px] font-bold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white disabled:cursor-default disabled:opacity-50"
+            aria-disabled={discardBlocked || undefined}
+            onClick={() => {
+              if (!discardBlocked) store.discard(view.meta.id, screen);
+            }}
+            className="cursor-pointer whitespace-nowrap rounded border border-white/[0.28] bg-transparent px-[13px] py-[7px] text-[12px] font-bold text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
           >
             Discard
           </button>
           <button
             type="button"
-            disabled={state.saving || immediatePending || conflicts.length > 0}
-            onClick={() => void save(screen)}
-            className="inline-flex cursor-pointer items-center gap-[7px] whitespace-nowrap rounded bg-hms-accent px-[15px] py-[7px] text-[12px] font-bold text-white focus-visible:outline-2 focus-visible:outline-white disabled:cursor-default disabled:bg-[rgba(18,104,179,0.55)]"
+            aria-disabled={saveBlocked || undefined}
+            aria-busy={state.saving || undefined}
+            onClick={() => {
+              if (!saveBlocked) void save(screen);
+            }}
+            className="inline-flex cursor-pointer items-center gap-[7px] whitespace-nowrap rounded bg-hms-accent px-[15px] py-[7px] text-[12px] font-bold text-white focus-visible:outline-2 focus-visible:outline-white aria-disabled:cursor-default aria-disabled:bg-[rgba(18,104,179,0.55)]"
           >
             {state.saving && (
               <span

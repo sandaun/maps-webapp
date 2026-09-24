@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { usePatch } from "./current-project";
+import { useSaveInProgress } from "./property-drafts";
 import type { ProjectPatchInput } from "./project-types";
 
 /**
@@ -10,11 +11,14 @@ import type { ProjectPatchInput } from "./project-types";
  */
 export function useSave() {
   const applyPatches = usePatch();
+  // Structural edits wait for an in-flight property Save of the same project.
+  const locked = useSaveInProgress();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const save = React.useCallback(
     async (patches: ProjectPatchInput[]): Promise<boolean> => {
+      if (locked) return false;
       setBusy(true);
       setError(null);
       try {
@@ -27,8 +31,8 @@ export function useSave() {
         setBusy(false);
       }
     },
-    [applyPatches],
+    [applyPatches, locked],
   );
 
-  return { save, busy, error };
+  return { save, busy: busy || locked, error };
 }

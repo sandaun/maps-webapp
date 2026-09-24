@@ -11,15 +11,14 @@ import { scanMeGroups } from "@/lib/gateway-api";
 import { useGatewaySession } from "@/lib/gateway-session";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
-import { useDraftForm, usePropertyField, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
+import { useDraftForm, usePropertyDrafts, useRevealProperty, useSaveInProgress } from "@/lib/property-drafts";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { cn } from "@/lib/utils";
 import { ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError } from "@/components/properties/draft-controls";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
 import { Modal } from "@/components/ui/modal";
-import { Switch } from "@/components/ui/switch";
 
 type MeMbsView = Extract<ProjectView, { family: "me-mbs" }>;
 
@@ -337,7 +336,8 @@ function ControllerNode({
           </span>
         </button>
         <StatusDot tone={dotTone} />
-        <Switch
+        <PropertySwitch
+          id={`dev-cc-${controller.index}-enabled`}
           aria-label={`Controller ${controller.index + 1} enabled`}
           title={controller.enabled ? "Polled — switch off to stop polling this controller" : "Not polled"}
           checked={controller.enabled}
@@ -390,7 +390,8 @@ function ControllerNode({
               </span>
             </button>
             <StatusDot tone={groupDot} />
-            <Switch
+            <PropertySwitch
+              id={`dev-g-${controller.index}-${g.index}-enabled`}
               aria-label={`Group ${g.index + 1} integrated`}
               title={g.enabled ? "Integrated — switch off to drop its registers" : "Not integrated — no signals are generated"}
               checked={g.enabled}
@@ -944,6 +945,7 @@ function AddGroupsModal({
   onClose: () => void;
 }) {
   const applyPatches = usePatch();
+  const saveInProgress = useSaveInProgress();
   const controllers = view.project.me.controllers;
   const [tab, setTab] = React.useState(initialControllerIndex);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
@@ -959,7 +961,7 @@ function AddGroupsModal({
     });
 
   function handleConfirm() {
-    if (!controller || selected.size === 0) return;
+    if (!controller || selected.size === 0 || saveInProgress) return;
     const patches: ProjectPatchInput[] = [...selected].map((groupIndex) => ({
       type: "updateGroup",
       controllerIndex: controller.index,
@@ -975,7 +977,7 @@ function AddGroupsModal({
       description="Pick the M-NET group numbers to integrate. Each group becomes a block of Modbus registers when you send the configuration."
       foot="A group is an M-NET group number on the centralized controller. Unit type and description are set per group afterwards."
       ctaLabel={`Add ${selected.size} group${selected.size === 1 ? "" : "s"}`}
-      ctaDisabled={selected.size === 0}
+      ctaDisabled={selected.size === 0 || saveInProgress}
       onConfirm={handleConfirm}
       onClose={onClose}
       width={620}
@@ -1086,6 +1088,7 @@ function ScanGroupsModal({
   onClose: () => void;
 }) {
   const applyPatches = usePatch();
+  const saveInProgress = useSaveInProgress();
   const [phase, setPhase] = React.useState<ScanPhase>("ready");
   const [groups, setGroups] = React.useState<ScannedMeGroup[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -1157,6 +1160,7 @@ function ScanGroupsModal({
   }
 
   function handleApply() {
+    if (saveInProgress) return;
     const patches: ProjectPatchInput[] = groups
       .filter((g) => selected.has(g.group))
       .map((g) => ({
@@ -1176,7 +1180,7 @@ function ScanGroupsModal({
       description={`The gateway asks centralized controller ${controller.index + 1} for every indoor and outdoor unit on the M-NET bus. Nothing changes in the project until you apply the selection.`}
       foot="Applying replaces the unit type, fan speeds and URC of the selected groups with the values read from the controller. Descriptions are not read from the controller — add them per group after applying."
       ctaLabel={`Apply ${selected.size} group${selected.size === 1 ? "" : "s"}`}
-      ctaDisabled={selected.size === 0 || phase === "scanning"}
+      ctaDisabled={selected.size === 0 || phase === "scanning" || saveInProgress}
       onConfirm={handleApply}
       onClose={handleClose}
       width={900}
@@ -1506,10 +1510,9 @@ function ToggleControl({
   onToggle: (checked: boolean) => void;
   disabled?: boolean;
 }) {
-  const property = usePropertyField(id);
   return (
     <div className="flex items-center gap-[10px]">
-      <Switch size="lg" checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled || property.disabled} />
+      <PropertySwitch id={id} size="lg" checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled} />
       <span className="text-[12px] text-fg-muted">{checked ? "Enabled" : "Disabled"}</span>
       <ImmediatePropertyError id={id} />
     </div>

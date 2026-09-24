@@ -10,10 +10,9 @@ import { FAMILY_LABELS, type FamilyId, type ProjectView } from "@/lib/project-ty
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
-import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyScreenBoundary } from "@/components/properties/draft-controls";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
-import { useDraftForm, usePropertyField, useRevealProperty } from "@/lib/property-drafts";
-import { Switch } from "@/components/ui/switch";
+import { useDraftForm, useRevealProperty } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
 
 type SectionKey = "general" | "network" | "bms" | "device" | "conv";
@@ -39,7 +38,7 @@ function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
 export function ConfigurationScreen() {
   return (
     <ScreenGate>
-      {(view) => <PropertyScreenBoundary screen="configuration"><ConfigurationWorkspace key={view.meta.id} view={view} /></PropertyScreenBoundary>}
+      {(view) => <ConfigurationWorkspace key={view.meta.id} view={view} />}
     </ScreenGate>
   );
 }
@@ -257,10 +256,9 @@ function ToggleControl({
   onToggle: (checked: boolean) => void;
   disabled?: boolean;
 }) {
-  const property = usePropertyField(id);
   return (
     <div className="flex items-center gap-[10px] py-[3px]">
-      <Switch checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled || property.disabled} />
+      <PropertySwitch id={id} checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled} />
       <span className="text-[12px] text-fg-muted">{checked ? "Enabled" : "Disabled"}</span>
       <ImmediatePropertyError id={id} />
     </div>
@@ -514,7 +512,7 @@ const MEDIA_OPTIONS = [
 
 /** ME–MBS: Modbus Slave (server) configuration. */
 function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs" }> }) {
-  const { save, error } = useSave();
+  const { save, busy, error } = useSave();
   const { mbs } = view.project;
   const { form, set, dirtyKeys } = useDraftForm("mbs", {
     media: mbs.media as number,
@@ -728,6 +726,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                   />
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={() =>
                       window.confirm("Remove this slave and discard its pending property edits?") &&
                       void save([{ type: "updateMbsConfig", patch: { slaves: mbs.slaves.filter((_, j) => j !== i) } }])
@@ -743,6 +742,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                   type="button"
                   size="sm"
                   variant="secondary"
+                  disabled={busy}
                   onClick={() =>
                     void save([{ type: "updateMbsConfig", patch: { slaves: [...mbs.slaves, { address: mbs.slaves.length + 1, description: "" }] } }])
                   }

@@ -229,6 +229,19 @@ export function usePropertyDrafts() {
   return context;
 }
 
+/**
+ * True while a property Save of the current project is in flight: structural
+ * mutations of the same project wait for it. Safe outside the provider.
+ */
+export function useSaveInProgress(): boolean {
+  const context = React.useContext(DraftContext);
+  const projectId = context?.view?.meta.id;
+  if (!context || projectId === undefined) return false;
+  return (["configuration", "devices"] as const).some(
+    (screen) => context.snapshot.states[scopeKey(projectId, screen)]?.saving,
+  );
+}
+
 export function usePropertyField(id?: string) {
   const context = usePropertyDrafts();
   const field = context.fields.find((candidate) => candidate.id === id);

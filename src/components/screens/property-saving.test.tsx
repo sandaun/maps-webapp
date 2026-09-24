@@ -238,7 +238,7 @@ describe("V12 property saving", () => {
       ),
     );
     await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "DHCP" })).not.toBeDisabled(),
+      expect(screen.getByRole("switch", { name: "DHCP" })).not.toHaveAttribute("aria-disabled"),
     );
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     fireEvent.click(
@@ -265,10 +265,10 @@ describe("V12 property saving", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(1));
     expect(screen.getByText("Saving 1 change…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Discard" })).toHaveAttribute("aria-disabled", "true");
     await act(async () => reject(new Error("Connection lost")));
-    expect(await screen.findByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Retry" })).not.toHaveAttribute("aria-disabled");
     expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
       "Retry this",
     );
@@ -311,7 +311,7 @@ describe("V12 property saving", () => {
     expect(screen.getByText(/Saved: Changed elsewhere/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Save" }),
-    ).toBeDisabled();
+    ).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByRole("button", { name: "Use saved value" }));
     expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
       "Changed elsewhere",
@@ -390,7 +390,7 @@ describe("V12 property saving", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Save" }),
-      ).toBeEnabled(),
+      ).not.toHaveAttribute("aria-disabled"),
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("2 changes saved to the project");
@@ -420,6 +420,78 @@ describe("V12 property saving", () => {
     ]);
   });
 
+  describe("mutations never lock the whole screen", () => {
+    /** Holds the next patch until `release` is called. */
+    function holdNextPatch() {
+      let release!: () => void;
+      const original = mocks.patch.getMockImplementation()!;
+      mocks.patch.mockImplementationOnce(
+        (...args: Parameters<typeof original>) =>
+          new Promise((resolve) => {
+            release = () => resolve(original(...args));
+          }),
+      );
+      return () => act(async () => release());
+    }
+
+    it("keeps keyboard focus on a switch while its own value is saved", async () => {
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "Network & time" }));
+      const dhcp = screen.getByRole("switch", { name: "DHCP" });
+      dhcp.focus();
+      const release = holdNextPatch();
+      fireEvent.click(dhcp);
+      await waitFor(() => expect(dhcp).toHaveAttribute("aria-busy", "true"));
+      // Browsers drop focus from a control that becomes `disabled` (jsdom does
+      // not), so a busy control must only be aria-disabled.
+      expect(dhcp).not.toBeDisabled();
+      expect(dhcp).toHaveAttribute("aria-disabled", "true");
+      expect(document.activeElement).toBe(dhcp);
+      // Other fields, the section rail and the search stay usable meanwhile.
+      const name = screen.getByRole("textbox", { name: "Gateway name" });
+      expect(name).toBeEnabled();
+      fireEvent.change(name, { target: { value: "Typed while saving" } });
+      expect(screen.getByRole("button", { name: "General" })).toBeEnabled();
+      expect(screen.getByRole("textbox", { name: /search/i })).toBeEnabled();
+      await release();
+      await waitFor(() => expect(dhcp).not.toHaveAttribute("aria-busy"));
+      expect(document.activeElement).toBe(dhcp);
+      expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    });
+
+    it("keeps focus on Save while it saves", async () => {
+      render(<Workspace />);
+      fireEvent.change(await screen.findByRole("textbox", { name: "Project name" }), {
+        target: { value: "Focus stays" },
+      });
+      const release = holdNextPatch();
+      const save = screen.getByRole("button", { name: "Save" });
+      save.focus();
+      fireEvent.click(save);
+      await screen.findByRole("button", { name: "Saving…" });
+      expect(save).not.toBeDisabled();
+      expect(save).toHaveAttribute("aria-disabled", "true");
+      expect(document.activeElement).toBe(save);
+      await release();
+      await screen.findByText("1 change saved to the project");
+    });
+
+    it("holds structural actions of the project while a Save is in flight", async () => {
+      render(<Workspace devices />);
+      fireEvent.change(await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" }), {
+        target: { value: "19200" },
+      });
+      const release = holdNextPatch();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await screen.findByRole("button", { name: "Saving…" });
+      expect(screen.getByRole("button", { name: "Add device" })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: "Add node" })[0]).toBeDisabled();
+      await release();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Add device" })).toBeEnabled());
+    });
+  });
+
   describe("two tabs: a TCP node removed and re-added at the same position", () => {
     /** Tab A drafts TCP node 2; tab B then replaces that node (count unchanged). */
     async function replacedNodeScenario() {
@@ -438,7 +510,7 @@ describe("V12 property saving", () => {
     function expectBlockedWithoutKeep() {
       expect(screen.getByText(/may have been replaced or removed/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Keep my edit" })).toBeNull();
-      expect(screen.getByRole("button", { name: /Save|Retry/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Save|Retry/ })).toHaveAttribute("aria-disabled", "true");
     }
 
     it("blocks the draft on Save and only offers to discard it", async () => {

@@ -18,10 +18,9 @@ import { MeMbsDevicesView } from "@/components/screens/devices-screen-me-mbs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
-import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyScreenBoundary } from "@/components/properties/draft-controls";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyCheckbox } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,9 +30,9 @@ export function DevicesScreen() {
     <ScreenGate>
       {(view) =>
         view.family === "me-mbs" ? (
-          <PropertyScreenBoundary screen="devices"><MeMbsDevicesView key={view.meta.id} view={view} /></PropertyScreenBoundary>
+          <MeMbsDevicesView key={view.meta.id} view={view} />
         ) : (
-          <PropertyScreenBoundary screen="devices"><DevicesSections key={view.meta.id} view={view} /></PropertyScreenBoundary>
+          <DevicesSections key={view.meta.id} view={view} />
         )
       }
     </ScreenGate>
@@ -42,7 +41,7 @@ export function DevicesScreen() {
 
 function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
   useRevealProperty(React.useCallback(() => {}, []));
-  const { save, error } = useSave();
+  const { save, busy, error } = useSave();
   const { rtuNodes, tcpNodes } = view.project.mbm;
 
   return (
@@ -59,6 +58,7 @@ function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-m
         title="Modbus RTU nodes"
         count={rtuNodes.length}
         max={MAX_RTU_NODES}
+        busy={busy}
         onAdd={() => void save([{ type: "addRtuNode" }])}
       >
         {rtuNodes.map((node, nodeIndex) => (
@@ -70,6 +70,7 @@ function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-m
         title="Modbus TCP nodes"
         count={tcpNodes.length}
         max={MAX_TCP_NODES}
+        busy={busy}
         onAdd={() => void save([{ type: "addTcpNode" }])}
       >
         {tcpNodes.map((node, nodeIndex) => (
@@ -86,12 +87,14 @@ function NodeSection({
   title,
   count,
   max,
+  busy,
   onAdd,
   children,
 }: {
   title: string;
   count: number;
   max: number;
+  busy: boolean;
   onAdd: () => void;
   children: React.ReactNode;
 }) {
@@ -104,7 +107,7 @@ function NodeSection({
         <Badge variant="muted">
           {count} / {max}
         </Badge>
-        <Button size="sm" variant="secondary" onClick={onAdd} disabled={count >= max}>
+        <Button size="sm" variant="secondary" onClick={onAdd} disabled={busy || count >= max}>
           <Plus className="h-3.5 w-3.5" aria-hidden />
           Add node
         </Button>
@@ -285,12 +288,12 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
           </Select>
         </Field>
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
-          <Checkbox checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
+          <PropertyCheckbox id={`rtu-${nodeIndex}-pollAfterWrite`} checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
           Poll after write
           <ImmediatePropertyError id={`rtu-${nodeIndex}-pollAfterWrite`} />
         </label>
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
-          <Checkbox checked={form.pollReadSignal} onChange={(e) => set("pollReadSignal", e.target.checked)} />
+          <PropertyCheckbox id={`rtu-${nodeIndex}-pollReadSignal`} checked={form.pollReadSignal} onChange={(e) => set("pollReadSignal", e.target.checked)} />
           Poll read signal
           <ImmediatePropertyError id={`rtu-${nodeIndex}-pollReadSignal`} />
         </label>
@@ -461,7 +464,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
         />
       </TableCell>
       <TableCell>
-        <Checkbox
+        <PropertyCheckbox
+          id={`${group}-enabled`}
           aria-label="Enabled"
           checked={form.enabled}
           onChange={(e) => set("enabled", e.target.checked)}

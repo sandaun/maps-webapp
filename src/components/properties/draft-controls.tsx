@@ -1,39 +1,37 @@
 "use client";
 
-import type {
-  InputHTMLAttributes,
-  SelectHTMLAttributes,
-  ReactNode,
-} from "react";
+import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { usePropertyField, usePropertyDrafts } from "@/lib/property-drafts";
-import { useCurrentProject } from "@/lib/current-project";
-import { scopeKey } from "@/lib/property-draft-store";
-import type { PropertyScreen } from "@/lib/property-fields";
+import { Switch, type SwitchProps } from "@/components/ui/switch";
+import { usePropertyField } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
 
-export function PropertyScreenBoundary({
-  screen,
-  children,
-}: {
-  screen: PropertyScreen;
-  children: ReactNode;
-}) {
-  const { snapshot, view } = usePropertyDrafts();
-  const { mutating } = useCurrentProject();
+/** Checkbox for an immediate property: stays focusable while its own save runs. */
+export function PropertyCheckbox({
+  id,
+  onChange,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { id: string }) {
+  const { disabled } = usePropertyField(id);
   return (
-    <fieldset
-      className="m-0 contents min-w-0 border-0 p-0"
-      disabled={
-        !snapshot.ready ||
-        mutating ||
-        !!snapshot.states[scopeKey(view?.meta.id ?? "", screen)]?.saving
-      }
-    >
-      {children}
-    </fieldset>
+    <Checkbox
+      {...props}
+      aria-disabled={disabled || undefined}
+      aria-busy={disabled || undefined}
+      className={cn(props.className, disabled && "cursor-progress opacity-50")}
+      onChange={(event) => {
+        if (!disabled) onChange?.(event);
+      }}
+    />
   );
+}
+
+/** Switch for an immediate property: stays focusable while its own save runs. */
+export function PropertySwitch({ id, ...props }: SwitchProps & { id: string }) {
+  const { disabled } = usePropertyField(id);
+  return <Switch {...props} busy={disabled} />;
 }
 
 export function DraftInput(props: InputHTMLAttributes<HTMLInputElement>) {
