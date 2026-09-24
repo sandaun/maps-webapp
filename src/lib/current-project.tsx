@@ -9,7 +9,16 @@ const DEFAULT_PROJECT_ID = "demo";
 /** Stored value meaning "no project" — an absent key means "use the default". */
 const NO_PROJECT_SENTINEL = "none";
 
+export const PROJECT_PATCHED_EVENT = "maps:project-patched";
+export interface ProjectPatchedDetail {
+  before: ProjectView | null;
+  next: ProjectView;
+  patches: ProjectPatchInput[];
+}
+
 export interface CurrentProjectState {
+  mutating?: boolean;
+  acceptView?: (view: ProjectView) => void;
   /** Current project id; `null` = "no project" empty state. */
   projectId: string | null;
   /** True until the stored id has been read and the first fetch settled. */
@@ -83,13 +92,19 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
     readProjectIdServer,
   );
   const [result, setResult] = React.useState<FetchResult | null>(null);
+  const mutationQueues = React.useRef(new Map<string, Promise<unknown>>());
+  const projectViews = React.useRef(new Map<string, ProjectView>());
+  const [pendingMutations, setPendingMutations] = React.useState<Record<string, number>>({});
 
   React.useEffect(() => {
     if (projectId === null) return;
     let cancelled = false;
     getProjectView(projectId)
       .then((next) => {
-        if (!cancelled) setResult({ id: projectId, view: next });
+        if (!cancelled) {
+          projectViews.current.set(projectId, next);
+          setResult({ id: projectId, view: next });
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -119,24 +134,44 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
     writeProjectId(id);
   }, []);
 
+  const acceptView = React.useCallback((next: ProjectView) => {
+    projectViews.current.set(next.meta.id, next);
+    if (readProjectId() === next.meta.id) setResult({ id: next.meta.id, view: next });
+  }, []);
+
   const refresh = React.useCallback(async () => {
     if (projectId === null) return;
-    setResult({ id: projectId, view: await getProjectView(projectId) });
+    const next = await getProjectView(projectId);
+    projectViews.current.set(projectId, next);
+    if (readProjectId() === projectId) setResult({ id: projectId, view: next });
   }, [projectId]);
 
   const applyPatches = React.useCallback(
     async (patches: ProjectPatchInput[]) => {
       if (projectId === null) throw new Error("No project selected");
-      const next = await patchProject(projectId, patches);
-      setResult({ id: projectId, view: next });
-      return next;
+      setPendingMutations((counts) => ({ ...counts, [projectId]: (counts[projectId] ?? 0) + 1 }));
+      const previous = mutationQueues.current.get(projectId) ?? Promise.resolve();
+      const pending = previous.catch(() => {}).then(async () => {
+        const before = projectViews.current.get(projectId) ?? null;
+        const next = await patchProject(projectId, patches);
+        projectViews.current.set(projectId, next);
+        window.dispatchEvent(new CustomEvent<ProjectPatchedDetail>(PROJECT_PATCHED_EVENT, { detail: { before, next, patches } }));
+        if (readProjectId() === projectId) setResult({ id: projectId, view: next });
+        return next;
+      });
+      mutationQueues.current.set(projectId, pending);
+      try { return await pending; }
+      finally {
+        if (mutationQueues.current.get(projectId) === pending) mutationQueues.current.delete(projectId);
+        setPendingMutations((counts) => ({ ...counts, [projectId]: Math.max(0, (counts[projectId] ?? 0) - 1) }));
+      }
     },
     [projectId],
   );
 
   const value = React.useMemo<CurrentProjectState>(
-    () => ({ projectId, loading, view, error, setProjectId, refresh, applyPatches }),
-    [projectId, loading, view, error, setProjectId, refresh, applyPatches],
+    () => ({ projectId, loading, view, error, setProjectId, refresh, applyPatches, acceptView, mutating: !!pendingMutations[projectId ?? ""] }),
+    [projectId, loading, view, error, setProjectId, refresh, applyPatches, acceptView, pendingMutations],
   );
 
   return <CurrentProjectContext.Provider value={value}>{children}</CurrentProjectContext.Provider>;

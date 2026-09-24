@@ -20,8 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyScreenBoundary } from "@/components/properties/draft-controls";
+import { StickySaveBar } from "@/components/properties/sticky-save-bar";
+import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export function DevicesScreen() {
@@ -29,9 +30,9 @@ export function DevicesScreen() {
     <ScreenGate>
       {(view) =>
         view.family === "me-mbs" ? (
-          <MeMbsDevicesView view={view} />
+          <PropertyScreenBoundary screen="devices"><MeMbsDevicesView key={view.meta.id} view={view} /></PropertyScreenBoundary>
         ) : (
-          <DevicesSections key={view.meta.updatedAt} view={view} />
+          <PropertyScreenBoundary screen="devices"><DevicesSections key={view.meta.id} view={view} /></PropertyScreenBoundary>
         )
       }
     </ScreenGate>
@@ -39,11 +40,13 @@ export function DevicesScreen() {
 }
 
 function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
+  useRevealProperty(React.useCallback(() => {}, []));
   const { save, error } = useSave();
   const { rtuNodes, tcpNodes } = view.project.mbm;
 
   return (
-    <div className="max-w-5xl space-y-4">
+    <div className="flex min-h-full max-w-5xl flex-col">
+      <div className="flex-1 space-y-4 pb-6">
       <ScreenIssues issues={view.issues} screen="devices" />
       {error && (
         <p role="alert" className="rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
@@ -72,6 +75,8 @@ function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-m
           <TcpNodeCard key={nodeIndex} node={node} nodeIndex={nodeIndex} />
         ))}
       </NodeSection>
+      </div>
+      <StickySaveBar screen="devices" />
     </div>
   );
 }
@@ -123,7 +128,9 @@ function NodeShell({
   children: React.ReactNode;
   devices: MbmDevice[];
 }) {
-  const { save, busy } = useSave();
+  const { save, busy, error } = useSave();
+  const drafts = usePropertyDrafts();
+  const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === `${locator.kind}-${locator.nodeIndex}` || edit.group.startsWith(`${locator.kind}-${locator.nodeIndex}-device-`)).length;
   const [confirmRemove, setConfirmRemove] = React.useState(false);
 
   return (
@@ -143,10 +150,11 @@ function NodeShell({
           }}
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          {confirmRemove ? "Confirm remove node" : "Remove node"}
+          {confirmRemove ? `Confirm remove node${pendingCount ? ` (discard ${pendingCount} edits)` : ""}` : "Remove node"}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && <p role="alert" className="text-sm text-error">{error}</p>}
         {children}
         <DeviceTable locator={locator} devices={devices} />
       </CardContent>
@@ -181,11 +189,7 @@ function NumberInput({
 }
 
 function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number }) {
-  const { save, busy, error } = useSave();
-  const [form, setForm] = React.useState({ ...node });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty = JSON.stringify(form) !== JSON.stringify(node);
+  const { form, set } = useDraftForm(`rtu-${nodeIndex}`, { ...node });
   const locator: NodeLocator = { kind: "rtu", nodeIndex };
 
   return (
@@ -259,39 +263,20 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
           <Checkbox checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
           Poll after write
+          <ImmediatePropertyError id={`rtu-${nodeIndex}-pollAfterWrite`} />
         </label>
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
           <Checkbox checked={form.pollReadSignal} onChange={(e) => set("pollReadSignal", e.target.checked)} />
           Poll read signal
+          <ImmediatePropertyError id={`rtu-${nodeIndex}-pollReadSignal`} />
         </label>
-      </div>
-      <div className="flex items-center gap-3">
-        <Button
-          size="sm"
-          disabled={!dirty || busy}
-          onClick={() => {
-            const { devices: _devices, ...patch } = form;
-            void save([{ type: "updateRtuNode", nodeIndex, patch }]);
-          }}
-        >
-          Save node
-        </Button>
-        {error && (
-          <p role="alert" className="text-sm text-error">
-            {error}
-          </p>
-        )}
       </div>
     </NodeShell>
   );
 }
 
 function TcpNodeCard({ node, nodeIndex }: { node: MbmTcpNode; nodeIndex: number }) {
-  const { save, busy, error } = useSave();
-  const [form, setForm] = React.useState({ ...node });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty = JSON.stringify(form) !== JSON.stringify(node);
+  const { form, set } = useDraftForm(`tcp-${nodeIndex}`, { ...node });
   const locator: NodeLocator = { kind: "tcp", nodeIndex };
   const id = (field: string) => `tcp-${nodeIndex}-${field}`;
 
@@ -327,23 +312,6 @@ function TcpNodeCard({ node, nodeIndex }: { node: MbmTcpNode; nodeIndex: number 
             onChange={(v) => set("timeInterFrameSlaveChange", v)}
           />
         </Field>
-      </div>
-      <div className="flex items-center gap-3">
-        <Button
-          size="sm"
-          disabled={!dirty || busy}
-          onClick={() => {
-            const { devices: _devices, ...patch } = form;
-            void save([{ type: "updateTcpNode", nodeIndex, patch }]);
-          }}
-        >
-          Save node
-        </Button>
-        {error && (
-          <p role="alert" className="text-sm text-error">
-            {error}
-          </p>
-        )}
       </div>
     </NodeShell>
   );
@@ -397,12 +365,11 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
 }
 
 function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevice }) {
-  const { save, busy } = useSave();
-  const [form, setForm] = React.useState({ ...device });
+  const { save, busy, error } = useSave();
+  const drafts = usePropertyDrafts();
+  const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === `${locator.kind}-${locator.nodeIndex}-device-${device.index}`).length;
+  const { form, set } = useDraftForm(`${locator.kind}-${locator.nodeIndex}-device-${device.index}`, { ...device });
   const [confirmRemove, setConfirmRemove] = React.useState(false);
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty = JSON.stringify(form) !== JSON.stringify(device);
   const slaveRange = locator.kind === "rtu" ? { min: 1, max: 254 } : { min: 0, max: 255 };
 
   return (
@@ -410,6 +377,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       <TableCell className="font-mono text-fg-subtle">{device.index}</TableCell>
       <TableCell>
         <Input
+          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-name`}
           aria-label="Device name"
           className="h-7 w-40 text-xs"
           value={form.name}
@@ -419,6 +387,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
+          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-manufacturer`}
           aria-label="Manufacturer"
           className="h-7 w-32 text-xs"
           value={form.manufacturer}
@@ -428,6 +397,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
+          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-slave`}
           aria-label="Slave"
           type="number"
           className="h-7 w-20 font-mono text-xs"
@@ -439,6 +409,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Select
+          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-baseRegister`}
           aria-label="Base register"
           className="h-7 w-24 text-xs"
           value={form.baseRegister}
@@ -450,6 +421,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
+          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-timeout`}
           aria-label="Timeout"
           type="number"
           className="h-7 w-24 font-mono text-xs"
@@ -465,20 +437,10 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
           checked={form.enabled}
           onChange={(e) => set("enabled", e.target.checked)}
         />
+        <ImmediatePropertyError id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-enabled`} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
         <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!dirty || busy}
-            onClick={() => {
-              const { index: _index, ...patch } = form;
-              void save([{ type: "updateDevice", locator, deviceIndex: device.index, patch }]);
-            }}
-          >
-            Save
-          </Button>
           <Button
             size="sm"
             variant={confirmRemove ? "destructive" : "ghost"}
@@ -491,9 +453,10 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
               void save([{ type: "removeDevice", locator, deviceIndex: device.index }]);
             }}
           >
-            {confirmRemove ? "Confirm" : "Remove"}
+            {confirmRemove ? `Confirm${pendingCount ? ` (discard ${pendingCount} edits)` : ""}` : "Remove"}
           </Button>
         </div>
+        {error && <p role="alert" className="text-xs text-error">{error}</p>}
       </TableCell>
     </TableRow>
   );

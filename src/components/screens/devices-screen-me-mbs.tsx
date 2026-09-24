@@ -11,14 +11,14 @@ import { scanMeGroups } from "@/lib/gateway-api";
 import { useGatewaySession } from "@/lib/gateway-session";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
-import { useSave } from "@/lib/use-save";
+import { useDraftForm, usePropertyField, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
+import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { cn } from "@/lib/utils";
 import { ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError } from "@/components/properties/draft-controls";
 import { Modal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 type MeMbsView = Extract<ProjectView, { family: "me-mbs" }>;
@@ -99,9 +99,15 @@ type Selection =
  * patch API. The Modbus Slave summary lives in Configuration → BMS.
  */
 export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
-  const applyPatches = usePatch();
   const { session } = useGatewaySession();
   const [selection, setSelection] = React.useState<Selection>({ kind: "controller", controllerIndex: 0 });
+  const drafts = usePropertyDrafts();
+  useRevealProperty(React.useCallback((section: string) => {
+    const group = section.match(/^dev-g-(\d+)-(\d+)$/);
+    const controller = section.match(/^dev-cc-(\d+)$/);
+    if (group) setSelection({ kind: "group", controllerIndex: Number(group[1]), groupIndex: Number(group[2]) });
+    else if (controller) setSelection({ kind: "controller", controllerIndex: Number(controller[1]) });
+  }, []));
   const [query, setQuery] = React.useState("");
   const [railOpen, setRailOpen] = React.useState(true);
   const [addFor, setAddFor] = React.useState<number | null>(null);
@@ -124,12 +130,10 @@ export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
   }, [view.project.signals]);
 
   const toggleController = (c: MeControllerInfo, enabled: boolean) =>
-    void applyPatches([{ type: "updateController", controllerIndex: c.index, patch: { enabled } }]);
+    drafts.change(`dev-cc-${c.index}-enabled`, enabled);
 
   const toggleGroup = (g: MeGroupInfo, enabled: boolean) =>
-    void applyPatches([
-      { type: "updateGroup", controllerIndex: g.controllerIndex, groupIndex: g.index, patch: { enabled } },
-    ]);
+    drafts.change(`dev-g-${g.controllerIndex}-${g.index}-enabled`, enabled);
 
   const connected = session?.connected === true;
   const selectedController = controllers.find((c) => c.index === selection.controllerIndex);
@@ -140,7 +144,7 @@ export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
   const removable = selectedGroup?.enabled === true;
 
   return (
-    <div className="-m-6 flex min-h-full">
+    <div className="-m-6 flex min-h-[calc(100%+3rem)]">
       {/* ---------- device tree (V11) ---------- */}
       {railOpen ? (
         <aside className="flex w-[314px] shrink-0 flex-col border-r border-border bg-white">
@@ -238,15 +242,18 @@ export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
 
       {/* ---------- detail ---------- */}
       <div className="min-w-0 flex-1">
-        <div className="max-w-[940px] px-6 pb-10 pt-5">
+        <div className="flex min-h-full max-w-[940px] flex-col px-6 pb-1 pt-5">
+          <div className="flex-1 pb-6">
           <ScreenIssues issues={view.issues} screen="devices" />
           <DetailPane
-            key={`${view.meta.updatedAt}:${selectionKey(selection)}`}
+            key={selectionKey(selection)}
             view={view}
             selection={selection}
             onScan={setScanFor}
             onAddGroups={(controllerIndex) => setAddFor(controllerIndex)}
           />
+          </div>
+          <StickySaveBar screen="devices" />
         </div>
       </div>
 
@@ -311,6 +318,7 @@ function ControllerNode({
         <button
           type="button"
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] text-left"
+          aria-label={`Select controller ${controller.index + 1}`}
           onClick={() => onSelect({ kind: "controller", controllerIndex: controller.index })}
         >
           <span
@@ -337,6 +345,8 @@ function ControllerNode({
         />
       </div>
 
+      <ImmediatePropertyError id={`dev-cc-${controller.index}-enabled`} />
+
       {shownGroups.map((g) => {
         const groupSelected =
           selection.kind === "group" &&
@@ -361,6 +371,7 @@ function ControllerNode({
             <button
               type="button"
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] text-left"
+              aria-label={`Select controller ${controller.index + 1} group ${g.index + 1}`}
               onClick={() =>
                 onSelect({ kind: "group", controllerIndex: controller.index, groupIndex: g.index })
               }
@@ -385,6 +396,7 @@ function ControllerNode({
               checked={g.enabled}
               onCheckedChange={(enabled) => onToggleGroup(g, enabled)}
             />
+            <ImmediatePropertyError id={`dev-g-${controller.index}-${g.index}-enabled`} />
           </div>
         );
       })}
@@ -495,7 +507,6 @@ function ControllerDetail({
   onScan: (controller: MeControllerInfo) => void;
   onAddGroups: (controllerIndex: number) => void;
 }) {
-  const { save, busy, error } = useSave();
   const { session } = useGatewaySession();
   const { me } = view.project;
   const c = controller;
@@ -509,7 +520,7 @@ function ControllerDetail({
   const secure = c.port === 443;
   const connected = session?.connected === true;
 
-  const [form, setForm] = React.useState({
+  const { form, set } = useDraftForm(`dev-cc-${c.index}`, {
     enabled: c.enabled,
     description: c.description,
     ip: c.ip,
@@ -519,42 +530,7 @@ function ControllerDetail({
     compatibility: c.compatibility as number,
     addErrorSignals: c.addErrorSignals,
   });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  /** AG-150A forces old-model compatibility (V11 behaviour). */
-  const setModel = (model: number) =>
-    setForm((prev) => ({ ...prev, model, compatibility: model === 0 ? 1 : prev.compatibility }));
-  const dirty =
-    JSON.stringify(form) !==
-    JSON.stringify({
-      enabled: c.enabled,
-      description: c.description,
-      ip: c.ip,
-      port: c.port,
-      type: c.type,
-      model: c.model as number,
-      compatibility: c.compatibility as number,
-      addErrorSignals: c.addErrorSignals,
-    });
-
-  function handleSave() {
-    void save([
-      {
-        type: "updateController",
-        controllerIndex: c.index,
-        patch: {
-          enabled: form.enabled,
-          description: form.description,
-          ip: form.ip,
-          port: form.port,
-          type: form.type,
-          model: form.model as MeControllerInfo["model"],
-          compatibility: form.compatibility as MeControllerInfo["compatibility"],
-          addErrorSignals: form.addErrorSignals,
-        },
-      },
-    ]);
-  }
+  const setModel = (model: number) => set("model", model);
 
   return (
     <>
@@ -579,7 +555,7 @@ function ControllerDetail({
 
       <GroupCard label="Controller">
         <FieldRow label="Enabled" hint="A disabled controller is not polled at all">
-          <ToggleControl label="Enabled" checked={form.enabled} onToggle={(v) => set("enabled", v)} />
+          <ToggleControl id={`dev-cc-${c.index}-enabled`} label="Enabled" checked={form.enabled} onToggle={(v) => set("enabled", v)} />
         </FieldRow>
         <FieldRow label="Description">
           <TextControl
@@ -654,12 +630,11 @@ function ControllerDetail({
         )}
         <FieldRow label="Individual error signals" hint="Indoor and outdoor unit errors per group">
           <ToggleControl
-            label="Individual error signals"
+            id={`dev-cc-${c.index}-addErrorSignals`} label="Individual error signals"
             checked={form.addErrorSignals}
             onToggle={(v) => set("addErrorSignals", v)}
           />
         </FieldRow>
-        <SaveRow dirty={dirty} busy={busy} error={error} onSave={handleSave} />
       </GroupCard>
 
       <GroupCard label="Groups" action="Add groups" onAction={() => onAddGroups(c.index)}>
@@ -746,7 +721,6 @@ function GroupDetail({
   controller: MeControllerInfo;
   group: MeGroupInfo;
 }) {
-  const { save, busy, error } = useSave();
   const { session } = useGatewaySession();
   const router = useRouter();
   const g = group;
@@ -758,7 +732,7 @@ function GroupDetail({
     return `${Math.min(...addresses)} – ${Math.max(...addresses)}`;
   })();
 
-  const [form, setForm] = React.useState({
+  const { form, set, dirtyKeys } = useDraftForm(`dev-g-${controller.index}-${g.index}`, {
     enabled: g.enabled,
     description: g.description,
     type: g.type as number,
@@ -767,38 +741,6 @@ function GroupDetail({
     urc: g.urc,
     capacity: g.capacity,
   });
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const dirty =
-    JSON.stringify(form) !==
-    JSON.stringify({
-      enabled: g.enabled,
-      description: g.description,
-      type: g.type as number,
-      fanSpeeds: g.fanSpeeds,
-      dualSetPoint: g.dualSetPoint,
-      urc: g.urc,
-      capacity: g.capacity,
-    });
-
-  function handleSave() {
-    void save([
-      {
-        type: "updateGroup",
-        controllerIndex: controller.index,
-        groupIndex: g.index,
-        patch: {
-          enabled: form.enabled,
-          description: form.description,
-          type: form.type as MeGroupInfo["type"],
-          fanSpeeds: form.fanSpeeds,
-          dualSetPoint: form.dualSetPoint,
-          urc: form.urc,
-          capacity: form.capacity,
-        },
-      },
-    ]);
-  }
 
   const caps = GROUP_CAPS[form.type] ?? GROUP_CAPS[0];
   const short = GROUP_TYPE_SHORT[form.type] ?? `T${form.type}`;
@@ -830,7 +772,7 @@ function GroupDetail({
 
       <GroupCard label="Group" tag={g.enabled ? undefined : "not integrated"}>
         <FieldRow label="Integrated" hint="Generates the Modbus registers of this group">
-          <ToggleControl label="Integrated" checked={form.enabled} onToggle={(v) => set("enabled", v)} />
+          <ToggleControl id={`dev-g-${controller.index}-${g.index}-enabled`} label="Integrated" checked={form.enabled} onToggle={(v) => set("enabled", v)} />
         </FieldRow>
         <FieldRow label="Description">
           <TextControl
@@ -854,7 +796,7 @@ function GroupDetail({
             ))}
           </SelectControl>
         </FieldRow>
-        {caps.fan ? (
+        {caps.fan || dirtyKeys.has("fanSpeeds") ? (
           <FieldRow label="Num of fan speeds" hint="0 to 4">
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-fans`}
@@ -873,7 +815,7 @@ function GroupDetail({
             <NoteValue value={`Not applicable to ${short} units`} />
           </FieldRow>
         )}
-        {caps.sp ? (
+        {caps.sp || dirtyKeys.has("dualSetPoint") ? (
           <FieldRow label="Setpoint type">
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-setpoint`}
@@ -889,7 +831,7 @@ function GroupDetail({
             <NoteValue value={`Not applicable to ${short} units`} />
           </FieldRow>
         )}
-        {caps.urc ? (
+        {caps.urc || dirtyKeys.has("urc") ? (
           <FieldRow label="URC controller" hint="Universal remote control on this group">
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-urc`}
@@ -905,7 +847,7 @@ function GroupDetail({
             <NoteValue value={`Not available for ${short} units`} />
           </FieldRow>
         )}
-        {view.project.me.consumptionEnabled && (
+        {(view.project.me.consumptionEnabled || dirtyKeys.has("capacity")) && (
           <FieldRow label="Capacity" hint="Nominal capacity in kW · used by the consumption function">
             <TextControl
               id={`dev-g-${controller.index}-${g.index}-capacity`}
@@ -917,7 +859,6 @@ function GroupDetail({
             />
           </FieldRow>
         )}
-        <SaveRow dirty={dirty} busy={busy} error={error} onSave={handleSave} />
       </GroupCard>
 
       <GroupCard label="Live values" tag={connected ? "no data" : "gateway offline"}>
@@ -1553,20 +1494,24 @@ function SelectControl({
 }
 
 function ToggleControl({
+  id,
   label,
   checked,
   onToggle,
   disabled,
 }: {
+  id: string;
   label: string;
   checked: boolean;
   onToggle: (checked: boolean) => void;
   disabled?: boolean;
 }) {
+  const property = usePropertyField(id);
   return (
     <div className="flex items-center gap-[10px]">
-      <Switch size="lg" checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled} />
+      <Switch size="lg" checked={checked} onCheckedChange={onToggle} aria-label={label} disabled={disabled || property.disabled} />
       <span className="text-[12px] text-fg-muted">{checked ? "Enabled" : "Disabled"}</span>
+      <ImmediatePropertyError id={id} />
     </div>
   );
 }
@@ -1598,29 +1543,4 @@ function NoteValue({
 /** Read-only live value (V11 `fR`). */
 function ReadOnly({ value }: { value: string }) {
   return <div className="py-1 font-mono text-[12px] text-fg-muted">{value}</div>;
-}
-
-function SaveRow({
-  dirty,
-  busy,
-  error,
-  onSave,
-}: {
-  dirty: boolean;
-  busy: boolean;
-  error: string | null;
-  onSave: () => void;
-}) {
-  return (
-    <div className="col-span-full flex items-center gap-3 pt-3">
-      <Button size="sm" disabled={!dirty || busy} onClick={onSave}>
-        Save
-      </Button>
-      {error && (
-        <p role="alert" className="text-sm text-error">
-          {error}
-        </p>
-      )}
-    </div>
-  );
 }

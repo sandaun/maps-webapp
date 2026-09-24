@@ -1,0 +1,413 @@
+import {
+  buildPropertyPatches,
+  fieldValue,
+  propertyFields,
+  validateField,
+  type PropertyField,
+  type PropertyScreen,
+  type PropertyValue,
+} from "./property-fields";
+import type { FamilyId, ProjectPatchInput, ProjectView } from "./project-types";
+
+export const DRAFT_STORAGE_PREFIX = "maps.propertyDrafts.v1:";
+export interface PropertyEdit {
+  id: string;
+  group: string;
+  screen: PropertyScreen;
+  section: string;
+  label: string;
+  base: PropertyValue;
+  value: PropertyValue;
+  anchor?: string;
+  changedAt: string;
+  conflict?: "value" | "entity";
+}
+interface ProjectDraft {
+  version: 1;
+  projectId: string;
+  family: FamilyId;
+  edits: Record<string, PropertyEdit>;
+}
+export interface SaveState {
+  saving?: boolean;
+  error?: string;
+  invalid?: Record<string, string>;
+}
+export interface DraftSnapshot {
+  projects: Record<string, ProjectDraft>;
+  states: Record<string, SaveState>;
+  ready: boolean;
+  storageWarning?: string;
+  toast?: string;
+}
+export const scopeKey = (projectId: string, screen: PropertyScreen) =>
+  `${projectId}:${screen}`;
+const isScalar = (v: unknown): v is PropertyValue =>
+  typeof v === "string" ||
+  typeof v === "boolean" ||
+  (typeof v === "number" && Number.isFinite(v));
+
+function decode(raw: string): ProjectDraft {
+  const data = JSON.parse(raw) as ProjectDraft;
+  if (
+    data.version !== 1 ||
+    typeof data.projectId !== "string" ||
+    !["knx-mbm", "me-mbs"].includes(data.family) ||
+    !data.edits ||
+    typeof data.edits !== "object"
+  )
+    throw new Error("Invalid recovery data");
+  for (const [id, entry] of Object.entries(data.edits)) {
+    if (
+      !entry ||
+      entry.id !== id ||
+      !isScalar(entry.base) ||
+      !isScalar(entry.value) ||
+      typeof entry.group !== "string" ||
+      typeof entry.label !== "string" ||
+      typeof entry.section !== "string" ||
+      typeof entry.changedAt !== "string" ||
+      !["configuration", "devices"].includes(entry.screen) ||
+      (entry.anchor !== undefined && typeof entry.anchor !== "string")
+    )
+      throw new Error("Invalid recovery field");
+  }
+  return data;
+}
+
+/** Independent of React and mounted cards; all persisted data is serializable. */
+export function createPropertyDraftStore() {
+  let snapshot: DraftSnapshot = { projects: {}, states: {}, ready: false };
+  const listeners = new Set<() => void>();
+  let storage: Storage | undefined;
+  const emit = (patch: Partial<DraftSnapshot>) => {
+    snapshot = { ...snapshot, ...patch };
+    listeners.forEach((listener) => listener());
+  };
+  const warn = () =>
+    emit({
+      storageWarning:
+        "Recovery copy unavailable. Keep this tab open until you save your changes.",
+    });
+  function persist(project: ProjectDraft) {
+    if (!storage) return;
+    try {
+      const key = DRAFT_STORAGE_PREFIX + encodeURIComponent(project.projectId);
+      if (Object.keys(project.edits).length)
+        storage.setItem(key, JSON.stringify(project));
+      else storage.removeItem(key);
+    } catch {
+      warn();
+    }
+  }
+  function put(project: ProjectDraft) {
+    emit({ projects: { ...snapshot.projects, [project.projectId]: project } });
+    persist(project);
+  }
+  function state(projectId: string, screen: PropertyScreen, value: SaveState) {
+    emit({
+      states: { ...snapshot.states, [scopeKey(projectId, screen)]: value },
+    });
+  }
+  function reconcile(view: ProjectView) {
+    const project = snapshot.projects[view.meta.id];
+    if (!project) return;
+    const fields = new Map(
+      propertyFields(view).map((field) => [field.id, field]),
+    );
+    const edits: Record<string, PropertyEdit> = {};
+    for (const [id, entry] of Object.entries(project.edits)) {
+      const field = fields.get(id);
+      if (!field || field.immediate || view.family !== project.family) {
+        edits[id] = { ...entry, conflict: "entity" };
+      } else if (Object.is(fieldValue(field, entry.value), field.base)) {
+        // Also handles a successful save whose response was lost before a reload.
+        continue;
+      } else {
+        const conflict =
+          entry.anchor !== field.anchor
+            ? "entity"
+            : Object.is(entry.base, field.base)
+              ? undefined
+              : "value";
+        edits[id] = { ...entry, conflict };
+      }
+    }
+    if (JSON.stringify(edits) !== JSON.stringify(project.edits))
+      put({ ...project, edits });
+  }
+  function editsFor(projectId: string, screen: PropertyScreen) {
+    return Object.values(snapshot.projects[projectId]?.edits ?? {}).filter(
+      (edit) => edit.screen === screen,
+    );
+  }
+  function stage(
+    view: ProjectView,
+    field: PropertyField,
+    value: PropertyValue,
+  ) {
+    if (
+      !snapshot.ready ||
+      snapshot.states[scopeKey(view.meta.id, field.screen)]?.saving
+    )
+      return;
+    const previous = snapshot.projects[view.meta.id];
+    const project: ProjectDraft = previous ?? {
+      version: 1,
+      projectId: view.meta.id,
+      family: view.family,
+      edits: {},
+    };
+    const edits = { ...project.edits };
+    const existing = edits[field.id];
+    if (Object.is(fieldValue(field, value), field.base)) delete edits[field.id];
+    else
+      edits[field.id] = {
+        id: field.id,
+        group: field.group,
+        screen: field.screen,
+        section: field.section,
+        label: field.label,
+        base: existing?.base ?? field.base,
+        value,
+        anchor: existing?.anchor ?? field.anchor,
+        changedAt: new Date().toISOString(),
+        conflict: existing?.conflict,
+      };
+    put({ ...project, edits });
+    state(view.meta.id, field.screen, {});
+  }
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot: () => snapshot,
+    hydrate(getStorage: () => Storage) {
+      if (snapshot.ready) return;
+      const projects: Record<string, ProjectDraft> = {};
+      let failed = false;
+      try {
+        storage = getStorage();
+        for (let i = 0; i < storage.length; i++) {
+          const key = storage.key(i);
+          if (!key?.startsWith(DRAFT_STORAGE_PREFIX)) continue;
+          try {
+            const project = decode(storage.getItem(key)!);
+            if (
+              key !==
+              DRAFT_STORAGE_PREFIX + encodeURIComponent(project.projectId)
+            )
+              throw new Error("Wrong project");
+            projects[project.projectId] = project;
+          } catch {
+            failed = true;
+          }
+        }
+      } catch {
+        failed = true;
+      }
+      emit({
+        ready: true,
+        projects,
+        storageWarning: failed
+          ? "Some recovery data could not be loaded. Keep this tab open until you save your changes."
+          : undefined,
+      });
+    },
+    reconcile,
+    editsFor,
+    stage,
+    state,
+    toast(message?: string) {
+      emit({ toast: message });
+    },
+    discard(projectId: string, screen: PropertyScreen) {
+      if (snapshot.states[scopeKey(projectId, screen)]?.saving) return;
+      const project = snapshot.projects[projectId];
+      if (!project) return;
+      const count = editsFor(projectId, screen).length;
+      put({
+        ...project,
+        edits: Object.fromEntries(
+          Object.entries(project.edits).filter(
+            ([, edit]) => edit.screen !== screen,
+          ),
+        ),
+      });
+      state(projectId, screen, {});
+      emit({
+        toast: `${count} ${count === 1 ? "change discarded — field restored" : "changes discarded — fields restored"} to the saved ${count === 1 ? "value" : "values"}`,
+      });
+    },
+    resolve(view: ProjectView, id: string, keep: boolean) {
+      const project = snapshot.projects[view.meta.id];
+      const entry = project?.edits[id];
+      if (
+        !entry ||
+        snapshot.states[scopeKey(view.meta.id, entry.screen)]?.saving
+      )
+        return;
+      const field = propertyFields(view).find((field) => field.id === id);
+      const edits = { ...project.edits };
+      if (!keep) delete edits[id];
+      else if (field && entry.conflict !== "entity")
+        edits[id] = {
+          ...entry,
+          base: field.base,
+          anchor: field.anchor,
+          conflict: undefined,
+        };
+      put({ ...project, edits });
+      state(view.meta.id, entry.screen, {});
+    },
+    prepare(view: ProjectView, screen: PropertyScreen) {
+      reconcile(view);
+      const edits = editsFor(view.meta.id, screen);
+      const fields = propertyFields(view);
+      const invalid: Record<string, string> = {};
+      for (const entry of edits) {
+        const field = fields.find((field) => field.id === entry.id);
+        const message = entry.conflict
+          ? "Resolve this recovered change before saving."
+          : field
+            ? validateField(field, entry.value)
+            : "This property is no longer available.";
+        if (message) invalid[entry.id] = message;
+      }
+      if (Object.keys(invalid).length)
+        return { invalid, patches: [] as ProjectPatchInput[], edits };
+      return {
+        invalid,
+        patches: buildPropertyPatches(
+          fields,
+          Object.fromEntries(edits.map((edit) => [edit.id, edit.value])),
+          view,
+        ),
+        edits,
+      };
+    },
+    complete(
+      projectId: string,
+      screen: PropertyScreen,
+      submitted: PropertyEdit[],
+      next: ProjectView,
+    ) {
+      const project = snapshot.projects[projectId];
+      if (project) {
+        const fields = new Map(
+          propertyFields(next).map((field) => [field.id, field]),
+        );
+        const edits = { ...project.edits };
+        for (const entry of submitted) {
+          const field = fields.get(entry.id);
+          if (
+            field &&
+            edits[entry.id]?.changedAt === entry.changedAt &&
+            Object.is(fieldValue(field, entry.value), field.base)
+          )
+            delete edits[entry.id];
+        }
+        put({ ...project, edits });
+      }
+      reconcile(next);
+      const remaining = editsFor(projectId, screen).length;
+      state(
+        projectId,
+        screen,
+        remaining
+          ? {
+              error:
+                "Some properties were not confirmed by the project. Your edits are still here.",
+            }
+          : {},
+      );
+      const count = submitted.length - remaining;
+      if (count > 0)
+        emit({
+          toast: `${count} ${count === 1 ? "change" : "changes"} saved to the project`,
+        });
+    },
+    /** Remap positional KNX locators only for mutations this client actually confirmed. */
+    afterMutation(
+      before: ProjectView | null,
+      next: ProjectView,
+      patches: ProjectPatchInput[],
+    ) {
+      const project = snapshot.projects[next.meta.id];
+      if (!project || !before || before.family !== next.family) {
+        reconcile(next);
+        return;
+      }
+      const oldFields = new Map(
+        propertyFields(before).map((field) => [field.id, field]),
+      );
+      const newFields = new Map(
+        propertyFields(next).map((field) => [field.id, field]),
+      );
+      const edits: Record<string, PropertyEdit> = {};
+      for (const entry of Object.values(project.edits)) {
+        let id = entry.id;
+        let removed = false;
+        for (const patch of patches) {
+          if (patch.type === "removeNode") {
+            const match = id.match(/^(rtu|tcp)-(\d+)(-.*)$/);
+            if (match && match[1] === patch.locator.kind) {
+              const index = Number(match[2]);
+              if (index === patch.locator.nodeIndex) removed = true;
+              else if (index > patch.locator.nodeIndex)
+                id = `${match[1]}-${index - 1}${match[3]}`;
+            }
+          } else if (patch.type === "removeDevice") {
+            const prefix = `${patch.locator.kind}-${patch.locator.nodeIndex}-device-${patch.deviceIndex}-`;
+            if (id.startsWith(prefix)) removed = true;
+          } else if (
+            patch.type === "updateMbsConfig" &&
+            patch.patch.slaves &&
+            before.family === "me-mbs"
+          ) {
+            const oldSlaves = before.project.mbs.slaves,
+              newSlaves = patch.patch.slaves;
+            const match = id.match(
+              /^cfg-mbs-slaves-(\d+)-(address|description)$/,
+            );
+            if (match && newSlaves.length === oldSlaves.length - 1) {
+              const removedIndex = oldSlaves.findIndex(
+                (_, i) =>
+                  JSON.stringify(oldSlaves.filter((_, j) => i !== j)) ===
+                  JSON.stringify(newSlaves),
+              );
+              if (removedIndex >= 0) {
+                const index = Number(match[1]);
+                if (index === removedIndex) removed = true;
+                else if (index > removedIndex)
+                  id = `cfg-mbs-slaves-${index - 1}-${match[2]}`;
+              }
+            }
+          }
+        }
+        if (removed) continue;
+        const oldField = oldFields.get(entry.id),
+          field = newFields.get(id);
+        const knownIdentity = oldField && oldField.anchor === entry.anchor;
+        edits[id] =
+          field && knownIdentity
+            ? {
+                ...entry,
+                id,
+                group: field.group,
+                section: field.section,
+                label: field.label,
+                anchor: field.anchor,
+              }
+            : entry;
+      }
+      put({ ...project, edits });
+      reconcile(next);
+    },
+  };
+}
+
+export type PropertyDraftStore = ReturnType<typeof createPropertyDraftStore>;

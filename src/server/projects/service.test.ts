@@ -81,6 +81,16 @@ describe("project service", () => {
     ).rejects.toThrow();
   });
 
+  it("does not persist earlier properties when a later patch in the same batch fails", async () => {
+    const meta = await loadDemoProject();
+    const before = await getProjectView(meta.id);
+    await expect(applyPatches(meta.id, [
+      { type: "setGeneralInfo", name: "Must not be saved" },
+      { type: "updateRtuNode", nodeIndex: 999, patch: { baudrate: 19200 } },
+    ])).rejects.toThrow();
+    expect((await getProjectView(meta.id)).project.name).toBe(before.project.name);
+  });
+
   it("adds and edits an RTU node, enforcing the node limit", async () => {
     const meta = await loadDemoProject();
     const before = await getProjectView(meta.id);

@@ -70,3 +70,12 @@ body {
   font-family: var(--font-family-body);
   font-size: 13.5px;
 }
+
+@keyframes property-save-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.property-save-bar { animation: property-save-up .22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .property-save-bar { animation: none; }
+}

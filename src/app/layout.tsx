@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CurrentProjectProvider } from "@/lib/current-project";
+import { PropertyDraftProvider } from "@/lib/property-drafts";
 import { GatewaySessionProvider } from "@/lib/gateway-session";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 
@@ -43,6 +44,7 @@ export default function RootLayout({
     <html lang="en" className={`${lato.variable} ${saira.variable} ${jetBrainsMono.variable}`}>
       <body>
         <CurrentProjectProvider>
+          <PropertyDraftProvider>
           <GatewaySessionProvider>
             <WorkspaceChromeProvider>
               <TooltipProvider delayDuration={300}>
@@ -50,6 +52,7 @@ export default function RootLayout({
               </TooltipProvider>
             </WorkspaceChromeProvider>
           </GatewaySessionProvider>
+          </PropertyDraftProvider>
         </CurrentProjectProvider>
       </body>
     </html>
