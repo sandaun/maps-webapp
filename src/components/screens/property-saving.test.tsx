@@ -72,7 +72,7 @@ function setup(nextFamily: FamilyId = "knx-mbm") {
   mocks.get.mockImplementation(async (id: string) => currentView(id));
   mocks.patch.mockImplementation(
     async (id: string, patches: ProjectPatchInput[]) => {
-      patches.forEach((patch) => familyById(family).applyPatch(xml, patch));
+      familyById(family).applyPatches(xml, patches);
       return currentView(id);
     },
   );
@@ -291,10 +291,9 @@ describe("V12 property saving", () => {
       { target: { value: "Mine" } },
     );
     app.unmount();
-    familyById(family).applyPatch(xml, {
-      type: "setGeneralInfo",
-      name: "Changed elsewhere",
-    });
+    familyById(family).applyPatches(xml, [
+      { type: "setGeneralInfo", name: "Changed elsewhere" },
+    ]);
     render(<Workspace />);
     await screen.findByRole("button", { name: "Keep my edit" });
     expect(screen.getByText(/Saved: Changed elsewhere/)).toBeInTheDocument();
@@ -309,11 +308,9 @@ describe("V12 property saving", () => {
 
   it("keeps ME controller edits when navigating to a group and enforces model dependencies", async () => {
     setup("me-mbs");
-    familyById(family).applyPatch(xml, {
-      type: "updateController",
-      controllerIndex: 0,
-      patch: { model: 2, compatibility: 0 },
-    });
+    familyById(family).applyPatches(xml, [
+      { type: "updateController", controllerIndex: 0, patch: { model: 2, compatibility: 0 } },
+    ]);
     render(<Workspace devices />);
     const first = await screen.findByRole("textbox", {
       name: "Controller 1 · Description",
@@ -385,6 +382,30 @@ describe("V12 property saving", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("2 changes saved to the project");
+  });
+
+  it("asks what to do with a removed device's signals and keeps later device drafts on their device", async () => {
+    familyById("knx-mbm").applyPatches(xml, [{ type: "addDevice", locator: { kind: "rtu", nodeIndex: 0 } }]);
+    render(<Workspace devices />);
+    const names = await screen.findAllByRole("textbox", { name: "Device name" });
+    fireEvent.change(names[1], { target: { value: "Second device draft" } });
+    fireEvent.click(within(names[0].closest("tr")!).getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove device 0" });
+    expect(dialog).toHaveTextContent("2 signals use this device");
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Delete only the device/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove device" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.patch.mock.calls[0][1]).toEqual([
+      { type: "removeDevice", locator: { kind: "rtu", nodeIndex: 0 }, deviceIndex: 0, signals: "unassign" },
+    ]);
+    const remaining = screen.getAllByRole("textbox", { name: "Device name" });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toHaveValue("Second device draft");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("1 change saved to the project");
+    expect(mocks.patch.mock.calls[1][1]).toEqual([
+      { type: "updateDevice", locator: { kind: "rtu", nodeIndex: 0 }, deviceIndex: 0, patch: { name: "Second device draft" } },
+    ]);
   });
 
   it("does not replace a newly selected project with a late save response", async () => {

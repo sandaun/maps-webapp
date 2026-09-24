@@ -138,8 +138,8 @@ export async function applyPatches(id: string, patches: ProjectPatch[]): Promise
         `Patch "${patch.type}" does not apply to a ${family.displayName} project.`,
       );
     }
-    family.applyPatch(doc, patch);
   }
+  family.applyPatches(doc, patches);
   const serialized = doc.serialize();
   await store.writeXml(id, serialized);
   const meta = await store.get(id);

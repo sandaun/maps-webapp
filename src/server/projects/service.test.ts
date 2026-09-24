@@ -129,7 +129,7 @@ describe("project service", () => {
     expect(devices[deviceCount]).toMatchObject({ name: "Rooftop AHU", slave: 7 });
 
     const after = await applyPatches(meta.id, [
-      { type: "removeDevice", locator, deviceIndex: deviceCount },
+      { type: "removeDevice", locator, deviceIndex: deviceCount, signals: "delete" },
     ]);
     expect(knxProjectOf(after).mbm.rtuNodes[0].devices).toHaveLength(deviceCount);
   });

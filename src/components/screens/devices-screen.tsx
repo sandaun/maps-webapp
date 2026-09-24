@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
+import { Modal } from "@/components/ui/modal";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyScreenBoundary } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
@@ -131,34 +132,57 @@ function NodeShell({
   const { save, busy, error } = useSave();
   const drafts = usePropertyDrafts();
   const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === `${locator.kind}-${locator.nodeIndex}` || edit.group.startsWith(`${locator.kind}-${locator.nodeIndex}-device-`)).length;
+  const signals = signalsOn(drafts.view, locator);
+  const virtual = signals.filter((signal) => signal.virtual).length;
   const [confirmRemove, setConfirmRemove] = React.useState(false);
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>{title}</CardTitle>
-        <Button
-          size="sm"
-          variant={confirmRemove ? "destructive" : "ghost"}
-          disabled={busy}
-          onClick={() => {
-            if (!confirmRemove) {
-              setConfirmRemove(true);
-              return;
-            }
-            void save([{ type: "removeNode", locator }]);
-          }}
-        >
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          {confirmRemove ? `Confirm remove node${pendingCount ? ` (discard ${pendingCount} edits)` : ""}` : "Remove node"}
+          Remove node
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && <p role="alert" className="text-sm text-error">{error}</p>}
+        {error && !confirmRemove && <p role="alert" className="text-sm text-error">{error}</p>}
         {children}
         <DeviceTable locator={locator} devices={devices} />
       </CardContent>
+      {confirmRemove && (
+        <Modal
+          title={`Remove ${title.split(" — ")[0]}`}
+          description={`Removes the node and its ${devices.length} ${devices.length === 1 ? "device" : "devices"}. Signals on later nodes are renumbered so they keep pointing at the same devices.`}
+          ctaLabel="Remove node"
+          ctaDisabled={busy}
+          onClose={() => setConfirmRemove(false)}
+          onConfirm={() =>
+            void save([{ type: "removeNode", locator }]).then((ok) => ok && setConfirmRemove(false))
+          }
+        >
+          <ul className="list-disc space-y-1 pl-5 text-[12.5px] text-text-body">
+            <li>
+              {signals.length - virtual === 0
+                ? "No signals use this node."
+                : `${signals.length - virtual} ${signals.length - virtual === 1 ? "signal loses" : "signals lose"} its device and must be reassigned.`}
+            </li>
+            {virtual > 0 && <li>{`${virtual} virtual ${virtual === 1 ? "signal is" : "signals are"} deleted.`}</li>}
+            {pendingCount > 0 && <li>{`${pendingCount} unsaved ${pendingCount === 1 ? "edit is" : "edits are"} discarded.`}</li>}
+          </ul>
+          {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
+        </Modal>
+      )}
     </Card>
+  );
+}
+
+/** Signals on a node (signal `Port`: RTU nodes first, then TCP), optionally on one device position. */
+function signalsOn(view: ProjectView | null, locator: NodeLocator, position?: number) {
+  if (view?.family !== "knx-mbm") return [];
+  const port = locator.kind === "rtu" ? locator.nodeIndex : view.project.mbm.rtuNodes.length + locator.nodeIndex;
+  return view.project.signals.filter(
+    (signal) => signal.modbus.port === port && (position === undefined || signal.modbus.deviceIndex === position),
   );
 }
 
@@ -354,8 +378,8 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
             </TableRow>
           </TableHeader>
           <TableBody>
-            {devices.map((device) => (
-              <DeviceRow key={device.index} locator={locator} device={device} />
+            {devices.map((device, position) => (
+              <DeviceRow key={position} locator={locator} device={device} position={position} />
             ))}
           </TableBody>
         </Table>
@@ -364,20 +388,25 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
   );
 }
 
-function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevice }) {
+/** Devices are addressed by position: that is what the API and signal references use. */
+function DeviceRow({ locator, device, position }: { locator: NodeLocator; device: MbmDevice; position: number }) {
   const { save, busy, error } = useSave();
   const drafts = usePropertyDrafts();
-  const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === `${locator.kind}-${locator.nodeIndex}-device-${device.index}`).length;
-  const { form, set } = useDraftForm(`${locator.kind}-${locator.nodeIndex}-device-${device.index}`, { ...device });
+  const group = `${locator.kind}-${locator.nodeIndex}-device-${position}`;
+  const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === group).length;
+  const { form, set } = useDraftForm(group, { ...device });
+  const signals = signalsOn(drafts.view, locator, position);
+  const virtual = signals.filter((signal) => signal.virtual).length;
   const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [signalMode, setSignalMode] = React.useState<"delete" | "unassign">("delete");
   const slaveRange = locator.kind === "rtu" ? { min: 1, max: 254 } : { min: 0, max: 255 };
 
   return (
     <TableRow>
-      <TableCell className="font-mono text-fg-subtle">{device.index}</TableCell>
+      <TableCell className="font-mono text-fg-subtle">{position}</TableCell>
       <TableCell>
         <Input
-          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-name`}
+          id={`${group}-name`}
           aria-label="Device name"
           className="h-7 w-40 text-xs"
           value={form.name}
@@ -387,7 +416,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
-          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-manufacturer`}
+          id={`${group}-manufacturer`}
           aria-label="Manufacturer"
           className="h-7 w-32 text-xs"
           value={form.manufacturer}
@@ -397,7 +426,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
-          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-slave`}
+          id={`${group}-slave`}
           aria-label="Slave"
           type="number"
           className="h-7 w-20 font-mono text-xs"
@@ -409,7 +438,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Select
-          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-baseRegister`}
+          id={`${group}-baseRegister`}
           aria-label="Base register"
           className="h-7 w-24 text-xs"
           value={form.baseRegister}
@@ -421,7 +450,7 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
       </TableCell>
       <TableCell>
         <Input
-          id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-timeout`}
+          id={`${group}-timeout`}
           aria-label="Timeout"
           type="number"
           className="h-7 w-24 font-mono text-xs"
@@ -437,26 +466,65 @@ function DeviceRow({ locator, device }: { locator: NodeLocator; device: MbmDevic
           checked={form.enabled}
           onChange={(e) => set("enabled", e.target.checked)}
         />
-        <ImmediatePropertyError id={`${locator.kind}-${locator.nodeIndex}-device-${device.index}-enabled`} />
+        <ImmediatePropertyError id={`${group}-enabled`} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant={confirmRemove ? "destructive" : "ghost"}
-            disabled={busy}
-            onClick={() => {
-              if (!confirmRemove) {
-                setConfirmRemove(true);
-                return;
-              }
-              void save([{ type: "removeDevice", locator, deviceIndex: device.index }]);
-            }}
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
+          Remove
+        </Button>
+        {error && !confirmRemove && <p role="alert" className="text-xs text-error">{error}</p>}
+        {confirmRemove && (
+          <Modal
+            title={`Remove device ${position}`}
+            description={`${device.name || "This device"} is removed and later devices on this node are renumbered. Signals of later devices keep pointing at the same device.`}
+            ctaLabel="Remove device"
+            ctaDisabled={busy}
+            width={540}
+            onClose={() => setConfirmRemove(false)}
+            onConfirm={() =>
+              void save([
+                { type: "removeDevice", locator, deviceIndex: position, signals: signalMode },
+              ]).then((ok) => ok && setConfirmRemove(false))
+            }
           >
-            {confirmRemove ? `Confirm${pendingCount ? ` (discard ${pendingCount} edits)` : ""}` : "Remove"}
-          </Button>
-        </div>
-        {error && <p role="alert" className="text-xs text-error">{error}</p>}
+            <div className="whitespace-normal text-[12.5px] text-text-body">
+              {signals.length === 0 ? (
+                <p>No signals use this device.</p>
+              ) : (
+                <fieldset className="space-y-2">
+                  <legend className="mb-2 font-bold">
+                    {`${signals.length} ${signals.length === 1 ? "signal uses" : "signals use"} this device`}
+                  </legend>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name={`${group}-signals`}
+                      checked={signalMode === "delete"}
+                      onChange={() => setSignalMode("delete")}
+                    />
+                    <span>Delete the device and its signals</span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name={`${group}-signals`}
+                      checked={signalMode === "unassign"}
+                      onChange={() => setSignalMode("unassign")}
+                    />
+                    <span>
+                      Delete only the device. Its signals are kept without a device and deactivated, to be
+                      assigned to another device{virtual > 0 ? `; ${virtual} virtual ${virtual === 1 ? "signal is" : "signals are"} still deleted` : ""}.
+                    </span>
+                  </label>
+                </fieldset>
+              )}
+              {pendingCount > 0 && (
+                <p className="mt-3">{`${pendingCount} unsaved ${pendingCount === 1 ? "edit" : "edits"} on this device ${pendingCount === 1 ? "is" : "are"} discarded.`}</p>
+              )}
+              {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
+            </div>
+          </Modal>
+        )}
       </TableCell>
     </TableRow>
   );

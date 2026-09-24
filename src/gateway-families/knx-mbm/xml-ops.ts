@@ -1,6 +1,7 @@
 import {
   element,
   getAttr,
+  getText,
   setAttr,
   setText,
   text,
@@ -20,6 +21,7 @@ import {
   type MbmRtuNode,
   type MbmTcpNode,
 } from "@/protocols/modbus/master";
+import { parseBool } from "./from-xml";
 import type { GatewayInfo, KnxMbmSignal } from "./model";
 
 /**
@@ -105,7 +107,7 @@ export function addSignal(doc: XmlDocument): number {
   return id;
 }
 
-/** Remove a signal from both protocol sides. */
+/** Remove a signal from both protocol sides. IDs are renumbered per batch (`reorderSignalIds`). */
 export function removeSignal(doc: XmlDocument, id: number): boolean {
   const knx = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: String(id) }]);
   const mbm = doc.find([
@@ -118,6 +120,26 @@ export function removeSignal(doc: XmlDocument, id: number): boolean {
     if (el) removed = removeElement(el) || removed;
   }
   return removed;
+}
+
+/**
+ * MAPS `ReorderIdxConfigs` (InternalKnx + ExternalMbm), run after deleting
+ * signals: the i-th signal of each side gets ID = IdxConfig = IdxExternal = i.
+ * Both sides are renumbered by position because MAPS and the XBL generator
+ * pair them by position. Run it once after a batch of removals, so every ID
+ * in the batch keeps referring to the signal it named before the batch.
+ */
+export function reorderSignalIds(doc: XmlDocument): void {
+  doc.findAll(["InternalProtocol", "KNXObject"]).forEach((el, i) => {
+    setAttr(el, "ID", String(i));
+    setChildTextIfPresent(el, "IdxExternal", String(i));
+    setChildTextIfPresent(el, "IdxConfig", String(i));
+  });
+  doc.findAll(["ExternalProtocol", "Signals", "Signal"]).forEach((el, i) => {
+    setAttr(el, "ID", String(i));
+    setChildTextIfPresent(el, "idxConfig", String(i));
+    setChildTextIfPresent(el, "idxExternal", String(i));
+  });
 }
 
 export interface SignalPatch {
@@ -217,14 +239,39 @@ export function addTcpNode(doc: XmlDocument): number {
   return index;
 }
 
+/**
+ * Remove a node as MAPS does (`DeleteTCPNode` + `UpdateTCPNodesAfterDelete`):
+ * later TCP nodes are renumbered, the node's virtual signals are deleted, its
+ * other signals are left without port/device, and signals on later ports
+ * shift down one port.
+ */
 export function removeNode(doc: XmlDocument, locator: NodeLocator): boolean {
-  const containerPath =
-    locator.kind === "rtu"
-      ? (["ExternalProtocol", "RtuNodes"] as const)
-      : (["ExternalProtocol", "TCPNodes"] as const);
-  const nodes = doc.findAll([...containerPath, locator.kind === "rtu" ? "RtuNode" : "TCPNode"]);
+  const nodes = nodeElements(doc, locator.kind);
   const node = nodes[locator.nodeIndex];
-  return node ? removeElement(node) : false;
+  if (!node) return false;
+  const port = globalPort(doc, locator);
+  removeElement(node);
+  if (locator.kind === "tcp") {
+    for (const later of nodeElements(doc, "tcp")) {
+      const index = Number(getAttr(later, "NodeIndex"));
+      if (index > locator.nodeIndex) setAttr(later, "NodeIndex", String(index - 1));
+    }
+  }
+  const deleted: number[] = [];
+  for (const signal of mbmSignalRefs(doc)) {
+    if (signal.port === port) {
+      if (isVirtualSignal(doc, signal.id)) deleted.push(signal.id);
+      else {
+        setText(childEl(signal.el, "Port"), "255");
+        setText(childEl(signal.el, "DeviceIndex"), "-1");
+        setText(childEl(signal.el, "IsBroadcast"), "False");
+      }
+    } else if (signal.port > port) {
+      setText(childEl(signal.el, "Port"), String(signal.port - 1));
+    }
+  }
+  deleted.forEach((id) => removeSignal(doc, id));
+  return true;
 }
 
 export function updateRtuNode(doc: XmlDocument, nodeIndex: number, patch: Partial<MbmRtuNode>): void {
@@ -292,9 +339,47 @@ export function updateDevice(
   if (patch.enabled !== undefined) setAttr(el, "Enabled", boolText(patch.enabled));
 }
 
-export function removeDevice(doc: XmlDocument, locator: NodeLocator & { deviceIndex: number }): boolean {
+/** What happens to the signals of a removed device (MAPS `frmDeleteDevice`). */
+export type RemovedDeviceSignals = "delete" | "unassign";
+
+/**
+ * Remove a device as MAPS does (`DeleteDevice` + project `RemoveDevice`).
+ * `deviceIndex` is the device position, which is what signals reference.
+ * Later devices are renumbered so `Index` keeps matching the position. The
+ * device's signals are deleted, or — with "unassign" — only virtual ones are
+ * deleted and the rest lose their port/device and are deactivated. Signals of
+ * later devices on the same node shift down one position.
+ */
+export function removeDevice(
+  doc: XmlDocument,
+  locator: NodeLocator & { deviceIndex: number },
+  signals: RemovedDeviceSignals,
+): boolean {
   const { el } = deviceAt(doc, locator);
-  return removeElement(el);
+  const port = globalPort(doc, locator);
+  const removedIndex = Number(getAttr(el, "Index"));
+  removeElement(el);
+  for (const device of nodeAt(doc, locator).devices) {
+    const index = Number(getAttr(device, "Index"));
+    if (index > removedIndex) setAttr(device, "Index", String(index - 1));
+  }
+  const deleted: number[] = [];
+  for (const signal of mbmSignalRefs(doc)) {
+    if (signal.port !== port) continue;
+    if (signal.deviceIndex === locator.deviceIndex) {
+      if (signals === "delete" || isVirtualSignal(doc, signal.id)) deleted.push(signal.id);
+      else {
+        setText(childEl(signal.el, "Port"), "255");
+        setText(childEl(signal.el, "DeviceIndex"), "-1");
+        const knx = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: String(signal.id) }]);
+        if (knx) setText(childEl(knx, "Active"), boolText(false));
+      }
+    } else if (signal.deviceIndex > locator.deviceIndex) {
+      setText(childEl(signal.el, "DeviceIndex"), String(signal.deviceIndex - 1));
+    }
+  }
+  deleted.forEach((id) => removeSignal(doc, id));
+  return true;
 }
 
 // --- XML builders (desktop-tool default shapes) ----------------------------
@@ -419,6 +504,11 @@ function childEl(parent: XmlElement, tag: string): XmlElement {
   return child;
 }
 
+function setChildTextIfPresent(parent: XmlElement, tag: string, value: string): void {
+  const child = parent.children.find((c): c is XmlElement => c.kind === "element" && c.tag === tag);
+  if (child && getText(child) !== value) setText(child, value);
+}
+
 function setNumberText(parent: XmlElement, tag: string, value: number | undefined): void {
   if (value !== undefined) setText(childEl(parent, tag), String(value));
 }
@@ -459,11 +549,43 @@ function appendChildIndented(parent: XmlElement, child: XmlElement, childLevel: 
   }
 }
 
+function nodeElements(doc: XmlDocument, kind: NodeLocator["kind"]): XmlElement[] {
+  return kind === "rtu"
+    ? doc.findAll(["ExternalProtocol", "RtuNodes", "RtuNode"])
+    : doc.findAll(["ExternalProtocol", "TCPNodes", "TCPNode"]);
+}
+
+/** Signal `Port`: RTU nodes first, then TCP nodes. */
+function globalPort(doc: XmlDocument, locator: NodeLocator): number {
+  return locator.kind === "rtu" ? locator.nodeIndex : nodeElements(doc, "rtu").length + locator.nodeIndex;
+}
+
+function mbmSignalRefs(doc: XmlDocument): { el: XmlElement; id: number; port: number; deviceIndex: number }[] {
+  return doc.findAll(["ExternalProtocol", "Signals", "Signal"]).map((el) => {
+    const port = Number(textOfChild(el, "Port") ?? 255);
+    return {
+      el,
+      id: Number(getAttr(el, "ID") ?? -1),
+      port: port === 255 ? -1 : port,
+      deviceIndex: Number(textOfChild(el, "DeviceIndex") ?? -1),
+    };
+  });
+}
+
+/** Same source as the reader: the KNXObject `<Virtual Status>`. */
+function isVirtualSignal(doc: XmlDocument, id: number): boolean {
+  const knx = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: String(id) }]);
+  const virtual = knx?.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual");
+  return parseBool(virtual ? getAttr(virtual, "Status") : undefined, false);
+}
+
+function textOfChild(parent: XmlElement, tag: string): string | undefined {
+  const child = parent.children.find((c): c is XmlElement => c.kind === "element" && c.tag === tag);
+  return child ? getText(child) : undefined;
+}
+
 function nodeAt(doc: XmlDocument, locator: NodeLocator): { el: XmlElement; devices: XmlElement[] } {
-  const nodes =
-    locator.kind === "rtu"
-      ? doc.findAll(["ExternalProtocol", "RtuNodes", "RtuNode"])
-      : doc.findAll(["ExternalProtocol", "TCPNodes", "TCPNode"]);
+  const nodes = nodeElements(doc, locator.kind);
   const el = nodes[locator.nodeIndex];
   if (!el) throw new Error(`${locator.kind.toUpperCase()} node ${locator.nodeIndex} not found`);
   return { el, devices: el.children.filter((c): c is XmlElement => c.kind === "element" && c.tag === "Device") };

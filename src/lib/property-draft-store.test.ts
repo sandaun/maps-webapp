@@ -45,7 +45,7 @@ function fixture(family: FamilyId = "knx-mbm") {
           hasCompleteBlob: false,
         };
   const patch = (patches: ProjectPatchInput[]) => {
-    patches.forEach((p) => familyById(family).applyPatch(doc, p));
+    familyById(family).applyPatches(doc, patches);
     return view();
   };
   return { view, patch };
@@ -242,6 +242,38 @@ describe("property drafts", () => {
         type: "updateTcpNode",
         nodeIndex: index - 1,
         patch: { description: "Keep the last node" },
+      },
+    ]);
+  });
+
+  it("remaps device drafts by position after a known device removal", () => {
+    const f = fixture();
+    const a = f.patch([
+      { type: "addDevice", locator: { kind: "rtu", nodeIndex: 0 } },
+      { type: "addDevice", locator: { kind: "rtu", nodeIndex: 0 } },
+    ]);
+    const draft = store();
+    draft.stage(a, field(a, "rtu-0-device-1-name"), "Removed with its device");
+    draft.stage(a, field(a, "rtu-0-device-2-name"), "Follows its device");
+    const patches: ProjectPatchInput[] = [
+      {
+        type: "removeDevice",
+        locator: { kind: "rtu", nodeIndex: 0 },
+        deviceIndex: 1,
+        signals: "delete",
+      },
+    ];
+    const next = f.patch(patches);
+    draft.afterMutation(a, next, patches);
+    expect(draft.editsFor(a.meta.id, "devices")).toEqual([
+      expect.objectContaining({ id: "rtu-0-device-1-name", conflict: undefined }),
+    ]);
+    expect(draft.prepare(next, "devices").patches).toEqual([
+      {
+        type: "updateDevice",
+        locator: { kind: "rtu", nodeIndex: 0 },
+        deviceIndex: 1,
+        patch: { name: "Follows its device" },
       },
     ]);
   });

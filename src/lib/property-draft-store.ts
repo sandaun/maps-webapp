@@ -361,8 +361,17 @@ export function createPropertyDraftStore() {
                 id = `${match[1]}-${index - 1}${match[3]}`;
             }
           } else if (patch.type === "removeDevice") {
-            const prefix = `${patch.locator.kind}-${patch.locator.nodeIndex}-device-${patch.deviceIndex}-`;
-            if (id.startsWith(prefix)) removed = true;
+            const match = id.match(/^(rtu|tcp)-(\d+)-device-(\d+)(-.*)$/);
+            if (
+              match &&
+              match[1] === patch.locator.kind &&
+              Number(match[2]) === patch.locator.nodeIndex
+            ) {
+              const index = Number(match[3]);
+              if (index === patch.deviceIndex) removed = true;
+              else if (index > patch.deviceIndex)
+                id = `${match[1]}-${match[2]}-device-${index - 1}${match[4]}`;
+            }
           } else if (
             patch.type === "updateMbsConfig" &&
             patch.patch.slaves &&

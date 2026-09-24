@@ -11,6 +11,7 @@ import {
   removeDevice as knxRemoveDevice,
   removeNode as knxRemoveNode,
   removeSignal as knxRemoveSignal,
+  reorderSignalIds as knxReorderSignalIds,
   setGatewayInfo as knxSetGatewayInfo,
   setGeneralInfo as knxSetGeneralInfo,
   setKnxExtendedAddresses,
@@ -22,6 +23,7 @@ import {
   updateTcpNode as knxUpdateTcpNode,
   validateProject as validateKnxMbmProject,
   type KnxMbmProject,
+  type RemovedDeviceSignals,
   type NodeLocator,
   type SignalPatch as KnxMbmSignalPatch,
 } from "@/gateway-families/knx-mbm";
@@ -113,7 +115,7 @@ export type KnxMbmPatch =
   | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatch }
   | { type: "addDevice"; locator: NodeLocator }
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatch }
-  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number };
+  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: RemovedDeviceSignals };
 
 /** Patch ops a Mitsubishi Electric AC ↔ Modbus Slave project accepts. */
 export type MeMbsPatch =
@@ -143,7 +145,8 @@ interface FamilyEntry {
   validate: (project: KnxMbmProject | MeMbsProject) => ValidationIssue[];
   /** True when this family knows how to apply the patch (payload included). */
   accepts: (patch: ProjectPatch) => boolean;
-  applyPatch: (doc: XmlDocument, patch: ProjectPatch) => void;
+  /** Applies a whole batch; every ID in the batch refers to the document before it. */
+  applyPatches: (doc: XmlDocument, patches: ProjectPatch[]) => void;
 }
 
 const KNX_MBM_TYPES = new Set([
@@ -188,7 +191,7 @@ const KNX_MBM: FamilyEntry = {
   accepts: (patch) =>
     KNX_MBM_TYPES.has(patch.type) &&
     (patch.type !== "updateSignal" || !("me" in patch.patch)),
-  applyPatch: (doc, patch) => applyKnxMbmPatch(doc, patch as KnxMbmPatch),
+  applyPatches: (doc, patches) => applyKnxMbmPatches(doc, patches as KnxMbmPatch[]),
 };
 
 const ME_MBS: FamilyEntry = {
@@ -200,7 +203,7 @@ const ME_MBS: FamilyEntry = {
   accepts: (patch) =>
     ME_MBS_TYPES.has(patch.type) &&
     (patch.type !== "updateSignal" || !("knx" in patch.patch)),
-  applyPatch: (doc, patch) => applyMeMbsPatch(doc, patch as MeMbsPatch),
+  applyPatches: (doc, patches) => patches.forEach((patch) => applyMeMbsPatch(doc, patch as MeMbsPatch)),
 };
 
 export const FAMILIES: readonly FamilyEntry[] = [KNX_MBM, ME_MBS];
@@ -222,6 +225,23 @@ export function supportedFamiliesText(): string {
 }
 
 // --- per-family patch dispatch ---------------------------------------------------
+
+const SIGNAL_REMOVING = new Set<KnxMbmPatch["type"]>(["removeSignal", "removeDevice", "removeNode"]);
+
+/**
+ * Like MAPS, signal IDs are renumbered once after the deletions (DeleteObject
+ * with `isLastObject`), so the original IDs of a multi-row delete stay valid.
+ */
+function applyKnxMbmPatches(doc: XmlDocument, patches: KnxMbmPatch[]): void {
+  const signalCount = () => doc.findAll(["InternalProtocol", "KNXObject"]).length;
+  let deleted = false;
+  for (const patch of patches) {
+    const before = SIGNAL_REMOVING.has(patch.type) ? signalCount() : 0;
+    applyKnxMbmPatch(doc, patch);
+    if (SIGNAL_REMOVING.has(patch.type) && signalCount() < before) deleted = true;
+  }
+  if (deleted) knxReorderSignalIds(doc);
+}
 
 function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
   switch (patch.type) {
@@ -281,7 +301,7 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       knxUpdateDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.patch);
       break;
     case "removeDevice":
-      knxRemoveDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex });
+      knxRemoveDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.signals);
       break;
   }
 }

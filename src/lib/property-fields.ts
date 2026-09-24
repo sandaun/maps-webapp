@@ -229,8 +229,9 @@ export function propertyFields(view: ProjectView): PropertyField[] {
           ]),
           anchor,
         );
-        node.devices.forEach((device) => {
-          const deviceGroup = `${group}-device-${device.index}`;
+        // Devices are addressed by position, as the API and signal references do.
+        node.devices.forEach((device, position) => {
+          const deviceGroup = `${group}-device-${position}`;
           add(
             deviceGroup,
             group,
@@ -240,7 +241,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
             (key, value) => ({
               type: "updateDevice",
               locator: { kind, nodeIndex: index },
-              deviceIndex: device.index,
+              deviceIndex: position,
               patch: { [key]: value },
             }),
             [
@@ -265,7 +266,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
               return [
                 key,
                 suffix,
-                `${context} · Device ${device.index} · ${label}`,
+                `${context} · Device ${position} · ${label}`,
                 rule,
               ];
             }),

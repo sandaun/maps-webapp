@@ -104,7 +104,8 @@ export type ProjectPatchInput =
   | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatchInput }
   | { type: "addDevice"; locator: NodeLocator }
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatchInput }
-  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number }
+  /** `deviceIndex` is the device position; `signals` mirrors the MAPS delete dialog. */
+  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: "delete" | "unassign" }
   | { type: "updateMbsConfig"; patch: MbsConfigPatchInput }
   | { type: "updateRtuConfig"; patch: Partial<MbsConfig["rtu"]> }
   | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }

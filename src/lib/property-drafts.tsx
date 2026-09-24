@@ -2,11 +2,8 @@
 
 import * as React from "react";
 import { getProjectView } from "./api";
-import {
-  useCurrentProject,
-  PROJECT_PATCHED_EVENT,
-  type ProjectPatchedDetail,
-} from "./current-project";
+import { useCurrentProject } from "./current-project";
+import { PROJECT_PATCHED_EVENT, type ProjectPatchedDetail } from "./project-events";
 import {
   createPropertyDraftStore,
   scopeKey,

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { ApiError, getProjectView, patchProject } from "./api";
+import { PROJECT_PATCHED_EVENT, type ProjectPatchedDetail } from "./project-events";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
 
 const STORAGE_KEY = "maps.currentProjectId";
@@ -9,12 +10,6 @@ const DEFAULT_PROJECT_ID = "demo";
 /** Stored value meaning "no project" — an absent key means "use the default". */
 const NO_PROJECT_SENTINEL = "none";
 
-export const PROJECT_PATCHED_EVENT = "maps:project-patched";
-export interface ProjectPatchedDetail {
-  before: ProjectView | null;
-  next: ProjectView;
-  patches: ProjectPatchInput[];
-}
 
 export interface CurrentProjectState {
   mutating?: boolean;

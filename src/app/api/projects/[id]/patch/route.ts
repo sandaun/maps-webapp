@@ -271,6 +271,7 @@ const patchSchema = z.discriminatedUnion("type", [
     type: z.literal("removeDevice"),
     locator: nodeLocatorSchema,
     deviceIndex: z.number().int().min(0),
+    signals: z.enum(["delete", "unassign"]),
   }),
   z.object({ type: z.literal("updateMbsConfig"), patch: mbsConfigPatchSchema }),
   z.object({ type: z.literal("updateRtuConfig"), patch: mbsRtuConfigPatchSchema }),

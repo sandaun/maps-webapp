@@ -104,6 +104,8 @@ Basada en `CheckProjectObjects` de KNX/MBM, `CheckMBMParams`, `CheckObjects` cre
 | `MB-BIT-RANGE` | error | Bit/NumOfBits fora de LenBits |
 | `MB-ADDRESS-BASE` | error | Address 0 amb device base 1 |
 | `MB-SLAVE-RANGE` | error | slave fora de rang o duplicat al node |
+| `MB-DEVICE-INDEX` | warning | `Index` d'un device diferent de la seva posició (els senyals referencien per posició) |
+| `MB-NODE-INDEX` | warning | `NodeIndex` d'un node TCP diferent de la seva posició |
 | `MB-MEDIA` | error | senyal RTU amb Media=TCP i viceversa |
 | `MB-BASE-CONFLICT` | error | mateix slave amb bases diferents |
 | `MB-BROADCAST` | error | broadcast amb ReadFunc o BitFields |
