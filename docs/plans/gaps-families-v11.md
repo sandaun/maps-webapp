@@ -69,6 +69,7 @@ MULTIPLE i CUSTOM després.
 |---|---|---|
 | Conversions per senyal bidireccionals | [apart] | vegeu `docs/reference/conversions.md` |
 | Editor de registres en mode Custom | [falta] | el mode es pot triar; editar les adreces custom per senyal cal revisar-ho a la taula de senyals |
+| XBL amb la funció de consum activada | [falta] | el generador el rebutja a propòsit (sense mostra de referència). Els senyals de consum ja es regeneren com MAPS (fitxer de referència `consum`); falta un XBL de MAPS per validar-ne la compilació. Branca pròpia |
 
 ---
 
