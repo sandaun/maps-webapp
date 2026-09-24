@@ -29,6 +29,8 @@ export interface ProjectMeta {
   family: FamilyId;
   fileName?: string;
   updatedAt: string; // ISO
+  /** Server write counter; sent back as `If-Match` when patching. */
+  revision?: number;
   /** Last XLSX signal-table import, when any. */
   lastImport?: { fileName: string; at: string; rows: number };
 }

@@ -39,6 +39,8 @@ vi.mock("next/navigation", () => ({
 
 let xml: XmlDocument;
 let family: FamilyId;
+/** Mirrors the server write counter: bumped by every applied batch. */
+let revision: number;
 function currentView(id = "demo"): ProjectView {
   const meta = {
     id,
@@ -47,6 +49,7 @@ function currentView(id = "demo"): ProjectView {
     description: "",
     source: "demo" as const,
     updatedAt: String(Date.now()),
+    revision,
   };
   return family === "knx-mbm"
     ? {
@@ -69,10 +72,12 @@ function setup(nextFamily: FamilyId = "knx-mbm") {
   xml = XmlDocument.parse(
     family === "knx-mbm" ? SYNTHETIC_KNX_MBM_XML : SYNTHETIC_ME_MBS_XML,
   );
+  revision = 1;
   mocks.get.mockImplementation(async (id: string) => currentView(id));
   mocks.patch.mockImplementation(
     async (id: string, patches: ProjectPatchInput[]) => {
       familyById(family).applyPatches(xml, patches);
+      revision++;
       return currentView(id);
     },
   );
@@ -222,9 +227,11 @@ describe("V12 property saving", () => {
     const before = currentView().project.gateway.dhcp;
     fireEvent.click(screen.getByRole("switch", { name: "DHCP" }));
     await waitFor(() =>
-      expect(mocks.patch).toHaveBeenCalledWith("demo", [
-        { type: "setGatewayInfo", dhcp: !before },
-      ]),
+      expect(mocks.patch).toHaveBeenCalledWith(
+        "demo",
+        [{ type: "setGatewayInfo", dhcp: !before }],
+        1,
+      ),
     );
     await waitFor(() =>
       expect(screen.getByRole("switch", { name: "DHCP" })).not.toBeDisabled(),
@@ -294,6 +301,7 @@ describe("V12 property saving", () => {
     familyById(family).applyPatches(xml, [
       { type: "setGeneralInfo", name: "Changed elsewhere" },
     ]);
+    revision++;
     render(<Workspace />);
     await screen.findByRole("button", { name: "Keep my edit" });
     expect(screen.getByText(/Saved: Changed elsewhere/)).toBeInTheDocument();

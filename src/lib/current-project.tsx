@@ -148,7 +148,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
       const previous = mutationQueues.current.get(projectId) ?? Promise.resolve();
       const pending = previous.catch(() => {}).then(async () => {
         const before = projectViews.current.get(projectId) ?? null;
-        const next = await patchProject(projectId, patches);
+        const next = await patchProject(projectId, patches, before?.meta.revision);
         projectViews.current.set(projectId, next);
         window.dispatchEvent(new CustomEvent<ProjectPatchedDetail>(PROJECT_PATCHED_EVENT, { detail: { before, next, patches } }));
         if (readProjectId() === projectId) setResult({ id: projectId, view: next });

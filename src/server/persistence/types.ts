@@ -20,6 +20,11 @@ export interface ProjectMeta {
   /** Original `.ibmaps` entry name inside the ZIP, when known. */
   fileName?: string;
   updatedAt: string; // ISO
+  /**
+   * Monotonic write counter, bumped under the project lock by every write that
+   * changes the project. Absent on metas stored before it existed (= 0).
+   */
+  revision?: number;
   /** Last XLSX signal-table import, when any. */
   lastImport?: { fileName: string; at: string; rows: number };
 }

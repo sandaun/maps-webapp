@@ -292,6 +292,18 @@ const patchSchema = z.discriminatedUnion("type", [
 
 const bodySchema = z.object({ patches: z.array(patchSchema).min(1).max(1000) });
 
+/**
+ * Optional optimistic-concurrency guard: `If-Match: "<revision>"` (the
+ * `meta.revision` the client last read). Returns undefined when absent and
+ * null when present but malformed.
+ */
+function expectedRevision(request: Request): number | undefined | null {
+  const header = request.headers.get("if-match");
+  if (header === null) return undefined;
+  const match = /^\s*(?:W\/)?"?(\d+)"?\s*$/.exec(header);
+  return match ? Number(match[1]) : null;
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -302,7 +314,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         { status: 400 },
       );
     }
-    const view = await applyPatches(id, parsed.data.patches as ProjectPatch[]);
+    const revision = expectedRevision(request);
+    if (revision === null) {
+      return NextResponse.json({ error: "Invalid If-Match header: expected a project revision" }, { status: 400 });
+    }
+    const view = await applyPatches(id, parsed.data.patches as ProjectPatch[], {
+      expectedRevision: revision,
+    });
     return NextResponse.json(view);
   } catch (error) {
     return errorResponse(error);
