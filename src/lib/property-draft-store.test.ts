@@ -20,32 +20,36 @@ function fixture(family: FamilyId = "knx-mbm") {
   const doc = XmlDocument.parse(
     family === "knx-mbm" ? SYNTHETIC_KNX_MBM_XML : SYNTHETIC_ME_MBS_XML,
   );
-  const meta = {
+  // Mirrors the server write counter: every applied batch bumps it.
+  let revision = 1;
+  const meta = () => ({
     id: family,
     family,
     name: "Test",
     description: "",
     source: "demo" as const,
     updatedAt: "2026-01-01",
-  };
+    revision,
+  });
   const view = (): ProjectView =>
     family === "knx-mbm"
       ? {
           family,
-          meta,
+          meta: meta(),
           project: readKnx(doc),
           issues: [],
           hasCompleteBlob: false,
         }
       : {
           family,
-          meta,
+          meta: meta(),
           project: readMe(doc),
           issues: [],
           hasCompleteBlob: false,
         };
   const patch = (patches: ProjectPatchInput[]) => {
     familyById(family).applyPatches(doc, patches);
+    revision++;
     return view();
   };
   return { view, patch };
@@ -276,6 +280,72 @@ describe("property drafts", () => {
         patch: { name: "Follows its device" },
       },
     ]);
+  });
+
+  it("blocks positional drafts after an unknown change even when the node and count look the same", () => {
+    const f = fixture();
+    const a = f.patch([{ type: "addTcpNode" }, { type: "addTcpNode" }]);
+    const draft = store();
+    draft.stage(a, field(a, "tcp-1-desc"), "For the old node");
+    // Another session replaces the node at position 1: same count, same locator.
+    const next = f.patch([
+      { type: "removeNode", locator: { kind: "tcp", nodeIndex: 1 } },
+      { type: "addTcpNode" },
+    ]);
+    draft.reconcile(next);
+    expect(draft.editsFor(a.meta.id, "devices")[0].conflict).toBe("entity");
+    draft.resolve(next, "tcp-1-desc", true);
+    expect(draft.editsFor(a.meta.id, "devices")[0].conflict).toBe("entity");
+    expect(draft.prepare(next, "devices").invalid["tcp-1-desc"]).toBeDefined();
+  });
+
+  it("keeps positional drafts across this client's own mutations of sibling entities", () => {
+    const f = fixture();
+    const a = f.patch([{ type: "addDevice", locator: { kind: "rtu", nodeIndex: 0 } }]);
+    const draft = store();
+    draft.stage(a, field(a, "rtu-0-baud"), 19200);
+    const patches: ProjectPatchInput[] = [
+      { type: "updateDevice", locator: { kind: "rtu", nodeIndex: 0 }, deviceIndex: 1, patch: { enabled: false } },
+    ];
+    const next = f.patch(patches);
+    draft.afterMutation(a, next, patches);
+    expect(draft.editsFor(a.meta.id, "devices")[0].conflict).toBeUndefined();
+  });
+
+  it("reconciles an unseen change before applying a known mutation", () => {
+    const f = fixture(),
+      a = f.view(),
+      draft = store();
+    draft.stage(a, field(a, "rtu-0-baud"), 19200);
+    const unseen = f.patch([{ type: "setGeneralInfo", name: "Elsewhere" }]);
+    const patches: ProjectPatchInput[] = [{ type: "setGatewayInfo", dhcp: true }];
+    draft.afterMutation(unseen, f.patch(patches), patches);
+    expect(draft.editsFor(a.meta.id, "devices")[0].conflict).toBe("entity");
+  });
+
+  it("recovers positional drafts only when the project revision did not move", () => {
+    const f = fixture(),
+      a = f.view();
+    store().stage(a, field(a, "rtu-0-baud"), 19200);
+    const sameRevision = store();
+    sameRevision.reconcile(a);
+    expect(sameRevision.editsFor(a.meta.id, "devices")[0].conflict).toBeUndefined();
+    const moved = f.patch([{ type: "setGeneralInfo", name: "Elsewhere" }]);
+    const afterMove = store();
+    afterMove.reconcile(moved);
+    expect(afterMove.editsFor(a.meta.id, "devices")[0].conflict).toBe("entity");
+  });
+
+  it("still offers Keep my edit for fields with a reliable identity", () => {
+    const f = fixture(),
+      a = f.view(),
+      draft = store();
+    draft.stage(a, field(a, "cfg-gw-name"), "Mine");
+    draft.stage(a, field(a, "cfg-name"), "Untouched elsewhere");
+    const next = f.patch([{ type: "setGatewayInfo", name: "Theirs" }]);
+    draft.reconcile(next);
+    const edits = Object.fromEntries(draft.editsFor(a.meta.id, "configuration").map((e) => [e.id, e.conflict]));
+    expect(edits).toEqual({ "cfg-gw-name": "value", "cfg-name": undefined });
   });
 
   it("quarantines recovered positional entities that changed externally", () => {

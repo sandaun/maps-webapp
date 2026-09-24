@@ -21,8 +21,12 @@ export interface PropertyField {
   maxLength?: number;
   options?: readonly PropertyValue[];
   address?: boolean;
-  /** KNX nodes have positional API locators, so recovery must verify the entity. */
-  anchor?: string;
+  /**
+   * Addressed by list position (KNX nodes/devices, ME slave list): another
+   * session can replace the entity at that position without changing its
+   * locator, so the draft store only trusts it while the revision is known.
+   */
+  positional?: boolean;
   patch: (value: PropertyValue) => ProjectPatchInput;
 }
 
@@ -54,7 +58,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
     values: object,
     patch: (key: string, value: PropertyValue) => ProjectPatchInput,
     rows: [key: string, suffix: string, label: string, rule?: Rule][],
-    anchor?: string,
+    positional?: boolean,
   ) => {
     for (const [key, suffix, label, rule] of rows) {
       const base = (values as Record<string, PropertyValue>)[key];
@@ -66,7 +70,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
         screen,
         section,
         base,
-        anchor,
+        positional,
         ...rule,
         patch: (value) => patch(key, value),
       });
@@ -170,9 +174,6 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       nodes.forEach((node, index) => {
         const group = `${kind}-${index}`;
         const context = `${kind.toUpperCase()} node ${index + 1}`;
-        // Changes made by this client rebase anchors after successful mutations.
-        // On recovery, an externally changed positional entity requires review.
-        const anchor = JSON.stringify(node);
         const rows: [string, string, string, Rule?][] =
           kind === "rtu"
             ? [
@@ -227,7 +228,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
             `${context} · ${label}`,
             rule,
           ]),
-          anchor,
+          true,
         );
         // Devices are addressed by position, as the API and signal references do.
         node.devices.forEach((device, position) => {
@@ -270,7 +271,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
                 rule,
               ];
             }),
-            anchor,
+            true,
           );
         });
       });
@@ -334,6 +335,7 @@ export function propertyFields(view: ProjectView): PropertyField[] {
           screen: config,
           section: "bms",
           base: slave[key],
+          positional: true,
           ...(key === "address" ? integer(1, 247) : text()),
           patch: (value) => ({
             type: "updateMbsConfig",

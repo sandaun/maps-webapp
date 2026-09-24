@@ -18,6 +18,7 @@ import {
   useCurrentProject,
 } from "@/lib/current-project";
 import { PropertyDraftProvider } from "@/lib/property-drafts";
+import { ApiError } from "@/lib/api";
 import type {
   FamilyId,
   ProjectView,
@@ -75,7 +76,10 @@ function setup(nextFamily: FamilyId = "knx-mbm") {
   revision = 1;
   mocks.get.mockImplementation(async (id: string) => currentView(id));
   mocks.patch.mockImplementation(
-    async (id: string, patches: ProjectPatchInput[]) => {
+    async (id: string, patches: ProjectPatchInput[], expected?: number) => {
+      // Same optimistic-concurrency guard as the real API (If-Match).
+      if (expected !== undefined && expected !== revision)
+        throw new ApiError(409, "Changed elsewhere", "revision-conflict");
       familyById(family).applyPatches(xml, patches);
       revision++;
       return currentView(id);
@@ -414,6 +418,51 @@ describe("V12 property saving", () => {
     expect(mocks.patch.mock.calls[1][1]).toEqual([
       { type: "updateDevice", locator: { kind: "rtu", nodeIndex: 0 }, deviceIndex: 0, patch: { name: "Second device draft" } },
     ]);
+  });
+
+  describe("two tabs: a TCP node removed and re-added at the same position", () => {
+    /** Tab A drafts TCP node 2; tab B then replaces that node (count unchanged). */
+    async function replacedNodeScenario() {
+      familyById("knx-mbm").applyPatches(xml, [{ type: "addTcpNode" }, { type: "addTcpNode" }]);
+      render(<Workspace devices />);
+      const description = await screen.findByRole("textbox", { name: "TCP node 2 · Description" });
+      fireEvent.change(description, { target: { value: "Meant for the old node" } });
+      // Tab B, through the same API: the node at position 1 is a new one now.
+      familyById("knx-mbm").applyPatches(xml, [
+        { type: "removeNode", locator: { kind: "tcp", nodeIndex: 1 } },
+        { type: "addTcpNode" },
+      ]);
+      revision++;
+    }
+
+    function expectBlockedWithoutKeep() {
+      expect(screen.getByText(/may have been replaced or removed/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Keep my edit" })).toBeNull();
+      expect(screen.getByRole("button", { name: /Save|Retry/ })).toBeDisabled();
+    }
+
+    it("blocks the draft on Save and only offers to discard it", async () => {
+      await replacedNodeScenario();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await screen.findByRole("button", { name: "Discard this edit" });
+      expectBlockedWithoutKeep();
+      expect(mocks.patch).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Discard this edit" }));
+      expect(screen.queryByText(/unsaved change/)).toBeNull();
+      expect(screen.getByRole("textbox", { name: "TCP node 2 · Description" })).not.toHaveValue(
+        "Meant for the old node",
+      );
+    });
+
+    it("reloads after a 409 from any other mutation and blocks the draft", async () => {
+      await replacedNodeScenario();
+      const row = screen.getAllByRole("textbox", { name: "Device name" })[0].closest("tr")!;
+      fireEvent.click(within(row).getByRole("checkbox", { name: "Enabled" }));
+      expect(await screen.findByText(/changed elsewhere and has been reloaded/)).toBeInTheDocument();
+      await screen.findByRole("button", { name: "Discard this edit" });
+      expectBlockedWithoutKeep();
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("does not replace a newly selected project with a late save response", async () => {

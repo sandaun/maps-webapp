@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { ApiError, getProjectView, patchProject } from "./api";
-import { PROJECT_PATCHED_EVENT, type ProjectPatchedDetail } from "./project-events";
+import {
+  PROJECT_PATCHED_EVENT,
+  PROJECT_REPLACED_EVENT,
+  type ProjectPatchedDetail,
+  type ProjectReplacedDetail,
+} from "./project-events";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
 
 const STORAGE_KEY = "maps.currentProjectId";
@@ -91,15 +96,32 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
   const projectViews = React.useRef(new Map<string, ProjectView>());
   const [pendingMutations, setPendingMutations] = React.useState<Record<string, number>>({});
 
+  /**
+   * Adopt a view that is not the result of this client's own mutation. A
+   * revision other than the one last seen means the project changed elsewhere.
+   */
+  const adoptLoadedView = React.useCallback((next: ProjectView) => {
+    const previous = projectViews.current.get(next.meta.id);
+    projectViews.current.set(next.meta.id, next);
+    if (previous && previous.meta.revision !== next.meta.revision) {
+      dispatchReplaced({ projectId: next.meta.id, reason: "external" });
+    }
+    if (readProjectId() === next.meta.id) setResult({ id: next.meta.id, view: next });
+  }, []);
+
+  const selectedProject = React.useRef(projectId);
+  React.useEffect(() => {
+    if (selectedProject.current === projectId) return;
+    selectedProject.current = projectId;
+    dispatchReplaced({ projectId, reason: "selected" });
+  }, [projectId]);
+
   React.useEffect(() => {
     if (projectId === null) return;
     let cancelled = false;
     getProjectView(projectId)
       .then((next) => {
-        if (!cancelled) {
-          projectViews.current.set(projectId, next);
-          setResult({ id: projectId, view: next });
-        }
+        if (!cancelled) adoptLoadedView(next);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -117,7 +139,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, adoptLoadedView]);
 
   // Ignore results that arrived for a previously selected project.
   const current = projectId !== null && result?.id === projectId ? result : null;
@@ -129,17 +151,12 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
     writeProjectId(id);
   }, []);
 
-  const acceptView = React.useCallback((next: ProjectView) => {
-    projectViews.current.set(next.meta.id, next);
-    if (readProjectId() === next.meta.id) setResult({ id: next.meta.id, view: next });
-  }, []);
+  const acceptView = adoptLoadedView;
 
   const refresh = React.useCallback(async () => {
     if (projectId === null) return;
-    const next = await getProjectView(projectId);
-    projectViews.current.set(projectId, next);
-    if (readProjectId() === projectId) setResult({ id: projectId, view: next });
-  }, [projectId]);
+    adoptLoadedView(await getProjectView(projectId));
+  }, [projectId, adoptLoadedView]);
 
   const applyPatches = React.useCallback(
     async (patches: ProjectPatchInput[]) => {
@@ -148,7 +165,24 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
       const previous = mutationQueues.current.get(projectId) ?? Promise.resolve();
       const pending = previous.catch(() => {}).then(async () => {
         const before = projectViews.current.get(projectId) ?? null;
-        const next = await patchProject(projectId, patches, before?.meta.revision);
+        const next = await patchProject(projectId, patches, before?.meta.revision).catch(
+          async (error: unknown) => {
+            if (!(error instanceof ApiError) || error.code !== "revision-conflict") throw error;
+            // Another session changed the project: whatever was keyed by the
+            // old state is stale, and loading the new state re-verifies drafts
+            // before anything is retried.
+            dispatchReplaced({ projectId, reason: "external" });
+            const latest = await getProjectView(projectId).catch(() => null);
+            if (latest) adoptLoadedView(latest);
+            throw new ApiError(
+              409,
+              latest
+                ? "The project was changed elsewhere and has been reloaded. Review your pending changes and try again."
+                : "The project was changed elsewhere and could not be reloaded. Reload the project before trying again.",
+              error.code,
+            );
+          },
+        );
         projectViews.current.set(projectId, next);
         window.dispatchEvent(new CustomEvent<ProjectPatchedDetail>(PROJECT_PATCHED_EVENT, { detail: { before, next, patches } }));
         if (readProjectId() === projectId) setResult({ id: projectId, view: next });
@@ -161,7 +195,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
         setPendingMutations((counts) => ({ ...counts, [projectId]: Math.max(0, (counts[projectId] ?? 0) - 1) }));
       }
     },
-    [projectId],
+    [projectId, adoptLoadedView],
   );
 
   const value = React.useMemo<CurrentProjectState>(
@@ -179,4 +213,8 @@ export function useCurrentProject(): CurrentProjectState {
 /** POST patch ops against the current project and apply the returned view. */
 export function usePatch(): CurrentProjectState["applyPatches"] {
   return useCurrentProject().applyPatches;
+}
+
+function dispatchReplaced(detail: ProjectReplacedDetail): void {
+  window.dispatchEvent(new CustomEvent<ProjectReplacedDetail>(PROJECT_REPLACED_EVENT, { detail }));
 }

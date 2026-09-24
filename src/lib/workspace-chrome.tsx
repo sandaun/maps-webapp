@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { PROJECT_PATCHED_EVENT, type ProjectPatchedDetail } from "./project-events";
+import { PROJECT_PATCHED_EVENT, PROJECT_REPLACED_EVENT, type ProjectPatchedDetail } from "./project-events";
 import type { ProjectPatchInput } from "./project-types";
 
 const SIDEBAR_KEY = "maps.sidebarCollapsed";
@@ -82,8 +82,15 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
       const { patches } = (event as CustomEvent<ProjectPatchedDetail>).detail;
       if (patches.some((patch) => SIGNAL_REMOVING.has(patch.type))) setUndo(null);
     };
+    // Another project, or a revision written elsewhere: the entry's IDs may
+    // now name different signals (the other session may have renumbered them).
+    const onReplaced = () => setUndo(null);
     window.addEventListener(PROJECT_PATCHED_EVENT, onPatched);
-    return () => window.removeEventListener(PROJECT_PATCHED_EVENT, onPatched);
+    window.addEventListener(PROJECT_REPLACED_EVENT, onReplaced);
+    return () => {
+      window.removeEventListener(PROJECT_PATCHED_EVENT, onPatched);
+      window.removeEventListener(PROJECT_REPLACED_EVENT, onReplaced);
+    };
   }, []);
 
   const value = React.useMemo<WorkspaceChromeState>(

@@ -18,14 +18,22 @@ export interface PropertyEdit {
   label: string;
   base: PropertyValue;
   value: PropertyValue;
-  anchor?: string;
   changedAt: string;
+  /**
+   * "value": the saved value changed under the edit (the user may keep it).
+   * "entity": the positional entity may have been replaced; only discard is safe.
+   */
   conflict?: "value" | "entity";
 }
 interface ProjectDraft {
   version: 1;
   projectId: string;
   family: FamilyId;
+  /**
+   * Project revision the positional edits were last verified against.
+   * Absent on drafts saved before revisions existed (never verified).
+   */
+  revision?: number;
   edits: Record<string, PropertyEdit>;
 }
 export interface SaveState {
@@ -54,7 +62,8 @@ function decode(raw: string): ProjectDraft {
     typeof data.projectId !== "string" ||
     !["knx-mbm", "me-mbs"].includes(data.family) ||
     !data.edits ||
-    typeof data.edits !== "object"
+    typeof data.edits !== "object" ||
+    (data.revision !== undefined && !Number.isInteger(data.revision))
   )
     throw new Error("Invalid recovery data");
   for (const [id, entry] of Object.entries(data.edits)) {
@@ -68,9 +77,11 @@ function decode(raw: string): ProjectDraft {
       typeof entry.section !== "string" ||
       typeof entry.changedAt !== "string" ||
       !["configuration", "devices"].includes(entry.screen) ||
-      (entry.anchor !== undefined && typeof entry.anchor !== "string")
+      (entry.conflict !== undefined && !["value", "entity"].includes(entry.conflict))
     )
       throw new Error("Invalid recovery field");
+    // Drafts from before revisions carried a node `anchor`; it is no longer used.
+    delete (entry as { anchor?: unknown }).anchor;
   }
   return data;
 }
@@ -109,12 +120,23 @@ export function createPropertyDraftStore() {
       states: { ...snapshot.states, [scopeKey(projectId, screen)]: value },
     });
   }
+  /**
+   * Re-verify every edit of a project against `view` and move the draft to its
+   * revision. Positional entities keep their identity only while the project
+   * stays at the verified revision (own mutations advance it in
+   * `afterMutation`); any other change may have replaced a node at the same
+   * position, so those edits become "entity" conflicts for good. Other fields
+   * are compared value by value.
+   */
   function reconcile(view: ProjectView) {
     const project = snapshot.projects[view.meta.id];
     if (!project) return;
     const fields = new Map(
       propertyFields(view).map((field) => [field.id, field]),
     );
+    const identityKnown =
+      project.revision !== undefined &&
+      project.revision === view.meta.revision;
     const edits: Record<string, PropertyEdit> = {};
     for (const [id, entry] of Object.entries(project.edits)) {
       const field = fields.get(id);
@@ -123,18 +145,20 @@ export function createPropertyDraftStore() {
       } else if (Object.is(fieldValue(field, entry.value), field.base)) {
         // Also handles a successful save whose response was lost before a reload.
         continue;
+      } else if (
+        entry.conflict === "entity" ||
+        (field.positional && !identityKnown)
+      ) {
+        edits[id] = { ...entry, conflict: "entity" };
       } else {
-        const conflict =
-          entry.anchor !== field.anchor
-            ? "entity"
-            : Object.is(entry.base, field.base)
-              ? undefined
-              : "value";
-        edits[id] = { ...entry, conflict };
+        edits[id] = {
+          ...entry,
+          conflict: Object.is(entry.base, field.base) ? undefined : "value",
+        };
       }
     }
-    if (JSON.stringify(edits) !== JSON.stringify(project.edits))
-      put({ ...project, edits });
+    const next = { ...project, edits, revision: view.meta.revision };
+    if (JSON.stringify(next) !== JSON.stringify(project)) put(next);
   }
   function editsFor(projectId: string, screen: PropertyScreen) {
     return Object.values(snapshot.projects[projectId]?.edits ?? {}).filter(
@@ -151,11 +175,17 @@ export function createPropertyDraftStore() {
       snapshot.states[scopeKey(view.meta.id, field.screen)]?.saving
     )
       return;
+    if (
+      snapshot.projects[view.meta.id] &&
+      snapshot.projects[view.meta.id].revision !== view.meta.revision
+    )
+      reconcile(view);
     const previous = snapshot.projects[view.meta.id];
     const project: ProjectDraft = previous ?? {
       version: 1,
       projectId: view.meta.id,
       family: view.family,
+      revision: view.meta.revision,
       edits: {},
     };
     const edits = { ...project.edits };
@@ -170,7 +200,6 @@ export function createPropertyDraftStore() {
         label: field.label,
         base: existing?.base ?? field.base,
         value,
-        anchor: existing?.anchor ?? field.anchor,
         changedAt: new Date().toISOString(),
         conflict: existing?.conflict,
       };
@@ -253,13 +282,10 @@ export function createPropertyDraftStore() {
       const field = propertyFields(view).find((field) => field.id === id);
       const edits = { ...project.edits };
       if (!keep) delete edits[id];
-      else if (field && entry.conflict !== "entity")
-        edits[id] = {
-          ...entry,
-          base: field.base,
-          anchor: field.anchor,
-          conflict: undefined,
-        };
+      // Keeping is only offered for value conflicts: an uncertain entity has
+      // no reliable identity to keep the edit on.
+      else if (field && entry.conflict === "value")
+        edits[id] = { ...entry, base: field.base, conflict: undefined };
       put({ ...project, edits });
       state(view.meta.id, entry.screen, {});
     },
@@ -330,20 +356,28 @@ export function createPropertyDraftStore() {
           toast: `${count} ${count === 1 ? "change" : "changes"} saved to the project`,
         });
     },
-    /** Remap positional KNX locators only for mutations this client actually confirmed. */
+    /**
+     * A mutation this client confirmed: remap positional ids across known
+     * removals and advance the verified revision. If the project had already
+     * moved past the verified revision, that unknown change is reconciled
+     * first (positional edits become uncertain).
+     */
     afterMutation(
       before: ProjectView | null,
       next: ProjectView,
       patches: ProjectPatchInput[],
     ) {
-      const project = snapshot.projects[next.meta.id];
-      if (!project || !before || before.family !== next.family) {
+      if (
+        !snapshot.projects[next.meta.id] ||
+        !before ||
+        before.family !== next.family
+      ) {
         reconcile(next);
         return;
       }
-      const oldFields = new Map(
-        propertyFields(before).map((field) => [field.id, field]),
-      );
+      if (snapshot.projects[next.meta.id].revision !== before.meta.revision)
+        reconcile(before);
+      const project = snapshot.projects[next.meta.id];
       const newFields = new Map(
         propertyFields(next).map((field) => [field.id, field]),
       );
@@ -398,22 +432,12 @@ export function createPropertyDraftStore() {
           }
         }
         if (removed) continue;
-        const oldField = oldFields.get(entry.id),
-          field = newFields.get(id);
-        const knownIdentity = oldField && oldField.anchor === entry.anchor;
-        edits[id] =
-          field && knownIdentity
-            ? {
-                ...entry,
-                id,
-                group: field.group,
-                section: field.section,
-                label: field.label,
-                anchor: field.anchor,
-              }
-            : entry;
+        const field = newFields.get(id);
+        edits[id] = field
+          ? { ...entry, id, group: field.group, section: field.section, label: field.label }
+          : { ...entry, id };
       }
-      put({ ...project, edits });
+      put({ ...project, edits, revision: next.meta.revision });
       reconcile(next);
     },
   };

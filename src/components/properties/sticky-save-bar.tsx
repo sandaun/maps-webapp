@@ -39,7 +39,7 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
                 <strong className="text-hms-blue">{edit.label}</strong>
                 <p className="mt-1 text-fg-muted">
                   {edit.conflict === "entity"
-                    ? "The device or property changed or is no longer available. This recovered value cannot be applied safely."
+                    ? "The project was changed elsewhere, so this node or device may have been replaced or removed. The pending value cannot be applied safely."
                     : `Saved: ${String(field?.base ?? "—")}`}{" "}
                   · Pending: {String(edit.value)}
                 </p>
