@@ -1,4 +1,4 @@
-import type { XmlDocument } from "@/core/project-format";
+import { getAttr, type XmlDocument } from "@/core/project-format";
 import {
   COMPATIBILITY_MODES,
   CONTROLLER_MODELS,
@@ -9,7 +9,14 @@ import {
 import { ADDRESS_MODES } from "@/protocols/modbus/slave";
 import { readMbsConfig, readMeConfig } from "./from-xml";
 import { MeMbsSignalEngine } from "./signals-engine";
-import { updateController, updateGroup, updateMbsConfig, updateMeScalars } from "./xml-ops";
+import {
+  updateController,
+  updateGroup,
+  updateMbsConfig,
+  updateMeScalars,
+  updateSignal,
+  type SignalPatch,
+} from "./xml-ops";
 
 /**
  * Model patches wired to the MAPS handler the desktop form calls for the same
@@ -36,6 +43,22 @@ export function regenerateSignals(doc: XmlDocument, handler: (engine: MeMbsSigna
   const engine = MeMbsSignalEngine.fromXml(doc);
   handler(engine);
   engine.writeTo(doc);
+}
+
+/**
+ * `updateSignal` → the row edit plus `StoreUserAddress` (P:698-731), so the
+ * edited activation survives a later regeneration through HvacAddresses.
+ * `id` refers to the document before the batch (IDs are renumbered after
+ * the batch's deletions), so the row is looked up by its ID attribute.
+ */
+export function updateSignalAndUserAddress(doc: XmlDocument, id: number, patch: SignalPatch): void {
+  updateSignal(doc, id, patch);
+  const index = doc
+    .findAll(["ExternalProtocol", "Signals", "Signal"])
+    .findIndex((el) => getAttr(el, "ID") === String(id));
+  const engine = MeMbsSignalEngine.fromXml(doc);
+  engine.storeUserAddress(index);
+  engine.writeAddressesTo(doc);
 }
 
 /** `updateGroup` → `EnableGroup` (tree check, F:358) or `ModifyGroupUpdate`. */

@@ -185,9 +185,41 @@ export class MeMbsSignalEngine {
     if (!internal || !external) throw new Error("Project has no <Signals> sections");
     replaceIndented(internal, this.mbs.map(mbsObjectXml), 3);
     replaceIndented(external, this.me.map(meObjectXml), 3);
-    // MAPS writes <HvacAddresses> only while it has entries (IntesisProject.cs:2374).
+    this.writeAddressesTo(doc);
+  }
+
+  /**
+   * Rewrite `<HvacAddresses>` (StoredHvacAddresses.ToXML), which MAPS writes
+   * only while it has entries, as the last child of `<Project>`
+   * (IntesisProject.cs:2374).
+   */
+  writeAddressesTo(doc: XmlDocument): void {
     const stored = doc.find(["HvacAddresses"]);
-    if (stored && this.addresses.length === 0) removeWithIndent(stored);
+    if (this.addresses.length === 0) {
+      if (stored) removeWithIndent(stored);
+      return;
+    }
+    const el = stored ?? appendRootChild(doc, element("HvacAddresses"));
+    replaceIndented(el, this.addresses.map(hvacAddressXml), 2);
+  }
+
+  /**
+   * `StoreUserAddress` (P:721), run by `UpdateObjectsFromRowInfo` after every
+   * edit of a signal row: remembers the row's activation and address so a
+   * later regeneration recreates it the same way (`GetActiveFromUnit`). The
+   * key is the ME spec, group and controller; for alarm codes that key is
+   * the one of general spec 0 (see `createMeMbsUnitObject`).
+   */
+  storeUserAddress(index: number): void {
+    const me = this.me[index];
+    const mbs = this.mbs[index];
+    if (!me || !mbs) throw new Error(`Signal row ${index} not found`);
+    this.addItem(
+      { signal: me.signalSpecIndex, hvacUnitIndex: me.groupId, ouIndex: -1, port: me.g50Id },
+      String(mbs.address),
+      mbs.isEnabled,
+      this.model.addressMode === ADDRESS_MODES.CUSTOM,
+    );
   }
 
   // --- handlers (what the MAPS forms call) --------------------------------------
@@ -847,6 +879,39 @@ export class MeMbsSignalEngine {
     });
   }
 
+  /**
+   * `StoredHvacAddresses.AddItem` (AC overload): an entry with the same
+   * HvacCharacter (`Equals`: signal, unit, OU and port) is updated in place.
+   */
+  private addItem(
+    prop: Pick<HvacAddress, "signal" | "hvacUnitIndex" | "ouIndex" | "port">,
+    address: string,
+    enabled: boolean,
+    requiresCustom: boolean,
+  ): void {
+    if (prop.signal === -1) return;
+    const existing = this.addresses.find(
+      (x) =>
+        x.signal === prop.signal &&
+        x.hvacUnitIndex === prop.hvacUnitIndex &&
+        x.ouIndex === prop.ouIndex &&
+        x.port === prop.port,
+    );
+    if (existing) {
+      Object.assign(existing, { address, enabled, addressExtra: "", addressFlags: "", requiresCustom });
+      return;
+    }
+    this.addresses.push({
+      requiresCustom,
+      enabled,
+      address,
+      addressExtra: "",
+      addressFlags: "",
+      type: USER_ADDRESS_AC,
+      ...prop,
+    });
+  }
+
   /** `StoredHvacAddresses.GetActiveFromUnit` (StoredHvacAddresses.cs). */
   private getActiveFromUnit(
     defaultActive: boolean,
@@ -1198,6 +1263,37 @@ function parseHvacAddress(el: XmlElement): HvacAddress {
     port: int(attr("Port", "-1")),
     ouIndex: int(attr("OUIndex", "-1")),
   };
+}
+
+/**
+ * `HvacObjectAddress.ToXML` + `HvacCharacter.ToXML`. AddressExtra and
+ * AddressFlags go through `IntesisXML.SetAttributeWithDefault`, which writes
+ * them even when empty.
+ */
+function hvacAddressXml(a: HvacAddress): XmlElement {
+  return element("UserAddress", [
+    ["RequiresCustom", boolText(a.requiresCustom)],
+    ["Enabled", boolText(a.enabled)],
+    ["Address", a.address],
+    ["AddressExtra", a.addressExtra],
+    ["AddressFlags", a.addressFlags],
+    ["Type", String(a.type)],
+    ["SignalIndex", String(a.signal)],
+    ["HvacUnitIndex", String(a.hvacUnitIndex)],
+    ["Port", String(a.port)],
+    ["OUIndex", String(a.ouIndex)],
+  ]);
+}
+
+/** Append an element as the last child of `<Project>`, indented one level. */
+function appendRootChild(doc: XmlDocument, el: XmlElement): XmlElement {
+  const root = doc.root;
+  const last = root.children[root.children.length - 1];
+  const closing = last && last.kind === "text" && /^\s*$/.test(last.text) ? root.children.length - 1 : root.children.length;
+  el.parent = root;
+  root.children.splice(closing, 0, text(`${LINE_ENDING}${INDENT_UNIT}`), el);
+  if (closing === root.children.length - 2) root.children.push(text(LINE_ENDING));
+  return el;
 }
 
 /** `MbsObject.ToXml` (MbsObject.cs): note idxExternal is written as ConfigID. */

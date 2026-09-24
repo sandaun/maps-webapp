@@ -41,7 +41,7 @@ import {
   updateMbsConfigAndSignals,
   updateMeScalarsAndSignals,
   updateRtuConfig,
-  updateSignal as meUpdateSignal,
+  updateSignalAndUserAddress,
   updateTcpConfig,
   validateProject as validateMeMbsProject,
   type MeMbsProject,
@@ -349,7 +349,7 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
       meRemoveSignal(doc, patch.id);
       break;
     case "updateSignal":
-      meUpdateSignal(doc, patch.id, patch.patch);
+      updateSignalAndUserAddress(doc, patch.id, patch.patch);
       break;
     case "updateMbsConfig":
       updateMbsConfigAndSignals(doc, patch.patch);

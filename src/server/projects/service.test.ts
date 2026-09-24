@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import { resetProjectStoreForTests } from "../persistence";
 import {
   applyPatches,
@@ -281,6 +282,95 @@ describe("project service — me-mbs family", () => {
     if (after.family !== "me-mbs" || before.family !== "me-mbs") throw new Error("unreachable");
     expect(after.project.signals).toEqual(before.project.signals);
     expect(after.project.mbs.commErrorTout).toBe(before.project.mbs.commErrorTout);
+  });
+
+  describe("user edits kept through HvacAddresses", () => {
+    type MeView = Extract<ProjectView, { family: "me-mbs" }>;
+
+    async function projectWithGroup(): Promise<string> {
+      const meta = await openIbmaps(SYNTHETIC_ME_MBS_EMPTY_XML, { id: "me" });
+      await applyPatches(meta.id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { enabled: true } }]);
+      return meta.id;
+    }
+
+    async function meView(id: string): Promise<MeView> {
+      const view = await getProjectView(id);
+      if (view.family !== "me-mbs") throw new Error("unreachable");
+      return view;
+    }
+
+    /** ID of the signal with this ME identity in the current view. */
+    function idOf(view: MeView, group: number, spec: number, unit = -1): number {
+      const signal = view.project.signals.find(
+        (s) => s.me.g50Index === 0 && s.me.groupIndex === group && s.me.signalSpecIndex === spec && s.me.unitId === unit,
+      );
+      if (!signal) throw new Error(`No signal for group ${group} spec ${spec}`);
+      return signal.id;
+    }
+
+    const disabled = (view: MeView) =>
+      view.project.signals.filter((s) => !s.active).map((s) => [s.me.groupIndex, s.me.signalSpecIndex, s.me.unitId]);
+
+    async function storedXml(id: string): Promise<string> {
+      const { getProjectStore } = await import("../persistence");
+      return getProjectStore().readXml(id);
+    }
+
+    it("stores a disabled signal in HvacAddresses and keeps it across a group regeneration", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: false } }]);
+      expect(await storedXml(id)).toContain(
+        '  </ExternalProtocol>\r\n  <HvacAddresses>\r\n    <UserAddress RequiresCustom="False" Enabled="False" Address="103" AddressExtra="" AddressFlags="" Type="0" SignalIndex="6" HvacUnitIndex="0" Port="0" OUIndex="-1" />\r\n  </HvacAddresses>\r\n</Project>',
+      );
+
+      await applyPatches(id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } }]);
+      expect(disabled(await meView(id))).toEqual([[0, 6, -1]]);
+    });
+
+    it("keeps group and general edits across a controller regeneration", async () => {
+      const id = await projectWithGroup();
+      const view = await meView(id);
+      await applyPatches(id, [
+        { type: "updateSignal", id: idOf(view, 0, 6), patch: { active: false } },
+        { type: "updateSignal", id: idOf(view, -1, 2), patch: { active: false } },
+      ]);
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { model: 1 } }]);
+      expect(disabled(await meView(id))).toEqual([
+        [-1, 2, -1],
+        [0, 6, -1],
+      ]);
+    });
+
+    it("keeps an edit and a regeneration of the same group sent in one batch", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [
+        { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } },
+        { type: "updateSignal", id: vane, patch: { active: false } },
+      ]);
+      expect(disabled(await meView(id))).toEqual([[0, 6, -1]]);
+    });
+
+    it("re-enables a signal once the user enables it again", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: false } }]);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: true } }]);
+      await applyPatches(id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } }]);
+      expect(disabled(await meView(id))).toEqual([]);
+      expect((await storedXml(id)).match(/<UserAddress /g)).toHaveLength(1);
+    });
+
+    it("does not bring an alarm-code edit back through HvacAddresses, like MAPS", async () => {
+      const id = await projectWithGroup();
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { addErrorSignals: true } }]);
+      const alarm = idOf(await meView(id), -1, 0, 4);
+      await applyPatches(id, [{ type: "updateSignal", id: alarm, patch: { active: false } }]);
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { model: 1 } }]);
+      // The stored key is general spec 0's (StoreUserAddress uses GroupID -1).
+      expect(disabled(await meView(id))).toEqual([[-1, 0, -1]]);
+    });
   });
 
   it("rejects knx-mbm patches on a me-mbs project with 409", async () => {
