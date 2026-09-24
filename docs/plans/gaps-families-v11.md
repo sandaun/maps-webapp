@@ -16,16 +16,23 @@ Llegenda: **[fet]** · **[falta]** · **[blocat]** (depèn d'API de gateway en v
 
 ## 1. Mitsubishi Electric AC ↔ Modbus Slave (770 Air, `me-mbs`)
 
-### 1.0 Regeneració de senyals a partir del model — **PRIORITARI** [falta]
+### 1.0 Regeneració de senyals a partir del model — [fet] (FIXED + un sol esclau)
 
-La webapp no crea ni esborra senyals quan canvien grups, controladors o
-paràmetres globals; MAPS sí (habilitar un grup a la web no genera els seus
-registres Modbus i el projecte queda incomplet). Anàlisi i correspondència
-completa a `docs/reference/me-mbs-regeneracio-senyals.md`; fitxers de
-referència desats amb MAPS a `signal-ai/src/tmp/maps-ref/` (fora de Git).
-Branca pròpia. Abast pactat: adreces FIXED i esclau SINGLE, més
-`HvacAddresses` per als camps de senyal que la web ja deixa editar; V4_COMP,
-MULTIPLE i CUSTOM després.
+Els patches de model regeneren els senyals ME-MBS com MAPS (habilitar un
+grup, canviar-ne el tipus, activar els senyals d'error, la unitat de
+temperatura, el consum, el mode d'adreces o d'esclaus), i les edicions de
+senyal es conserven via `HvacAddresses`. Anàlisi, correspondència i nivells
+de validació a `docs/reference/me-mbs-regeneracio-senyals.md`; fitxers de
+referència desats amb MAPS a `.local-data/fixtures/me-mbs-maps-ref/` (fora de
+Git).
+
+| Pendent | Estat | Notes |
+|---|---|---|
+| Modes V4_COMP, CUSTOM i MULTIPLE | [falta] | avui es rebutgen amb un 422 els canvis que regeneren senyals; cal portar-los amb fitxers de referència propis |
+| Llista d'esclaus derivada dels grups (`InitializeMbSlaves`) | [falta] | a la webapp continua sent editable |
+| Assignació de comptadors en habilitar grups amb consum | [falta] | MAPS crida `GenerateAssignmentsList`; va amb l'assignació de meters (1.1) |
+| Port 80/443 automàtic en desar un controlador | [falta] | `SaveThisController`; no afecta els senyals |
+| «Scan groups» → un sol `ModifyController` | [blocat] | la webapp enviaria un patch per grup; el botó està bloquejat (1.2) |
 
 ### 1.1 Configuration
 
@@ -34,8 +41,8 @@ MULTIPLE i CUSTOM després.
 | General (nom, descripció, template RO) | [fet] | |
 | Global parameters ME (temperature units, polling, timeouts, consumption, write burst) | [fet] | V11: targeta única + "Manage controllers →" |
 | BMS · Modbus server: media, byte order, COV, commErrorTout, register base | [fet] | |
-| BMS: address mode Fixed/Custom | [fet] | `updateMbsConfig` estès; falta l'editor de registres Custom (vegeu 1.4) |
-| BMS: slave addressing Single/Multiple + llista de slaves editable | [fet] | backend + UI + test de servei |
+| BMS: address mode Fixed/Custom | [fet] | `updateMbsConfig` estès; falta l'editor de registres Custom (vegeu 1.4). En mode Custom, els canvis que regeneren senyals es rebutgen fins que es porti aquest mode (1.0) |
+| BMS: slave addressing Single/Multiple + llista de slaves editable | [fet] | backend + UI + test de servei. Passar a Multiple regenera senyals a MAPS i ara es rebutja fins que es porti aquest mode (1.0) |
 | BMS: RTU connection type | [fet] | read-only ("una sola EIA-485") |
 | DNS / NTP / timezone (`<TimeConfiguration>`, atributs `DNS`/`DNS2`) | [decidir] | ni es parseja al model; pendent de decisió de producte |
 | Security (password, certs) | [decidir] | `Pwd` exclòs del model a propòsit; V11 hi té secció |
@@ -69,7 +76,7 @@ MULTIPLE i CUSTOM després.
 |---|---|---|
 | Conversions per senyal bidireccionals | [apart] | vegeu `docs/reference/conversions.md` |
 | Editor de registres en mode Custom | [falta] | el mode es pot triar; editar les adreces custom per senyal cal revisar-ho a la taula de senyals |
-| `addSignal` / `removeSignal` a l'API per a ME-MBS | [falta] | MAPS no permet afegir ni esborrar senyals ME-MBS (`IsRemovableRow` → false): es deriven del model. La UI no hi arriba, però l'API encara els accepta. Cal rebutjar-los amb un error clar abans de tancar la PR de regeneració |
+| `addSignal` / `removeSignal` a l'API per a ME-MBS | [fet] | MAPS no permet afegir ni esborrar senyals ME-MBS (`IsRemovableRow` → false): es deriven del model. L'API els rebutja amb un 409 i un missatge clar |
 | XBL amb la funció de consum activada | [falta] | el generador el rebutja a propòsit (sense mostra de referència). Els senyals de consum ja es regeneren com MAPS (fitxer de referència `consum`); falta un XBL de MAPS per validar-ne la compilació. Branca pròpia |
 
 ---
