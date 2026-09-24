@@ -1394,9 +1394,9 @@ function FieldRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 border-b border-[#F2F3F4] py-[9px]">
+    <div className="pending-field flex min-w-0 items-center gap-3 border-b border-[#F2F3F4] py-[9px]">
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] text-text-body">{label}</div>
+        <div className="pending-label text-[12.5px] text-text-body">{label}</div>
         {hint && <div className="text-[10.5px] text-fg-subtle">{hint}</div>}
       </div>
       {children}

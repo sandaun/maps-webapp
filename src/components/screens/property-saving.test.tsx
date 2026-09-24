@@ -495,6 +495,78 @@ describe("V12 property saving", () => {
     });
   });
 
+  describe("V12 pending marks", () => {
+    /** The CSS dot hangs off `.pending-label` inside the `.pending-field` holding the dirty control. */
+    const labelOf = (control: HTMLElement) =>
+      control.closest(".pending-field")?.querySelector(".pending-label")?.textContent;
+
+    it("marks text fields with border, background and an announced note, and clears them on revert", async () => {
+      render(<Workspace />);
+      const name = await screen.findByRole("textbox", { name: "Project name" });
+      const original = (name as HTMLInputElement).value;
+      fireEvent.change(name, { target: { value: "Pending" } });
+      expect(name).toHaveAttribute("data-dirty", "true");
+      expect(name).toHaveClass("border-hms-accent", "bg-[#F4FAFE]");
+      expect(name).toHaveAccessibleDescription("(unsaved)");
+      expect(labelOf(name)).toBe("Project name");
+      fireEvent.change(name, { target: { value: original } });
+      expect(name).toHaveAttribute("data-dirty", "false");
+      expect(name).not.toHaveClass("bg-[#F4FAFE]");
+      expect(name).not.toHaveAccessibleDescription();
+    });
+
+    it("keeps selects' normal border and background while still announcing them", async () => {
+      setup("me-mbs");
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
+      const parity = screen.getByRole("combobox", { name: "Parity" });
+      const original = (parity as HTMLSelectElement).value;
+      fireEvent.change(parity, { target: { value: original === "2" ? "1" : "2" } });
+      expect(parity).toHaveAttribute("data-dirty", "true");
+      expect(parity).not.toHaveClass("border-hms-accent");
+      expect(parity).not.toHaveClass("bg-[#F4FAFE]");
+      expect(parity).toHaveAccessibleDescription("(unsaved)");
+      expect(labelOf(parity)).toBe("Parity");
+      fireEvent.change(parity, { target: { value: original } });
+      expect(parity).not.toHaveAccessibleDescription();
+    });
+
+    it("puts the dot before the control in the KNX device table and marks node fields by label", async () => {
+      render(<Workspace devices />);
+      const baud = await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" });
+      fireEvent.change(baud, { target: { value: "19200" } });
+      expect(labelOf(baud)).toBe("Baudrate");
+      const name = screen.getAllByRole("textbox", { name: "Device name" })[0];
+      const cell = name.closest("td")!;
+      expect(cell.querySelector(".pending-dot")).toBeNull();
+      fireEvent.change(name, { target: { value: "Renamed device" } });
+      expect(cell.querySelector(".pending-dot")).not.toBeNull();
+      expect(name).toHaveAccessibleDescription("(unsaved)");
+      const manufacturer = within(name.closest("tr")!).getByRole("textbox", { name: "Manufacturer" });
+      expect(manufacturer.closest("td")!.querySelector(".pending-dot")).toBeNull();
+    });
+
+    it("never marks immediate toggles", async () => {
+      render(<Workspace />);
+      await screen.findByRole("textbox", { name: "Project name" });
+      fireEvent.click(screen.getByRole("button", { name: "Network & time" }));
+      const dhcp = screen.getByRole("switch", { name: "DHCP" });
+      fireEvent.click(dhcp);
+      await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(1));
+      expect(dhcp.closest(".pending-field")?.querySelector("[data-dirty=true]")).toBeNull();
+      expect(dhcp).not.toHaveAccessibleDescription();
+    });
+
+    it("hangs the dot off the ME device field labels too", async () => {
+      setup("me-mbs");
+      render(<Workspace devices />);
+      const description = await screen.findByRole("textbox", { name: "Controller 1 · Description" });
+      fireEvent.change(description, { target: { value: "Main" } });
+      expect(labelOf(description)).toBe("Description");
+    });
+  });
+
   describe("bar details", () => {
     it("is a labelled region and returns focus to the content when Discard closes it", async () => {
       render(<Workspace />);
@@ -549,6 +621,23 @@ describe("V12 property saving", () => {
       fireEvent.change(screen.getByRole("textbox", { name: "Gateway name" }), { target: { value: "Fine" } });
       expect(screen.getAllByText(/Maximum \d+ characters/)).toHaveLength(1);
       expect(screen.getByText(/Check the highlighted properties/)).toBeInTheDocument();
+    });
+
+    it("names properties alone, adding their device only when names repeat", async () => {
+      setup("me-mbs");
+      render(<Workspace devices />);
+      fireEvent.change(await screen.findByRole("textbox", { name: "Controller 1 · Description" }), {
+        target: { value: "Main" },
+      });
+      fireEvent.change(screen.getByRole("combobox", { name: "Controller 1 · Model" }), { target: { value: "1" } });
+      expect(screen.getByText("Description · Model")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Select controller 1 group 1" }));
+      fireEvent.change(await screen.findByRole("textbox", { name: "Controller 1 · G1 · Description" }), {
+        target: { value: "Reception" },
+      });
+      expect(
+        screen.getByText("Description (Controller 1) · Model · Description (Controller 1 · G1)"),
+      ).toBeInTheDocument();
     });
 
     it("shows unreadable recovery data even when nothing could be recovered", async () => {

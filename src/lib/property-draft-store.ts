@@ -341,7 +341,7 @@ export function createPropertyDraftStore() {
       for (const entry of edits) {
         const field = fields.find((field) => field.id === entry.id);
         const message = entry.conflict
-          ? "Resolve this recovered change before saving."
+          ? "Review this change before saving."
           : field
             ? validateField(field, entry.value)
             : "This property is no longer available.";

@@ -410,6 +410,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
       <TableCell>
         <Input
           id={`${group}-name`}
+          inlineDot
           aria-label="Device name"
           className="h-7 w-40 text-xs"
           value={form.name}
@@ -420,6 +421,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
       <TableCell>
         <Input
           id={`${group}-manufacturer`}
+          inlineDot
           aria-label="Manufacturer"
           className="h-7 w-32 text-xs"
           value={form.manufacturer}
@@ -430,6 +432,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
       <TableCell>
         <Input
           id={`${group}-slave`}
+          inlineDot
           aria-label="Slave"
           type="number"
           className="h-7 w-20 font-mono text-xs"
@@ -442,6 +445,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
       <TableCell>
         <Select
           id={`${group}-baseRegister`}
+          inlineDot
           aria-label="Base register"
           className="h-7 w-24 text-xs"
           value={form.baseRegister}
@@ -454,6 +458,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
       <TableCell>
         <Input
           id={`${group}-timeout`}
+          inlineDot
           aria-label="Timeout"
           type="number"
           className="h-7 w-24 font-mono text-xs"

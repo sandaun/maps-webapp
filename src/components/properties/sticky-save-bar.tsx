@@ -6,6 +6,20 @@ import { scopeKey } from "@/lib/property-draft-store";
 import { formatFieldValue, type PropertyScreen } from "@/lib/property-fields";
 import { cn } from "@/lib/utils";
 
+/**
+ * Summary names: just the property, with its device/node context only when
+ * another pending edit shares the same name ("Description (Controller 1)").
+ */
+function summaryNames(labels: string[]): string[] {
+  const split = labels.map((label) => {
+    const parts = label.split(" · ");
+    return { name: parts.at(-1)!, context: parts.slice(0, -1).join(" · ") };
+  });
+  return split.map(({ name, context }) =>
+    context && split.filter((other) => other.name === name).length > 1 ? `${name} (${context})` : name,
+  );
+}
+
 export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
   const { store, snapshot, view, save, fields, immediateBusy } =
     usePropertyDrafts();
@@ -131,9 +145,8 @@ export function StickySaveBar({ screen }: { screen: PropertyScreen }) {
             )}
           >
             {error ??
-              `${edits
+              `${summaryNames(edits.map((edit) => edit.label))
                 .slice(0, 3)
-                .map((edit) => edit.label)
                 .join(" · ")}${count > 3 ? ` + ${count - 3} more` : ""}`}
           </div>
         </div>

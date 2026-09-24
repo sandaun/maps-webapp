@@ -70,7 +70,7 @@ export function PropertyDraftProvider({
       ).length;
       if (count)
         store.toast(
-          `${count} unsaved ${count === 1 ? "change" : "changes"} recovered for ${current.view.project.name}`,
+          `${count} unsaved ${count === 1 ? "change" : "changes"} recovered for ${current.view.meta.name}`,
         );
     }
   }, [current.view, snapshot.ready, store]);
