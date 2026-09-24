@@ -201,7 +201,6 @@ describe("project service — me-mbs family", () => {
         type: "updateMbsConfig",
         patch: {
           addressMode: 1,
-          slaveAddressMode: 1,
           slaves: [
             { address: 3, description: "General Controller 1" },
             { address: 5, description: "C1G2" },
@@ -209,30 +208,79 @@ describe("project service — me-mbs family", () => {
         },
       },
       { type: "updateRtuConfig", patch: { slaveNumber: 11 } },
-      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
-      { type: "updateMeScalars", patch: { temperatureMode: 1, consumptionEnabled: true } },
-      { type: "updateController", controllerIndex: 0, patch: { ip: "192.168.1.50", addErrorSignals: true } },
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { capacity: 8 } },
+      { type: "updateMeScalars", patch: { pollPeriod: 250 } },
+      { type: "updateController", controllerIndex: 0, patch: { ip: "192.168.1.50" } },
     ]);
     if (view.family !== "me-mbs") throw new Error("unreachable");
+    // None of these regenerates the signals (switching to CUSTOM keeps them).
+    expect(view.project.signals).toHaveLength(9);
     expect(view.project.signals[0].description).toBe("Comm error (edited)");
     expect(view.project.mbs.commErrorTout).toBe(60);
     expect(view.project.mbs.addressMode).toBe(1);
-    expect(view.project.mbs.slaveAddressMode).toBe(1);
+    expect(view.project.mbs.registerBase).toBe(0);
     expect(view.project.mbs.slaves).toEqual([
       { address: 3, description: "General Controller 1" },
       { address: 5, description: "C1G2" },
     ]);
     expect(view.project.mbs.rtu.slaveNumber).toBe(11);
-    expect(view.project.me.controllers[0].groups[0].description).toBe("Office (edited)");
-    expect(view.project.me.temperatureMode).toBe(1);
-    expect(view.project.me.consumptionEnabled).toBe(true);
+    expect(view.project.me.controllers[0].groups[0].capacity).toBe(8);
+    expect(view.project.me.pollPeriod).toBe(250);
     expect(view.project.me.controllers[0].ip).toBe("192.168.1.50");
-    expect(view.project.me.controllers[0].addErrorSignals).toBe(true);
 
     // Survives a simulated restart.
     resetProjectStoreForTests();
     const reloaded = await getProjectView(meta.id);
     expect(reloaded.project.signals[0].description).toBe("Comm error (edited)");
+  });
+
+  it("regenerates the me-mbs signals from the model like MAPS", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const view = await applyPatches(meta.id, [
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
+      { type: "updateMeScalars", patch: { temperatureMode: 1, consumptionEnabled: true } },
+      { type: "updateController", controllerIndex: 0, patch: { addErrorSignals: true } },
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } },
+    ]);
+    if (view.family !== "me-mbs") throw new Error("unreachable");
+    const signals = view.project.signals;
+    const group = (index: number) => signals.filter((s) => s.me.groupIndex === index && s.me.unitId === -1);
+    // 30 generals; G1 IC with URC (32) and G2 IC (29), neither with dual
+    // setpoint, both + 3 consumption; 100 alarm codes at the end.
+    expect(signals).toHaveLength(30 + 35 + 32 + 100);
+    expect(group(-1)).toHaveLength(30);
+    expect(group(0)).toHaveLength(35);
+    expect(group(1)).toHaveLength(32);
+    expect(signals.slice(97).every((s) => s.me.unitId !== -1)).toBe(true);
+    expect(signals.map((s) => s.id)).toEqual(signals.map((_, i) => i));
+    expect(signals[0].description).toBe("Centralized controller communication error  [0-Ok, 1-Communication error]");
+    expect(signals.find((s) => s.me.groupIndex === 0 && s.me.signalSpecIndex === 9)?.description).toBe(
+      "Ambient Temperature (x10ºF)  [32..211,82 ºF]",
+    );
+  });
+
+  it("rejects me-mbs changes that would regenerate signals outside FIXED and single slave with 422", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const before = await getProjectView(meta.id);
+    const toMultiple = await applyPatches(meta.id, [
+      { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
+      { type: "updateMbsConfig", patch: { slaveAddressMode: 1 } },
+    ]).catch((e: unknown) => e);
+    expect(toMultiple).toBeInstanceOf(ProjectServiceError);
+    expect((toMultiple as ProjectServiceError).status).toBe(422);
+    expect((toMultiple as ProjectServiceError).message).toMatch(/single Modbus slave/);
+
+    await applyPatches(meta.id, [{ type: "updateMbsConfig", patch: { addressMode: 1 } }]);
+    const inCustom = await applyPatches(meta.id, [
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } },
+    ]).catch((e: unknown) => e);
+    expect((inCustom as ProjectServiceError).status).toBe(422);
+    expect((inCustom as ProjectServiceError).message).toMatch(/FIXED address mode/);
+
+    const after = await getProjectView(meta.id);
+    if (after.family !== "me-mbs" || before.family !== "me-mbs") throw new Error("unreachable");
+    expect(after.project.signals).toEqual(before.project.signals);
+    expect(after.project.mbs.commErrorTout).toBe(before.project.mbs.commErrorTout);
   });
 
   it("rejects knx-mbm patches on a me-mbs project with 409", async () => {

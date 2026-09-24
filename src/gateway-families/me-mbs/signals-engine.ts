@@ -185,6 +185,9 @@ export class MeMbsSignalEngine {
     if (!internal || !external) throw new Error("Project has no <Signals> sections");
     replaceIndented(internal, this.mbs.map(mbsObjectXml), 3);
     replaceIndented(external, this.me.map(meObjectXml), 3);
+    // MAPS writes <HvacAddresses> only while it has entries (IntesisProject.cs:2374).
+    const stored = doc.find(["HvacAddresses"]);
+    if (stored && this.addresses.length === 0) removeWithIndent(stored);
   }
 
   // --- handlers (what the MAPS forms call) --------------------------------------
@@ -213,8 +216,8 @@ export class MeMbsSignalEngine {
    * description changed. Does nothing for a disabled group.
    */
   modifyGroupUpdate(controller: number, group: number): void {
-    this.assertSupported();
     if (!this.controller(controller).groups[group].enabled) return;
+    this.assertSupported();
     this.deleteDescending(this.me.filter((x) => x.g50Id === controller && x.groupId === group));
     this.createGroupSignals(this.model.controllers[controller], controller, group + 1);
   }
@@ -224,9 +227,9 @@ export class MeMbsSignalEngine {
    * signals" changed. Does nothing when the controller has no enabled group.
    */
   modifyController(controller: number): void {
-    this.assertSupported();
     const g50 = this.controller(controller);
     if (!g50.groups.some((g) => g.enabled)) return;
+    this.assertSupported();
     this.deleteDescending(this.me.filter((x) => x.g50Id === controller));
     this.createControllerSignals(g50, controller !== 0 ? this.me.length : 0);
     for (let num = 0; num < g50.groups.length; num++) {
@@ -246,6 +249,33 @@ export class MeMbsSignalEngine {
     const userMe = this.me.slice();
     this.mbs = [];
     this.me = [];
+    this.initializeControllers();
+    this.restoreUserConfig(userMbs, userMe);
+  }
+
+  /**
+   * `AddressModeChanged` (P:1034) → `UpdateSignalsWithReadMode` (P:1086),
+   * run after `<AddressMode>` changed: FIXED and V4 drop the stored user
+   * addresses and reinitialize the controllers (no RestoreUserConfig);
+   * CUSTOM keeps the signals as they are.
+   */
+  addressModeChanged(): void {
+    if (this.model.addressMode === ADDRESS_MODES.CUSTOM) return;
+    this.assertSupported();
+    this.addresses.length = 0;
+    this.initializeControllers();
+  }
+
+  /**
+   * `SlaveNumberChangedCallback` with its flag set (P:1058), what the single
+   * / multiple slave radio buttons send. Unlike `initializeAndRestore`, the
+   * lists are not cleared first, so `InitializeControllers` deletes and
+   * recreates controller by controller.
+   */
+  slaveAddressModeChanged(): void {
+    this.assertSupported();
+    const userMbs = this.mbs.slice();
+    const userMe = this.me.slice();
     this.initializeControllers();
     this.restoreUserConfig(userMbs, userMe);
   }
@@ -1237,6 +1267,17 @@ function replaceIndented(parent: XmlElement, children: XmlElement[], childLevel:
   }
   nodes.push(text(`${LINE_ENDING}${INDENT_UNIT.repeat(childLevel - 1)}`));
   parent.children = nodes;
+}
+
+/** Remove an element together with the indentation text before it. */
+function removeWithIndent(el: XmlElement): void {
+  const parent = el.parent;
+  if (!parent) return;
+  const index = parent.children.indexOf(el);
+  const before = parent.children[index - 1];
+  const start = before && before.kind === "text" && /^\s*$/.test(before.text) ? index - 1 : index;
+  parent.children.splice(start, index - start + 1);
+  el.parent = undefined;
 }
 
 /** Text element; an empty value is written `<tag></tag>`, like .NET. */

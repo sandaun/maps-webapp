@@ -167,6 +167,20 @@ describe("ME–MBS batch patches (MAPS DeleteObject + ReorderIdxConfigs)", () =>
     expect(meIdColumns(doc)).toEqual({ mbs: expected, me: expected });
   });
 
+  it("applies the signal patches before the model patches that regenerate signals", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
+    me.applyPatches(doc, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } }]);
+    const target = meProjectFromXml(doc).signals.findIndex((s) => s.me.groupIndex === 1 && s.me.signalSpecIndex === 0);
+    // Regenerating G1 shifts G2's signals; the signal ID still refers to the
+    // document before the batch, whatever the patch order.
+    me.applyPatches(doc, [
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
+      { type: "updateSignal", id: target, patch: { active: false } },
+    ]);
+    const disabled = meProjectFromXml(doc).signals.filter((s) => !s.active);
+    expect(disabled.map((s) => [s.me.groupIndex, s.me.signalSpecIndex])).toEqual([[1, 0]]);
+  });
+
   it("generates an XBL whose configIds point at the right signals after deleting from the middle", () => {
     const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
     // The synthetic fixture references conversions its IBOX does not declare
