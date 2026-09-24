@@ -147,9 +147,20 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
   const view = current && "view" in current ? current.view : null;
   const error = current && "error" in current ? current.error : null;
 
-  const setProjectId = React.useCallback((id: string) => {
-    writeProjectId(id);
-  }, []);
+  const setProjectId = React.useCallback(
+    (id: string) => {
+      // Re-selecting the open project (e.g. after re-opening or re-loading it)
+      // does not change the id, so load it explicitly instead of editing a
+      // stale view until the first save hits a revision conflict.
+      if (readProjectId() === id) {
+        void getProjectView(id)
+          .then(adoptLoadedView)
+          .catch(() => undefined);
+      }
+      writeProjectId(id);
+    },
+    [adoptLoadedView],
+  );
 
   const acceptView = adoptLoadedView;
 

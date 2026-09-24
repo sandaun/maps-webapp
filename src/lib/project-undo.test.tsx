@@ -77,6 +77,7 @@ function Probe() {
       <button onClick={() => void run([{ type: "setGeneralInfo", name: "Renamed" }])}>rename</button>
       <button onClick={() => void refresh()}>refresh</button>
       <button onClick={() => setProjectId("other")}>switch</button>
+      <button onClick={() => setProjectId("demo")}>reselect</button>
       <p data-testid="undo">{undo?.label ?? "none"}</p>
       <p data-testid="error">{error}</p>
       <p data-testid="revision">{view?.meta.revision ?? "-"}</p>
@@ -136,5 +137,18 @@ describe("undo across external revisions", () => {
     await renderWithUndo();
     fireEvent.click(screen.getByRole("button", { name: "switch" }));
     await waitFor(() => expect(screen.getByTestId("undo")).toHaveTextContent("none"));
+  });
+
+  it("reloads the open project when it is selected again after being replaced", async () => {
+    await renderWithUndo();
+    // The same project id re-opened elsewhere (e.g. loading the demo again).
+    otherTab([{ type: "setGeneralInfo", name: "Re-opened" }]);
+    fireEvent.click(screen.getByRole("button", { name: "reselect" }));
+    await waitFor(() => expect(screen.getByTestId("revision")).toHaveTextContent("3"));
+    expect(screen.getByTestId("undo")).toHaveTextContent("none");
+    // The next edit is based on the reloaded revision: no conflict.
+    fireEvent.click(screen.getByRole("button", { name: "rename" }));
+    await waitFor(() => expect(screen.getByTestId("revision")).toHaveTextContent("4"));
+    expect(screen.getByTestId("error")).toHaveTextContent("");
   });
 });
