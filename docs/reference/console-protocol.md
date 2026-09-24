@@ -72,6 +72,22 @@ Formats d'ID de senyal (KNX–MBM):
   `0xF800` = virtual pur; `0x8000 + (port<<11) + (device<<3)` per a virtuals de node
   RTU (`IntesisMb.ConstructMBMExternalID`).
 
+**Observat en una sola passarel·la** (`192.168.2.167`, IN-KNX-MBM app 2.0.2.0,
+2026-09-24; no és una regla verificada per a altres versions o famílies):
+
+- `objIdx` del **KNX GET** es comporta com la **posició 1-based entre els objectes KNX
+  habilitats** de l'XBL (ordre del projecte, virtuals inclosos), no com el config ID:
+  amb 5 senyals desactivats, els 5 darrers `configId + 1` passaven a respondre
+  `0KX:Unknown GO`.
+- La **GA de la consulta no es valida**: `0KX:0001` amb una GA que no existeix
+  (`7FFE`) respon igual que amb la GA pròpia; només una posició més enllà del total
+  d'objectes habilitats respon `0KX:Unknown GO`. Per tant, aquesta consulta serveix per
+  comprovar **quants** objectes té la passarel·la, no a quina GA correspon cadascun.
+- Sense esclaus Modbus que responguin, el Modbus Master entra en error de comunicació i
+  només envia una lectura de sonda per dispositiu (`[Tx] Slv:N Func:3 Addr:1 Qty:1`):
+  `COMMS`/`DEBUG` mostren **quins esclaus** s'adrecen però no els registres de cada
+  senyal. Els dispositius sense cap senyal habilitat no apareixen a l'XBL i no s'adrecen.
+
 ## 3. Sessió i transferència de fitxers (resum)
 
 - Login (només TCP :23): `LOGIN0=admin;<b64 g>;<b64 p>;<b64 g^a>` →
