@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import { resetProjectStoreForTests } from "../persistence";
 import {
   applyPatches,
@@ -201,7 +202,6 @@ describe("project service — me-mbs family", () => {
         type: "updateMbsConfig",
         patch: {
           addressMode: 1,
-          slaveAddressMode: 1,
           slaves: [
             { address: 3, description: "General Controller 1" },
             { address: 5, description: "C1G2" },
@@ -209,30 +209,188 @@ describe("project service — me-mbs family", () => {
         },
       },
       { type: "updateRtuConfig", patch: { slaveNumber: 11 } },
-      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
-      { type: "updateMeScalars", patch: { temperatureMode: 1, consumptionEnabled: true } },
-      { type: "updateController", controllerIndex: 0, patch: { ip: "192.168.1.50", addErrorSignals: true } },
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { capacity: 8 } },
+      { type: "updateMeScalars", patch: { pollPeriod: 250 } },
+      { type: "updateController", controllerIndex: 0, patch: { ip: "192.168.1.50" } },
     ]);
     if (view.family !== "me-mbs") throw new Error("unreachable");
+    // None of these regenerates the signals (switching to CUSTOM keeps them).
+    expect(view.project.signals).toHaveLength(9);
     expect(view.project.signals[0].description).toBe("Comm error (edited)");
     expect(view.project.mbs.commErrorTout).toBe(60);
     expect(view.project.mbs.addressMode).toBe(1);
-    expect(view.project.mbs.slaveAddressMode).toBe(1);
+    expect(view.project.mbs.registerBase).toBe(0);
     expect(view.project.mbs.slaves).toEqual([
       { address: 3, description: "General Controller 1" },
       { address: 5, description: "C1G2" },
     ]);
     expect(view.project.mbs.rtu.slaveNumber).toBe(11);
-    expect(view.project.me.controllers[0].groups[0].description).toBe("Office (edited)");
-    expect(view.project.me.temperatureMode).toBe(1);
-    expect(view.project.me.consumptionEnabled).toBe(true);
+    expect(view.project.me.controllers[0].groups[0].capacity).toBe(8);
+    expect(view.project.me.pollPeriod).toBe(250);
     expect(view.project.me.controllers[0].ip).toBe("192.168.1.50");
-    expect(view.project.me.controllers[0].addErrorSignals).toBe(true);
 
     // Survives a simulated restart.
     resetProjectStoreForTests();
     const reloaded = await getProjectView(meta.id);
     expect(reloaded.project.signals[0].description).toBe("Comm error (edited)");
+  });
+
+  it("regenerates the me-mbs signals from the model like MAPS", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const view = await applyPatches(meta.id, [
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
+      { type: "updateMeScalars", patch: { temperatureMode: 1, consumptionEnabled: true } },
+      { type: "updateController", controllerIndex: 0, patch: { addErrorSignals: true } },
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } },
+    ]);
+    if (view.family !== "me-mbs") throw new Error("unreachable");
+    const signals = view.project.signals;
+    const group = (index: number) => signals.filter((s) => s.me.groupIndex === index && s.me.unitId === -1);
+    // 30 generals; G1 IC with URC (32) and G2 IC (29), neither with dual
+    // setpoint, both + 3 consumption; 100 alarm codes at the end.
+    expect(signals).toHaveLength(30 + 35 + 32 + 100);
+    expect(group(-1)).toHaveLength(30);
+    expect(group(0)).toHaveLength(35);
+    expect(group(1)).toHaveLength(32);
+    expect(signals.slice(97).every((s) => s.me.unitId !== -1)).toBe(true);
+    expect(signals.map((s) => s.id)).toEqual(signals.map((_, i) => i));
+    expect(signals[0].description).toBe("Centralized controller communication error  [0-Ok, 1-Communication error]");
+    expect(signals.find((s) => s.me.groupIndex === 0 && s.me.signalSpecIndex === 9)?.description).toBe(
+      "Ambient Temperature (x10ºF)  [32..211,82 ºF]",
+    );
+  });
+
+  it("rejects me-mbs changes that would regenerate signals outside FIXED and single slave with 422", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const before = await getProjectView(meta.id);
+    const toMultiple = await applyPatches(meta.id, [
+      { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
+      { type: "updateMbsConfig", patch: { slaveAddressMode: 1 } },
+    ]).catch((e: unknown) => e);
+    expect(toMultiple).toBeInstanceOf(ProjectServiceError);
+    expect((toMultiple as ProjectServiceError).status).toBe(422);
+    expect((toMultiple as ProjectServiceError).message).toMatch(/single Modbus slave/);
+
+    await applyPatches(meta.id, [{ type: "updateMbsConfig", patch: { addressMode: 1 } }]);
+    const inCustom = await applyPatches(meta.id, [
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } },
+    ]).catch((e: unknown) => e);
+    expect((inCustom as ProjectServiceError).status).toBe(422);
+    expect((inCustom as ProjectServiceError).message).toMatch(/FIXED address mode/);
+
+    const after = await getProjectView(meta.id);
+    if (after.family !== "me-mbs" || before.family !== "me-mbs") throw new Error("unreachable");
+    expect(after.project.signals).toEqual(before.project.signals);
+    expect(after.project.mbs.commErrorTout).toBe(before.project.mbs.commErrorTout);
+  });
+
+  it("rejects adding or removing me-mbs signals with 409 and writes nothing", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const before = await getProjectView(meta.id);
+    for (const patch of [{ type: "addSignal" }, { type: "removeSignal", id: 0 }] as const) {
+      const error = await applyPatches(meta.id, [
+        { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
+        patch,
+      ]).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ProjectServiceError);
+      expect((error as ProjectServiceError).status).toBe(409);
+      expect((error as ProjectServiceError).message).toBe(
+        "Mitsubishi Electric AC ↔ Modbus Slave signals are generated from the controllers and groups: " +
+          "they cannot be added or removed. Enable or disable the groups instead.",
+      );
+    }
+    const after = await getProjectView(meta.id);
+    expect(after.meta.revision).toBe(before.meta.revision);
+    expect(after.project).toEqual(before.project);
+  });
+
+  describe("user edits kept through HvacAddresses", () => {
+    type MeView = Extract<ProjectView, { family: "me-mbs" }>;
+
+    async function projectWithGroup(): Promise<string> {
+      const meta = await openIbmaps(SYNTHETIC_ME_MBS_EMPTY_XML, { id: "me" });
+      await applyPatches(meta.id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { enabled: true } }]);
+      return meta.id;
+    }
+
+    async function meView(id: string): Promise<MeView> {
+      const view = await getProjectView(id);
+      if (view.family !== "me-mbs") throw new Error("unreachable");
+      return view;
+    }
+
+    /** ID of the signal with this ME identity in the current view. */
+    function idOf(view: MeView, group: number, spec: number, unit = -1): number {
+      const signal = view.project.signals.find(
+        (s) => s.me.g50Index === 0 && s.me.groupIndex === group && s.me.signalSpecIndex === spec && s.me.unitId === unit,
+      );
+      if (!signal) throw new Error(`No signal for group ${group} spec ${spec}`);
+      return signal.id;
+    }
+
+    const disabled = (view: MeView) =>
+      view.project.signals.filter((s) => !s.active).map((s) => [s.me.groupIndex, s.me.signalSpecIndex, s.me.unitId]);
+
+    async function storedXml(id: string): Promise<string> {
+      const { getProjectStore } = await import("../persistence");
+      return getProjectStore().readXml(id);
+    }
+
+    it("stores a disabled signal in HvacAddresses and keeps it across a group regeneration", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: false } }]);
+      expect(await storedXml(id)).toContain(
+        '  </ExternalProtocol>\r\n  <HvacAddresses>\r\n    <UserAddress RequiresCustom="False" Enabled="False" Address="103" AddressExtra="" AddressFlags="" Type="0" SignalIndex="6" HvacUnitIndex="0" Port="0" OUIndex="-1" />\r\n  </HvacAddresses>\r\n</Project>',
+      );
+
+      await applyPatches(id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } }]);
+      expect(disabled(await meView(id))).toEqual([[0, 6, -1]]);
+    });
+
+    it("keeps group and general edits across a controller regeneration", async () => {
+      const id = await projectWithGroup();
+      const view = await meView(id);
+      await applyPatches(id, [
+        { type: "updateSignal", id: idOf(view, 0, 6), patch: { active: false } },
+        { type: "updateSignal", id: idOf(view, -1, 2), patch: { active: false } },
+      ]);
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { model: 1 } }]);
+      expect(disabled(await meView(id))).toEqual([
+        [-1, 2, -1],
+        [0, 6, -1],
+      ]);
+    });
+
+    it("keeps an edit and a regeneration of the same group sent in one batch", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [
+        { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } },
+        { type: "updateSignal", id: vane, patch: { active: false } },
+      ]);
+      expect(disabled(await meView(id))).toEqual([[0, 6, -1]]);
+    });
+
+    it("re-enables a signal once the user enables it again", async () => {
+      const id = await projectWithGroup();
+      const vane = idOf(await meView(id), 0, 6);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: false } }]);
+      await applyPatches(id, [{ type: "updateSignal", id: vane, patch: { active: true } }]);
+      await applyPatches(id, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { fanSpeeds: 3 } }]);
+      expect(disabled(await meView(id))).toEqual([]);
+      expect((await storedXml(id)).match(/<UserAddress /g)).toHaveLength(1);
+    });
+
+    it("does not bring an alarm-code edit back through HvacAddresses, like MAPS", async () => {
+      const id = await projectWithGroup();
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { addErrorSignals: true } }]);
+      const alarm = idOf(await meView(id), -1, 0, 4);
+      await applyPatches(id, [{ type: "updateSignal", id: alarm, patch: { active: false } }]);
+      await applyPatches(id, [{ type: "updateController", controllerIndex: 0, patch: { model: 1 } }]);
+      // The stored key is general spec 0's (StoreUserAddress uses GroupID -1).
+      expect(disabled(await meView(id))).toEqual([[-1, 0, -1]]);
+    });
   });
 
   it("rejects knx-mbm patches on a me-mbs project with 409", async () => {

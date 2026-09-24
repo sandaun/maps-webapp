@@ -4,3 +4,5 @@ export * from "./from-xml";
 export * from "./xml-ops";
 export * from "./validate";
 export * from "./xbl";
+export * from "./signals-engine";
+export * from "./regeneration";

@@ -52,7 +52,7 @@ function readGateway(doc: XmlDocument): GatewayInfo {
 
 // --- internal side (Modbus Slave) -------------------------------------------
 
-function readMbsConfig(doc: XmlDocument): MbsConfig {
+export function readMbsConfig(doc: XmlDocument): MbsConfig {
   const internal = doc.find(["InternalProtocol"]);
   if (!internal) return defaultMbsConfig();
 
@@ -103,7 +103,7 @@ function readSlave(el: XmlElement): MbsSlave {
 
 // --- external side (Mitsubishi Electric) -------------------------------------
 
-function readMeConfig(doc: XmlDocument): MeConfig {
+export function readMeConfig(doc: XmlDocument): MeConfig {
   const external = doc.find(["ExternalProtocol"]);
   const config: MeConfig = {
     pollPeriod: 100,

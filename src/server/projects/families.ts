@@ -28,19 +28,17 @@ import {
   type SignalPatch as KnxMbmSignalPatch,
 } from "@/gateway-families/knx-mbm";
 import {
-  addSignal as meAddSignal,
   isMeMbsProject,
   projectFromXml as meMbsProjectFromXml,
-  removeSignal as meRemoveSignal,
-  reorderSignalIds as meReorderSignalIds,
   setGatewayInfo as meSetGatewayInfo,
   setGeneralInfo as meSetGeneralInfo,
-  updateController,
-  updateGroup,
-  updateMbsConfig,
-  updateMeScalars,
+  UnsupportedRegenerationError,
+  updateControllerAndSignals,
+  updateGroupAndSignals,
+  updateMbsConfigAndSignals,
+  updateMeScalarsAndSignals,
   updateRtuConfig,
-  updateSignal as meUpdateSignal,
+  updateSignalAndUserAddress,
   updateTcpConfig,
   validateProject as validateMeMbsProject,
   type MeMbsProject,
@@ -307,16 +305,31 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
   }
 }
 
-/** Same batch rule as KNX–MBM: renumber signal IDs once, after the deletions. */
+/**
+ * ME-MBS signals derive from the model, as in MAPS (`IsRemovableRow` →
+ * false): the API refuses to add or remove them.
+ */
+const ME_DERIVED_SIGNALS_MESSAGE =
+  "Mitsubishi Electric AC ↔ Modbus Slave signals are generated from the controllers and groups: " +
+  "they cannot be added or removed. Enable or disable the groups instead.";
+
+/**
+ * The signal edits run first: their IDs refer to the document before the
+ * batch, and the model patches can regenerate the signals (MAPS handlers,
+ * `regeneration.ts`), which renumbers them. The model patches then run in
+ * their batch order.
+ */
 function applyMeMbsPatches(doc: XmlDocument, patches: MeMbsPatch[]): void {
-  const signalCount = () => doc.findAll(["InternalProtocol", "Signals", "Signal"]).length;
-  let deleted = false;
-  for (const patch of patches) {
-    const before = patch.type === "removeSignal" ? signalCount() : 0;
-    applyMeMbsPatch(doc, patch);
-    if (patch.type === "removeSignal" && signalCount() < before) deleted = true;
+  if (patches.some((p) => p.type === "addSignal" || p.type === "removeSignal")) {
+    throw new ProjectServiceError(409, ME_DERIVED_SIGNALS_MESSAGE);
   }
-  if (deleted) meReorderSignalIds(doc);
+  for (const patch of patches.filter((p) => p.type === "updateSignal")) applyMeMbsPatch(doc, patch);
+  try {
+    for (const patch of patches.filter((p) => p.type !== "updateSignal")) applyMeMbsPatch(doc, patch);
+  } catch (error) {
+    if (error instanceof UnsupportedRegenerationError) throw new ProjectServiceError(422, error.message);
+    throw error;
+  }
 }
 
 function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
@@ -328,16 +341,13 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
       meSetGatewayInfo(doc, patch);
       break;
     case "addSignal":
-      meAddSignal(doc);
-      break;
     case "removeSignal":
-      meRemoveSignal(doc, patch.id);
-      break;
+      throw new ProjectServiceError(409, ME_DERIVED_SIGNALS_MESSAGE);
     case "updateSignal":
-      meUpdateSignal(doc, patch.id, patch.patch);
+      updateSignalAndUserAddress(doc, patch.id, patch.patch);
       break;
     case "updateMbsConfig":
-      updateMbsConfig(doc, patch.patch);
+      updateMbsConfigAndSignals(doc, patch.patch);
       break;
     case "updateRtuConfig":
       updateRtuConfig(doc, patch.patch);
@@ -346,13 +356,13 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
       updateTcpConfig(doc, patch.patch);
       break;
     case "updateMeScalars":
-      updateMeScalars(doc, patch.patch);
+      updateMeScalarsAndSignals(doc, patch.patch);
       break;
     case "updateController":
-      updateController(doc, patch.controllerIndex, patch.patch);
+      updateControllerAndSignals(doc, patch.controllerIndex, patch.patch);
       break;
     case "updateGroup":
-      updateGroup(doc, patch.controllerIndex, patch.groupIndex, patch.patch);
+      updateGroupAndSignals(doc, patch.controllerIndex, patch.groupIndex, patch.patch);
       break;
   }
 }

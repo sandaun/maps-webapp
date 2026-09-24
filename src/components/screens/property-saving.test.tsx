@@ -9,7 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { projectFromXml as readKnx } from "@/gateway-families/knx-mbm";
-import { projectFromXml as readMe } from "@/gateway-families/me-mbs";
+import { projectFromXml as readMe, updateMbsConfig } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import { familyById } from "@/server/projects/families";
@@ -652,12 +652,12 @@ describe("V12 property saving", () => {
 
     it("mentions pending edits only when removing a slave would discard them", async () => {
       setup("me-mbs");
-      familyById(family).applyPatches(xml, [
-        {
-          type: "updateMbsConfig",
-          patch: { slaveAddressMode: 1, slaves: [{ address: 1, description: "A" }, { address: 2, description: "B" }] },
-        },
-      ]);
+      // A project already in multiple-slave mode (switching to it regenerates
+      // the signals, which is not supported yet).
+      updateMbsConfig(xml, {
+        slaveAddressMode: 1,
+        slaves: [{ address: 1, description: "A" }, { address: 2, description: "B" }],
+      });
       const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
       render(<Workspace />);
       await screen.findByRole("textbox", { name: "Project name" });

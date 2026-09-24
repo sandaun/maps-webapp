@@ -4,6 +4,7 @@ import { childByTag, decodeElements } from "@/core/xbl";
 import { projectFromXml } from "@/gateway-families/knx-mbm";
 import { projectFromXml as meProjectFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import { generateMeMbsXbl } from "@/gateway-families/me-mbs/xbl";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm/xbl";
@@ -135,42 +136,42 @@ describe("KNX–MBM batch patches (MAPS ReorderIdxConfigs)", () => {
 });
 
 /** [ID, idxConfig, idxExternal] of both ME–MBS sides, in document order. */
-function meIdColumns(doc: XmlDocument) {
-  const columns = (side: "InternalProtocol" | "ExternalProtocol") =>
-    doc
-      .findAll([side, "Signals", "Signal"])
-      .map((el) => [getAttr(el, "ID"), childText(el, "idxConfig"), childText(el, "idxExternal")].map(Number));
-  return { mbs: columns("InternalProtocol"), me: columns("ExternalProtocol") };
-}
+describe("ME–MBS batch patches", () => {
+  it("rejects adding or removing signals, which derive from the controllers and groups", () => {
+    for (const patch of [{ type: "addSignal" }, { type: "removeSignal", id: 0 }] as ProjectPatch[]) {
+      const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
+      expect(() => me.applyPatches(doc, [patch])).toThrow(/cannot be added or removed/);
+      expect(doc.serialize()).toBe(SYNTHETIC_ME_MBS_XML);
+    }
+  });
 
-const meAddresses = (doc: XmlDocument) => meProjectFromXml(doc).signals.map((s) => s.modbus.address);
-
-describe("ME–MBS batch patches (MAPS DeleteObject + ReorderIdxConfigs)", () => {
-  it("renumbers both sides once after a multi-row delete, resolving the original IDs", () => {
+  it("applies the signal patches before the model patches that regenerate signals", () => {
     const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
-    const addresses = meAddresses(doc);
+    me.applyPatches(doc, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: true } }]);
+    const target = meProjectFromXml(doc).signals.findIndex((s) => s.me.groupIndex === 1 && s.me.signalSpecIndex === 0);
+    // Regenerating G1 shifts G2's signals; the signal ID still refers to the
+    // document before the batch, whatever the patch order.
     me.applyPatches(doc, [
-      { type: "removeSignal", id: 1 },
-      { type: "removeSignal", id: 5 },
+      { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { description: "Office (edited)" } },
+      { type: "updateSignal", id: target, patch: { active: false } },
     ]);
-    expect(meAddresses(doc)).toEqual(addresses.filter((_, id) => id !== 1 && id !== 5));
-    const expected = addresses.slice(2).map((_, i) => [i, i, i]);
-    expect(meIdColumns(doc)).toEqual({ mbs: expected, me: expected });
+    const disabled = meProjectFromXml(doc).signals.filter((s) => !s.active);
+    expect(disabled.map((s) => [s.me.groupIndex, s.me.signalSpecIndex])).toEqual([[1, 0]]);
   });
 
-  it("gives a later added signal the next contiguous ID on both sides", () => {
-    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
-    const count = meProjectFromXml(doc).signals.length;
-    me.applyPatches(doc, [{ type: "removeSignal", id: 0 }]);
-    me.applyPatches(doc, [{ type: "addSignal" }]);
-    const expected = Array.from({ length: count }, (_, i) => [i, i, i]);
-    expect(meIdColumns(doc)).toEqual({ mbs: expected, me: expected });
-  });
-
-  it("generates an XBL whose configIds point at the right signals after deleting from the middle", () => {
-    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
-    // The synthetic fixture references conversions its IBOX does not declare
-    // (see me-mbs/xbl/generate.test.ts); they play no part in configIds.
+  it("generates an XBL whose configIds point at the right signals after disabling a middle group", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_EMPTY_XML);
+    me.applyPatches(
+      doc,
+      [0, 1, 2].map((groupIndex): ProjectPatch => ({
+        type: "updateGroup",
+        controllerIndex: 0,
+        groupIndex,
+        patch: { enabled: true },
+      })),
+    );
+    me.applyPatches(doc, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: false } }]);
+    // The synthetic project declares no conversions; they play no part in configIds.
     me.applyPatches(
       doc,
       meProjectFromXml(doc).signals.map((signal): ProjectPatch => ({
@@ -179,18 +180,15 @@ describe("ME–MBS batch patches (MAPS DeleteObject + ReorderIdxConfigs)", () =>
         patch: { idxOperations: "" },
       })),
     );
-    me.applyPatches(doc, [
-      { type: "removeSignal", id: 2 },
-      { type: "removeSignal", id: 6 },
-    ]);
     const xml = doc.serialize();
     const xbl = generateMeMbsXbl(xml, { now: new Date(2026, 0, 1) });
     const items = childByTag(childByTag(decodeElements(xbl)[2], 6), 1).items ?? [];
     const signals = meProjectFromXml(XmlDocument.parse(xml)).signals;
+    expect(signals).toHaveLength(98);
     expect(items.map((item) => xblValue(xbl, item, 7)).sort((a, b) => a - b)).toEqual(
       signals.map((_, i) => i),
     );
-    // RegisterBase is 0 in the fixture, so the wire address is the XML address.
+    // RegisterBase is 0, so the wire address is the XML address.
     for (const item of items) {
       expect(signals[xblValue(xbl, item, 7)].modbus.address).toBe(xblValue(xbl, item, 4));
     }
