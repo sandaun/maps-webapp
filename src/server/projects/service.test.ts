@@ -284,6 +284,26 @@ describe("project service — me-mbs family", () => {
     expect(after.project.mbs.commErrorTout).toBe(before.project.mbs.commErrorTout);
   });
 
+  it("rejects adding or removing me-mbs signals with 409 and writes nothing", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const before = await getProjectView(meta.id);
+    for (const patch of [{ type: "addSignal" }, { type: "removeSignal", id: 0 }] as const) {
+      const error = await applyPatches(meta.id, [
+        { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
+        patch,
+      ]).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ProjectServiceError);
+      expect((error as ProjectServiceError).status).toBe(409);
+      expect((error as ProjectServiceError).message).toBe(
+        "Mitsubishi Electric AC ↔ Modbus Slave signals are generated from the controllers and groups: " +
+          "they cannot be added or removed. Enable or disable the groups instead.",
+      );
+    }
+    const after = await getProjectView(meta.id);
+    expect(after.meta.revision).toBe(before.meta.revision);
+    expect(after.project).toEqual(before.project);
+  });
+
   describe("user edits kept through HvacAddresses", () => {
     type MeView = Extract<ProjectView, { family: "me-mbs" }>;
 
