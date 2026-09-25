@@ -168,7 +168,7 @@ Pendents (abans de disseny):
   `SecurityConfiguration`, `DNS`/`DNS2` al model compartit IBOX).
 - **Banner d'issues amb accions** (V11): generalitzar `ScreenIssues` amb
   navegació al camp/secció afectada.
-- **Pre-comandes de pujada sense prefix** [fet 2026-09-25; falta un deploy real de prova]: `SEND_PRE_COMMANDS` envia
+- **Pre-comandes de pujada sense prefix** [fet i validat en viu 2026-09-25: re-pujada del mateix blob, pre-comandes en 0,03 s, projecte idèntic]: `SEND_PRE_COMMANDS` envia
   `0:SPONS=0`…; el MAPS les envia amb prefix (`frmSendSingle.cs:303`,
   `0KX:SPONS=0`) i el firmware ignora la variant sense prefix en silenci
   (validat en viu 2026-09-25). Cada pre-comanda espera fins a 5 s i no atura res.
