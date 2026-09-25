@@ -271,12 +271,12 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
             options={[{ value: "1", label: "Port B" }, { value: "0", label: "Port A" }]}
           />
         </Field>
-        <label className="flex items-center gap-2 self-end pb-2 text-sm">
+        <label className="mt-5 flex min-h-[30px] items-center gap-2 self-start text-sm">
           <PropertyCheckbox id={`rtu-${nodeIndex}-pollAfterWrite`} checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
           Poll after write
           <ImmediatePropertyError id={`rtu-${nodeIndex}-pollAfterWrite`} />
         </label>
-        <label className="flex items-center gap-2 self-end pb-2 text-sm">
+        <label className="mt-5 flex min-h-[30px] items-center gap-2 self-start text-sm">
           <PropertyCheckbox id={`rtu-${nodeIndex}-pollReadSignal`} checked={form.pollReadSignal} onChange={(e) => set("pollReadSignal", e.target.checked)} />
           Poll read signal
           <ImmediatePropertyError id={`rtu-${nodeIndex}-pollReadSignal`} />
