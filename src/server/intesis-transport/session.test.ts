@@ -305,6 +305,16 @@ describe("diagnostics console and monitor", () => {
     session.close();
   });
 
+  it("refuses the monitor for an application without known console prefixes", async () => {
+    const fake = new FakeGateway({ password: "admin", infoBody: "INFO:APPID:999\r\n" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await expect(session.setMonitor(true, () => {})).rejects.toThrow(/does not support/);
+    expect(session.monitoring).toBe(false);
+    await expect(session.setMonitor(false)).resolves.toBeUndefined();
+    session.close();
+  });
+
   it("keeps INFO? working while the monitor is enabled (pump owns the channel)", async () => {
     const fake = new FakeGateway({ password: "admin" });
     const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
