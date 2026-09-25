@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Crosshair, Loader2, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { Crosshair, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import { CONTROLLER_MODELS } from "@/protocols/me";
 import type { ScannedMeGroup } from "@/gateway-families/me-mbs/bus-scan";
@@ -123,16 +123,14 @@ export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
       {railOpen ? (
         <aside className="flex w-[314px] shrink-0 flex-col border-r border-border bg-white">
           <div className="flex items-center gap-2 border-b border-border p-3">
-            <div className="relative min-w-0 flex-1">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter devices"
-                aria-label="Filter devices"
-                className="w-full rounded-[4px] border border-border bg-[#FBFBFC] py-[6px] pl-[27px] pr-[9px] text-[12.5px] focus-visible:outline-2 focus-visible:outline-hms-accent"
-              />
-              <Search className="pointer-events-none absolute left-2 top-[7px] size-[13px] text-fg-subtle" />
-            </div>
+            <Input
+              search
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter devices"
+              aria-label="Filter devices"
+              className="flex-1"
+            />
             <button
               type="button"
               disabled={!connected || !selectedController}
@@ -1404,21 +1402,19 @@ function TextControl({
   max?: number;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        disabled={disabled}
-        maxLength={maxLength}
-        min={min}
-        max={max}
-        onChange={onChange}
-        style={{ width }}
-        className={cn("h-auto rounded-[4px] px-[9px] py-[6px] text-[12.5px]", mono && "font-mono")}
-      />
-      {unit && <span className="font-mono text-[11.5px] text-fg-subtle">{unit}</span>}
-    </div>
+    <Input
+      id={id}
+      type={type}
+      value={value}
+      disabled={disabled}
+      maxLength={maxLength}
+      min={min}
+      max={max}
+      onChange={onChange}
+      unit={unit}
+      style={{ width }}
+      className={cn(mono && "font-mono")}
+    />
   );
 }
 

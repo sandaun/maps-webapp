@@ -32,9 +32,10 @@ export interface SelectProps
 
 /**
  * V13 dropdown (direction B): borderless grey field that turns white with a
- * blue ring while focused or open, and a listbox menu with keyboard support
- * (↑ ↓ Home End Enter Esc) and a search box above 8 options. The menu opens
- * upward when there is no room below and closes on outside scroll or resize.
+ * blue ring while focused or open, red-bordered when `aria-invalid`, and a
+ * listbox menu with keyboard support (↑ ↓ Home End Enter Esc) and a search box
+ * above 8 options. The menu opens upward when there is no room below and
+ * closes on outside scroll or resize.
  */
 const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
   (
@@ -74,6 +75,8 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
     const needle = q.trim().toLowerCase();
     const list = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
     const sm = size === "sm";
+    // Error and conflict win over focus: the border stays red.
+    const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
 
     const openMenu = () => {
       if (disabled) return;
@@ -215,9 +218,13 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
                     sm ? "h-7 pl-[9px] pr-2 text-[12px]" : "h-[30px] px-[10px] text-[12.5px]",
                     disabled
                       ? "cursor-not-allowed border-transparent bg-[#F5F6F7] text-fg-subtle"
-                      : open
-                        ? "cursor-pointer border-hms-accent bg-white text-text-body shadow-[0_0_0_3px_rgba(18,104,179,.16)]"
-                        : "cursor-pointer border-transparent bg-[#F1F3F5] text-text-body hover:bg-[#E9EDF0] focus:border-hms-accent focus:bg-white focus:shadow-[0_0_0_3px_rgba(18,104,179,.16)]",
+                      : invalid
+                        ? open
+                          ? "cursor-pointer border-error bg-white text-text-body shadow-[0_0_0_3px_rgba(176,58,46,.16)]"
+                          : "cursor-pointer border-error bg-[#F1F3F5] text-text-body hover:bg-[#E9EDF0] focus:bg-white focus:shadow-[0_0_0_3px_rgba(176,58,46,.16)]"
+                        : open
+                          ? "cursor-pointer border-hms-accent bg-white text-text-body shadow-[0_0_0_3px_rgba(18,104,179,.16)]"
+                          : "cursor-pointer border-transparent bg-[#F1F3F5] text-text-body hover:bg-[#E9EDF0] focus:border-hms-accent focus:bg-white focus:shadow-[0_0_0_3px_rgba(18,104,179,.16)]",
                   ),
               className,
             )}

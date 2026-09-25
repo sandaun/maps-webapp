@@ -396,7 +396,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-name`}
           inlineDot
           aria-label="Device name"
-          className="h-7 w-40 text-xs"
+          size="sm"
+          className="w-40"
           value={form.name}
           maxLength={128}
           onChange={(e) => set("name", e.target.value)}
@@ -407,7 +408,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-manufacturer`}
           inlineDot
           aria-label="Manufacturer"
-          className="h-7 w-32 text-xs"
+          size="sm"
+          className="w-32"
           value={form.manufacturer}
           maxLength={128}
           onChange={(e) => set("manufacturer", e.target.value)}
@@ -419,7 +421,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Slave"
           type="number"
-          className="h-7 w-20 font-mono text-xs"
+          size="sm"
+          className="w-20"
           value={form.slave}
           min={slaveRange.min}
           max={slaveRange.max}
@@ -444,7 +447,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Timeout"
           type="number"
-          className="h-7 w-24 font-mono text-xs"
+          size="sm"
+          className="w-24"
           value={form.timeout}
           min={DEVICE_TIMEOUT_RANGE.min}
           max={DEVICE_TIMEOUT_RANGE.max}

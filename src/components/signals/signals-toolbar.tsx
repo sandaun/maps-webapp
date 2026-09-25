@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Columns3, Search } from "lucide-react";
+import { Columns3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SignalMapFilter } from "./use-paged-signals";
 
@@ -46,19 +47,14 @@ export function SignalsToolbar({
 }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-white px-[18px] py-[9px]">
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle"
-          aria-hidden
-        />
-        <input
-          aria-label="Search signals"
-          placeholder={placeholder}
-          className="h-[32px] w-[280px] rounded-[4px] border border-border bg-[#FBFBFC] py-1.5 pl-8 pr-3 text-[12.5px] outline-none placeholder:text-fg-subtle focus:border-hms-accent"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-        />
-      </div>
+      <Input
+        search
+        aria-label="Search signals"
+        placeholder={placeholder}
+        className="w-[280px]"
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+      />
       {filters.map((pill) => {
         const on = activeFilter === pill.id;
         return (

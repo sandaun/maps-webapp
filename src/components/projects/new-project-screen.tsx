@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeftRight, FileUp, RadioTower, RefreshCw, Search, Upload } from "lucide-react";
+import { ArrowLeftRight, FileUp, RadioTower, RefreshCw, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createTemplateProject, openProjectFile } from "@/lib/api";
 import {
@@ -261,15 +261,13 @@ export function NewProjectScreen() {
 
         <section className="min-w-0 overflow-hidden rounded-[6px] border border-border bg-white">
           <div className="flex h-10 items-center border-b border-border px-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-fg-subtle" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-8 rounded-[4px] border-border pl-7 text-[12.5px]"
-                placeholder="Search protocol, template code, order code…"
-              />
-            </div>
+            <Input
+              search
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="flex-1"
+              placeholder="Search protocol, template code, order code…"
+            />
             <span className="ml-3 text-[11px] text-fg-muted">{visibleTemplates.length} templates</span>
           </div>
           <div className="grid grid-cols-[minmax(210px,1.4fr)_120px_145px_110px] border-b border-border bg-table-header px-3 py-2 font-mono text-[10.5px] font-semibold uppercase tracking-[.06em] text-fg-muted">
@@ -338,7 +336,6 @@ export function NewProjectScreen() {
                 <Input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  className="h-8 text-[12.5px]"
                   autoFocus
                 />
               </label>

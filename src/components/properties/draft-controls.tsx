@@ -2,7 +2,7 @@
 
 import type { InputHTMLAttributes } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Input, type InputProps } from "@/components/ui/input";
 import { Select, type SelectProps } from "@/components/ui/select";
 import { Switch, type SwitchProps } from "@/components/ui/switch";
 import { usePropertyField } from "@/lib/property-drafts";
@@ -57,13 +57,21 @@ function UnsavedNote({ fieldId }: { fieldId: string }) {
   );
 }
 
-export function DraftInput({ inlineDot, ...props }: InputHTMLAttributes<HTMLInputElement> & DraftControlProps) {
+/**
+ * Pending dot for table cells without a per-field label: it sits in the cell's
+ * left padding so the field never moves when it appears.
+ */
+function InlineDot() {
+  return <span aria-hidden className="pending-dot absolute -left-[9px] top-1/2 -translate-y-1/2" />;
+}
+
+export function DraftInput({ inlineDot, ...props }: InputProps & DraftControlProps) {
   const { field, entry, change, disabled, error } = usePropertyField(props.id);
   if (!field) return <Input {...props} />;
   return (
-    <div className="min-w-0" style={{ width: props.style?.width }}>
-      <div className={cn(inlineDot && "flex items-center gap-1.5")}>
-        {inlineDot && entry && <span aria-hidden className="pending-dot shrink-0" />}
+    <div className="min-w-0">
+      <div className={cn(inlineDot && "relative")}>
+        {inlineDot && entry && <InlineDot />}
         <Input
           {...props}
           value={
@@ -78,10 +86,6 @@ export function DraftInput({ inlineDot, ...props }: InputHTMLAttributes<HTMLInpu
           onChange={(event) => change(field.id, event.target.value)}
           step={props.step ?? (field.integer ? 1 : "any")}
           data-dirty={!!entry}
-          className={cn(
-            props.className,
-            entry && "border-hms-accent bg-[#F4FAFE]",
-          )}
         />
       </div>
       {entry && <UnsavedNote fieldId={field.id} />}
@@ -89,7 +93,7 @@ export function DraftInput({ inlineDot, ...props }: InputHTMLAttributes<HTMLInpu
         <p
           id={`${field.id}-error`}
           role="alert"
-          className="mt-1 text-[11.5px] text-error"
+          className="mt-[5px] text-[11px] text-error"
         >
           {error}
         </p>
@@ -98,15 +102,15 @@ export function DraftInput({ inlineDot, ...props }: InputHTMLAttributes<HTMLInpu
   );
 }
 
-/** V12: a pending select keeps its normal border and background (the dot marks it). */
+/** V14: a pending field keeps its normal look; the dot by its label marks it. */
 export function DraftSelect({ inlineDot, ...props }: SelectProps & DraftControlProps) {
   const { field, entry, change, disabled, error } = usePropertyField(props.id);
   if (!field) return <Select {...props} />;
   const value = entry && entry.conflict !== "entity" ? entry.value : field.base;
   return (
     <div className="min-w-0">
-      <div className={cn(inlineDot && "flex items-center gap-1.5")}>
-        {inlineDot && entry && <span aria-hidden className="pending-dot shrink-0" />}
+      <div className={cn(inlineDot && "relative")}>
+        {inlineDot && entry && <InlineDot />}
         <Select
           {...props}
           value={typeof value === "boolean" ? Number(value) : String(value)}
@@ -123,7 +127,7 @@ export function DraftSelect({ inlineDot, ...props }: SelectProps & DraftControlP
         <p
           id={`${field.id}-error`}
           role="alert"
-          className="mt-1 text-[11.5px] text-error"
+          className="mt-[5px] text-[11px] text-error"
         >
           {error}
         </p>

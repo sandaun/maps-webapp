@@ -470,7 +470,7 @@ export function ConnectionScreen() {
                 autoComplete="off"
                 autoFocus
                 aria-label="IP address"
-                className="h-8 w-[190px] font-mono text-[12.5px]"
+                className="w-[190px] font-mono"
               />
             </ModalRow>
             <ModalRow label="Port" hint="MAPS control port">
@@ -483,7 +483,7 @@ export function ConnectionScreen() {
                 onChange={(event) => setManualPassword(event.target.value)}
                 autoComplete="off"
                 aria-label="Password"
-                className="h-8 w-[190px] font-mono text-[12.5px]"
+                className="w-[190px] font-mono"
               />
             </ModalRow>
             {manualError ? (
@@ -644,7 +644,7 @@ function SelectedGateway({
               onChange={(event) => onPasswordChange(event.target.value)}
               placeholder="admin"
               autoComplete="off"
-              className="h-8 w-[150px] font-mono text-[12.5px]"
+              className="w-[150px] font-mono"
             />
           </div>
           <p className="pb-1 text-[11px] leading-[1.45] text-fg-subtle">

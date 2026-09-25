@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
 import { formatPhysicalAddress } from "@/protocols/knx/address";
 import { BAUD_RATES, COMM_ERROR_TOUT_RANGE, SLAVE_ID_RANGE } from "@/protocols/modbus/slave";
 import { BYTE_ORDER_LABELS } from "@/protocols/modbus/master/types";
@@ -56,16 +55,14 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
     <div className="-m-6 flex min-h-[calc(100%+3rem)]">
       {/* ---------- section rail (V10) ---------- */}
       <aside className="w-[236px] shrink-0 border-r border-border bg-white px-3 py-4">
-        <div className="relative mb-3">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search settings"
-            aria-label="Search settings"
-            className="w-full rounded-[4px] border border-border bg-[#FBFBFC] py-[7px] pl-[28px] pr-[9px] text-[12.5px] focus-visible:outline-2 focus-visible:outline-hms-accent"
-          />
-          <Search className="pointer-events-none absolute left-[8px] top-[9px] size-[13px] text-fg-subtle" />
-        </div>
+        <Input
+          search
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search settings"
+          aria-label="Search settings"
+          className="mb-3"
+        />
         {shown.map((s) => (
           <button
             key={s.key}
@@ -204,21 +201,19 @@ function TextControl({
   max?: number;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        disabled={disabled}
-        maxLength={maxLength}
-        min={min}
-        max={max}
-        onChange={onChange}
-        style={{ width }}
-        className={cn("h-auto rounded-[4px] px-[9px] py-[6px] text-[12.5px]", mono && "font-mono")}
-      />
-      {unit && <span className="font-mono text-[11.5px] text-fg-subtle">{unit}</span>}
-    </div>
+    <Input
+      id={id}
+      type={type}
+      value={value}
+      disabled={disabled}
+      maxLength={maxLength}
+      min={min}
+      max={max}
+      onChange={onChange}
+      unit={unit}
+      style={{ width }}
+      className={cn(mono && "font-mono")}
+    />
   );
 }
 
@@ -676,7 +671,7 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                     value={slave.address}
                     onChange={(e) => setSlave(i, { address: Number(e.target.value) })}
                     style={{ width: 90 }}
-                    className="h-auto rounded-[4px] px-[9px] py-[6px] font-mono text-[12.5px]"
+                    className="font-mono"
                   />
                   <Input
                     id={`cfg-mbs-slaves-${i}-description`}
@@ -686,7 +681,6 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
                     placeholder="Description"
                     onChange={(e) => setSlave(i, { description: e.target.value })}
                     style={{ width: 240 }}
-                    className="h-auto rounded-[4px] px-[9px] py-[6px] text-[12.5px]"
                   />
                   <button
                     type="button"

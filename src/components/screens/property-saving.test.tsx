@@ -123,7 +123,7 @@ describe("V12 property saving", () => {
       screen.queryByRole("button", { name: "Save" }),
     ).toBeNull();
     fireEvent.change(name, { target: { value: "Shared draft" } });
-    expect(name).toHaveClass("border-hms-accent", "bg-[#F4FAFE]");
+    expect(name).toHaveAttribute("data-dirty", "true");
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Network & time" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Gateway name" }), {
@@ -203,7 +203,7 @@ describe("V12 property saving", () => {
     expect(screen.getByText("3 unsaved changes")).toBeInTheDocument();
     expect(
       screen.getByRole("textbox", { name: "Project name" }),
-    ).not.toHaveClass("bg-[#F4FAFE]");
+    ).toHaveAttribute("data-dirty", "false");
   });
 
   it("reports an immediate toggle failure without creating a save bar", async () => {
@@ -496,18 +496,17 @@ describe("V12 property saving", () => {
     const labelOf = (control: HTMLElement) =>
       control.closest(".pending-field")?.querySelector(".pending-label")?.textContent;
 
-    it("marks text fields with border, background and an announced note, and clears them on revert", async () => {
+    it("marks text fields like selects (label dot, announced note, field unchanged) and clears them on revert", async () => {
       render(<Workspace />);
       const name = await screen.findByRole("textbox", { name: "Project name" });
       const original = (name as HTMLInputElement).value;
       fireEvent.change(name, { target: { value: "Pending" } });
       expect(name).toHaveAttribute("data-dirty", "true");
-      expect(name).toHaveClass("border-hms-accent", "bg-[#F4FAFE]");
+      expect(name).not.toHaveClass("border-hms-accent");
       expect(name).toHaveAccessibleDescription("(unsaved)");
       expect(labelOf(name)).toBe("Project name");
       fireEvent.change(name, { target: { value: original } });
       expect(name).toHaveAttribute("data-dirty", "false");
-      expect(name).not.toHaveClass("bg-[#F4FAFE]");
       expect(name).not.toHaveAccessibleDescription();
     });
 

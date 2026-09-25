@@ -134,6 +134,7 @@ export function BulkEditDialog<R>({
             </label>
             <Input
               id="bulk-value"
+              size="sm"
               className="mt-1"
               value={value}
               type={col?.kind === "number" ? "number" : "text"}
