@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
+import { Radio } from "@/components/ui/radio";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyCheckbox } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
@@ -505,8 +506,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
                     {`${signals.length} ${signals.length === 1 ? "signal uses" : "signals use"} this device`}
                   </legend>
                   <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name={`${group}-signals`}
                       checked={signalMode === "delete"}
                       onChange={() => setSignalMode("delete")}
@@ -514,8 +514,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
                     <span>Delete the device and its signals</span>
                   </label>
                   <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name={`${group}-signals`}
                       checked={signalMode === "unassign"}
                       onChange={() => setSignalMode("unassign")}
