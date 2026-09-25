@@ -111,13 +111,29 @@ export function isCommandAnswer(command: string, line: string): boolean {
 /** Monitor toggles, in the MAPS order (frmMain.cs:2153-2181). */
 const MONITOR_TOGGLES = ["SPONS", "COMMS", "DEBUG"] as const;
 
+type MonitorToggle = (typeof MONITOR_TOGGLES)[number];
+
+/** Optional monitor streams; `SPONS` (value changes) is always on. */
 export interface MonitorOptions {
+  /**
+   * `COMMS=1` on both ports: the raw bus frames in hex (`1MM:RTUB [Tx] 01 03 …`,
+   * `0KX:[Tx] BC …`), polling included. On by default — the bus traffic is
+   * what the monitor is for; the MAPS "Comms" checkbox starts unchecked.
+   */
+  comms?: boolean;
   /**
    * `DEBUG=1` on both ports. Off by default like the MAPS "Debug" checkbox:
    * it adds bus timeouts (`1MM:RTUB Timeout!`) but also firmware internals
    * (`0KX:DB_MSG …`) and a second decoded `[Tx]` line per Modbus request.
    */
   debug?: boolean;
+}
+
+/** Toggles for the chosen streams, in the MAPS order. */
+function enabledToggles(streams: Required<MonitorOptions>): MonitorToggle[] {
+  return MONITOR_TOGGLES.filter(
+    (toggle) => toggle === "SPONS" || (toggle === "COMMS" ? streams.comms : streams.debug),
+  );
 }
 
 /** Buffered text/binary channel over a Duplex, decrypting on arrival (sonda's `Canal`). */
@@ -276,7 +292,7 @@ export class GatewaySession {
   private collector: ConsoleCollector | null = null;
   private monitorOn = false;
   private monitorListener: ((line: string) => void) | undefined;
-  private monitorDebug = false;
+  private monitorStreams: Required<MonitorOptions> = { comms: true, debug: false };
   /** Console prefixes of the connected application (from INFO? APPID). */
   private prefixes: ConsolePrefixes | undefined;
 
@@ -637,9 +653,14 @@ export class GatewaySession {
     return this.monitorOn;
   }
 
+  /** True while the live monitor also has `COMMS=1` on. */
+  get monitoringComms(): boolean {
+    return this.monitorOn && this.monitorStreams.comms;
+  }
+
   /** True while the live monitor also has `DEBUG=1` on. */
   get monitoringDebug(): boolean {
-    return this.monitorOn && this.monitorDebug;
+    return this.monitorOn && this.monitorStreams.debug;
   }
 
   /**
@@ -657,8 +678,8 @@ export class GatewaySession {
   }
 
   /**
-   * Enables/disables the live monitor: `SPONS=1` + `COMMS=1` (+ `DEBUG=1`
-   * with `options.debug`) on both ports, with the application's prefix
+   * Enables/disables the live monitor: `SPONS=1`, plus `COMMS=1`/`DEBUG=1`
+   * per `options`, on both ports, with the application's prefix
    * (`0KX:SPONS=1`, `1MM:SPONS=1`; docs/reference/console-protocol.md §2).
    * While enabled, every pushed line is routed to `listener`. Toggling ACKs
    * are consumed internally.
@@ -678,7 +699,7 @@ export class GatewaySession {
     return this.withBusy(async () => {
       this.ensurePump();
       // Disable first so a re-subscribe never stacks pushes on the gateway.
-      await this.toggleMonitor(prefixes, false, true);
+      await this.toggleMonitor(prefixes, false, MONITOR_TOGGLES);
       this.monitorOn = false;
       this.monitorListener = undefined;
       if (!enabled) {
@@ -687,25 +708,27 @@ export class GatewaySession {
         this.pumpDesired = false;
         return;
       }
-      const debug = options.debug ?? false;
-      await this.toggleMonitor(prefixes, true, debug);
+      const streams = { comms: options.comms ?? true, debug: options.debug ?? false };
+      const toggles = enabledToggles(streams);
+      await this.toggleMonitor(prefixes, true, toggles);
       this.monitorListener = listener;
-      this.monitorDebug = debug;
+      this.monitorStreams = streams;
       this.monitorOn = true;
-      this.events.log?.(
-        `Diagnostics monitor enabled (SPONS/COMMS${debug ? "/DEBUG" : ""} on both ports)`,
-      );
+      this.events.log?.(`Diagnostics monitor enabled (${toggles.join("/")} on both ports)`);
     });
   }
 
   /**
-   * `SPONS`/`COMMS` (and `DEBUG` when `debug`) on both ports, busy lock held.
-   * Disabling always includes DEBUG so no stale debug stream survives.
+   * Sets `toggles` on both ports, busy lock held. Disabling passes all of
+   * them so no stale COMMS/DEBUG stream survives.
    */
-  private async toggleMonitor(prefixes: ConsolePrefixes, on: boolean, debug: boolean): Promise<void> {
+  private async toggleMonitor(
+    prefixes: ConsolePrefixes,
+    on: boolean,
+    toggles: readonly MonitorToggle[],
+  ): Promise<void> {
     const value = on ? 1 : 0;
-    for (const toggle of MONITOR_TOGGLES) {
-      if (toggle === "DEBUG" && !debug) continue;
+    for (const toggle of toggles) {
       for (const [port, prefix] of prefixes.entries()) {
         await this.commandLocked(`${port}${prefix}:${toggle}=${value}`, TOGGLE_OPTS);
       }
@@ -818,7 +841,7 @@ export class GatewaySession {
     // monitorOn implies known prefixes (setMonitor refuses to enable without).
     const prefixes = this.prefixes;
     if (resume && prefixes) {
-      await this.toggleMonitor(prefixes, false, true);
+      await this.toggleMonitor(prefixes, false, MONITOR_TOGGLES);
       this.monitorOn = false;
     }
     await this.suspendPump();
@@ -828,7 +851,7 @@ export class GatewaySession {
       if (resume && prefixes && this.connected && !this.closed) {
         try {
           this.ensurePump();
-          await this.toggleMonitor(prefixes, true, this.monitorDebug);
+          await this.toggleMonitor(prefixes, true, enabledToggles(this.monitorStreams));
           this.monitorListener = listener;
           this.monitorOn = true;
         } catch {

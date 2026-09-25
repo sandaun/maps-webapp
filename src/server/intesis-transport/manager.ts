@@ -29,6 +29,8 @@ export interface GatewaySessionStatus {
   busy: boolean;
   /** True while the diagnostics monitor (SPONS/COMMS pushes) is enabled. */
   monitoring: boolean;
+  /** True while the monitor also streams raw bus frames (`COMMS=1`). */
+  monitorComms: boolean;
   /** True while the monitor also streams firmware debug lines (`DEBUG=1`). */
   monitorDebug: boolean;
   connectedAt: string;
@@ -295,6 +297,7 @@ export class GatewaySessionManager implements GatewaySessions {
       encrypted: m.encrypted,
       busy: m.busy,
       monitoring: m.session.monitoring,
+      monitorComms: m.session.monitoringComms,
       monitorDebug: m.session.monitoringDebug,
       connectedAt: m.connectedAt,
       gateway: m.gateway,

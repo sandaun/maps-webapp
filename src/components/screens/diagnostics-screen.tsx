@@ -164,21 +164,22 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   );
 
   /* ----- monitor lifecycle: stream only while this screen is open ----- */
-  // Firmware debug lines (DEBUG=1) are opt-in, like the MAPS "Debug" checkbox.
-  const [debug, setDebug] = React.useState(false);
-  const debugRef = React.useRef(debug);
+  // Bus frames (COMMS=1) are on by default; firmware debug lines (DEBUG=1)
+  // are opt-in, like the MAPS "Debug" checkbox.
+  const [streams, setStreams] = React.useState({ comms: true, debug: false });
+  const streamsRef = React.useRef(streams);
   React.useEffect(() => {
     if (!session.connected) return;
-    setGatewayMonitor(session.id, true, debugRef.current).catch(() => {});
+    setGatewayMonitor(session.id, true, streamsRef.current).catch(() => {});
     return () => {
       setGatewayMonitor(session.id, false).catch(() => {});
     };
   }, [session.id, session.connected]);
 
-  function toggleDebug() {
-    const next = !debug;
-    setDebug(next);
-    debugRef.current = next;
+  function toggleStream(key: "comms" | "debug") {
+    const next = { ...streams, [key]: !streams[key] };
+    setStreams(next);
+    streamsRef.current = next;
     // Re-enabling re-applies the toggles (setMonitor disables first).
     if (session.connected) setGatewayMonitor(session.id, true, next).catch(() => {});
   }
@@ -583,8 +584,15 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           Time stamp
         </ChipButton>
         <ChipButton
-          on={debug}
-          onClick={toggleDebug}
+          on={streams.comms}
+          onClick={() => toggleStream("comms")}
+          title="Raw bus frames in hex, polling included"
+        >
+          Comms
+        </ChipButton>
+        <ChipButton
+          on={streams.debug}
+          onClick={() => toggleStream("debug")}
           title="Firmware debug lines: bus timeouts, plus internal traces"
         >
           Debug

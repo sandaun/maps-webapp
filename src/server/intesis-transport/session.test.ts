@@ -317,16 +317,16 @@ describe("diagnostics console and monitor", () => {
     session.close();
   });
 
-  it("keeps DEBUG off unless the monitor is enabled with the debug option", async () => {
+  it("defaults to COMMS on and DEBUG off, and honours the stream options", async () => {
     const fake = new FakeGateway({ password: "admin" });
     const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
     await session.connect();
     await session.setMonitor(true, () => {});
-    expect(session.monitoringDebug).toBe(false);
-    await session.setMonitor(true, () => {}, { debug: true });
-    expect(session.monitoringDebug).toBe(true);
+    expect([session.monitoringComms, session.monitoringDebug]).toEqual([true, false]);
+    await session.setMonitor(true, () => {}, { comms: false, debug: true });
+    expect([session.monitoringComms, session.monitoringDebug]).toEqual([false, true]);
     await session.setMonitor(false);
-    expect(session.monitoringDebug).toBe(false);
+    expect([session.monitoringComms, session.monitoringDebug]).toEqual([false, false]);
     session.close();
   });
 
