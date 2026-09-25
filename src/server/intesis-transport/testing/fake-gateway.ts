@@ -233,14 +233,10 @@ export class FakeGateway implements Duplex {
           this.stage = "xmodem";
         }
       } else if (/^[01](KX|MM):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
-        // Diagnostics toggles: the real firmware ACKs `<port><PREFIX>:OK`.
+        // Monitor toggles and upload pre-commands: the real firmware ACKs
+        // `<port><PREFIX>:OK` and ignores the unprefixed form in silence.
         this.respondEncrypted(`${line.slice(0, 3)}:OK\r\n`);
         this.updatePushes(line);
-      } else if (/^[01]:(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
-        // Unprefixed upload pre-commands (PROTOCOL.md §10.1): ACKed here so the
-        // upload tests stay fast, but they never toggle the pushes — the real
-        // firmware answers them with silence (live-validated 2026-09-25).
-        this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
       } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}\?/.test(line)) {
         this.handleSignalRead(line);
       } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}=/.test(line)) {

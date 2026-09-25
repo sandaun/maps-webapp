@@ -79,8 +79,6 @@ const CRLF = Uint8Array.of(0x0d, 0x0a);
 const CR = 0x0d;
 const LF = 0x0a;
 
-/** Pre-commands pausing gateway activity during an upload (PROTOCOL.md §10.1). */
-const SEND_PRE_COMMANDS = ["0:SPONS=0", "1:SPONS=0", "0:COMMS=0", "1:COMMS=0", "0:DEBUG=0", "1:DEBUG=0"];
 /** The MAPS waits up to 20 s for `<TYPE>FILE:READY` (PROTOCOL.md §10.3). */
 const SEND_READY_TIMEOUT_MS = 20_000;
 /** The gateway can take a while to apply the received config (sonda: 60 s). */
@@ -546,13 +544,22 @@ export class GatewaySession {
     const { command, filePrefix, okMarkers, payload, lengthArg, options } = params;
     return this.withBusy(() =>
       this.withPumpSuspended(async () => {
-      // Pre-commands: pause comms/debug on both ports during the upload.
-      for (const cmd of SEND_PRE_COMMANDS) {
-        channel.sendLine(cmd);
-        await this.readLineMatching(
-          (l) => l.includes(" - OK") || l.includes("ERR") || l.includes("INVALID"),
-          5_000,
-        );
+      // Pre-commands: pause comms/debug on both ports during the upload, with
+      // the application's prefix like the MAPS (frmSendSingle.cs:303,
+      // `0KX:SPONS=0`); an unknown application keeps the MAPS empty prefix.
+      const prefixes = this.prefixes ?? ["", ""];
+      for (const toggle of MONITOR_TOGGLES) {
+        for (const [port, prefix] of prefixes.entries()) {
+          channel.sendLine(`${port}${prefix}:${toggle}=0`);
+          await this.readLineMatching(
+            (l) =>
+              /^[0-2][A-Z]{2}:OK\b/.test(l) ||
+              l.includes(" - OK") ||
+              l.includes("ERR") ||
+              l.includes("INVALID"),
+            5_000,
+          );
+        }
       }
       this.events.log?.("Gateway comms paused for the upload (SPONS/COMMS/DEBUG=0)");
 
