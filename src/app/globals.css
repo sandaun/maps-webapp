@@ -60,9 +60,12 @@
   --color-console-rx: #7fd8b0;
   --color-console-warn: #f0c674;
   --color-console-error: #ff9e91;
-  --color-console-knx: #e7b75a;
-  --color-console-knx-bg: #3b2a08;
-  --color-console-modbus: #1dc3eb;
+  /* Protocol badges by role, as in the v14 reference (pcol): BMS side amber,
+     device side pop blue, both filled with dark text. */
+  --color-console-bms: #e7b75a;
+  --color-console-bms-fg: #3b2a08;
+  --color-console-device: #1dc3eb;
+  --color-console-device-fg: #0b2233;
 
 }
 

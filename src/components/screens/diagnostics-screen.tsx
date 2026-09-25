@@ -55,9 +55,10 @@ const CON_WARN = "text-console-warn";
 const CON_ERROR = "text-console-error";
 const CON_LOG = "text-console-fg/45";
 
+/** KNX–MBM: KNX is the BMS side, Modbus Master the device side. */
 const PROTO_BADGE: Record<MonitorProto, string> = {
-  KNX: "bg-console-knx-bg text-console-knx",
-  MODBUS: "bg-console-modbus/15 text-console-modbus",
+  KNX: "bg-console-bms text-console-bms-fg",
+  MODBUS: "bg-console-device text-console-device-fg",
   SYS: "bg-console-fg/20 text-console-fg",
 };
 
