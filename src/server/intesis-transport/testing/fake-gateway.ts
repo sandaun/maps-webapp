@@ -83,6 +83,7 @@ export class FakeGateway implements Duplex {
   private signalValues = new Map<string, string>();
   private commsTick = 0;
   private debugOn = false;
+  private sponsOn = false;
   closed = false;
 
   constructor(private readonly config: FakeGatewayConfig) {
@@ -231,9 +232,10 @@ export class FakeGateway implements Duplex {
           this.respondEncrypted(`RECVCMPLT:READY:${n}\r\n`);
           this.stage = "xmodem";
         }
-      } else if (/^[01]:(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
-        // Console toggles (diagnostics) and upload pre-commands (PROTOCOL.md §10.1).
-        this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
+      } else if (/^[01](KX|MM):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
+        // Monitor toggles and upload pre-commands: the real firmware ACKs
+        // `<port><PREFIX>:OK` and ignores the unprefixed form in silence.
+        this.respondEncrypted(`${line.slice(0, 3)}:OK\r\n`);
         this.updatePushes(line);
       } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}\?/.test(line)) {
         this.handleSignalRead(line);
@@ -265,11 +267,19 @@ export class FakeGateway implements Duplex {
     const id = `${m[1]}${m[2]}:${m[3]}`.toUpperCase();
     this.signalValues.set(id, m[4]);
     this.respondEncrypted(`${m[1]}${m[2]}:OK\r\n`);
+    if (this.sponsOn && id === "1MM:00000000") {
+      // Live-observed (2026-09-25): the write propagates to the mapped KNX
+      // object and SPONS reports it right after the ACK.
+      const value = Number(m[4]).toFixed(2);
+      this.signalValues.set("0KX:00020003", value);
+      this.respondEncrypted(`0KX:00020003=${value};1\r\n`);
+    }
   }
 
   /** Starts/stops the SPONS/COMMS push timers after a console toggle. */
   private updatePushes(line: string): void {
     const on = line.endsWith("=1");
+    if (/SPONS=/.test(line)) this.sponsOn = on;
     // DEBUG only toggles timeout visibility; it must not restart the stream.
     if (/DEBUG=/.test(line)) {
       this.debugOn = on;

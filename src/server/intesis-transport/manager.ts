@@ -1,6 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { GatewayError, GatewaySession, type ConsoleCommandOptions, type SendFileOptions } from "./session";
+import {
+  GatewayError,
+  GatewaySession,
+  type ConsoleCommandOptions,
+  type MonitorOptions,
+  type SendFileOptions,
+} from "./session";
 import { TcpDuplex, type Duplex } from "./transport";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
 
@@ -23,6 +29,10 @@ export interface GatewaySessionStatus {
   busy: boolean;
   /** True while the diagnostics monitor (SPONS/COMMS pushes) is enabled. */
   monitoring: boolean;
+  /** True while the monitor also streams raw bus frames (`COMMS=1`). */
+  monitorComms: boolean;
+  /** True while the monitor also streams firmware debug lines (`DEBUG=1`). */
+  monitorDebug: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
 }
@@ -66,7 +76,7 @@ export interface GatewaySessions {
     options?: ConsoleCommandOptions,
   ): Promise<{ lines: string[]; timedOut: boolean }>;
   /** Enables/disables the live monitor; pushed lines flow as `monitor` events. */
-  setMonitor(id: string, enabled: boolean): Promise<GatewaySessionStatus>;
+  setMonitor(id: string, enabled: boolean, options?: MonitorOptions): Promise<GatewaySessionStatus>;
 }
 
 /** HTTP-shaped error so routes can reuse `errorResponse` from projects/http. */
@@ -241,7 +251,7 @@ export class GatewaySessionManager implements GatewaySessions {
     });
   }
 
-  async setMonitor(id: string, enabled: boolean): Promise<GatewaySessionStatus> {
+  async setMonitor(id: string, enabled: boolean, options?: MonitorOptions): Promise<GatewaySessionStatus> {
     const managed = this.require(id);
     return this.runExclusive(managed, async () => {
       await managed.session.setMonitor(enabled, (line) => {
@@ -251,7 +261,7 @@ export class GatewaySessionManager implements GatewaySessions {
           managed.monitorHistory.shift();
         }
         for (const listener of managed.listeners) listener(event);
-      });
+      }, options);
       const status = this.toStatus(id, managed);
       for (const listener of managed.listeners) {
         listener({ type: "status", at: new Date().toISOString(), status });
@@ -287,6 +297,8 @@ export class GatewaySessionManager implements GatewaySessions {
       encrypted: m.encrypted,
       busy: m.busy,
       monitoring: m.session.monitoring,
+      monitorComms: m.session.monitoringComms,
+      monitorDebug: m.session.monitoringDebug,
       connectedAt: m.connectedAt,
       gateway: m.gateway,
     };

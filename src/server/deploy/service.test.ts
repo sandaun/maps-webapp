@@ -91,6 +91,8 @@ function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boole
     encrypted: true,
     busy: false,
     monitoring: false,
+    monitorComms: false,
+    monitorDebug: false,
     connectedAt: new Date().toISOString(),
     gateway: { appId: opts.appId ?? 64, bootloader: false, noApp: false },
   };

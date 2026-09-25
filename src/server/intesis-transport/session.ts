@@ -1,7 +1,8 @@
 import "server-only";
 import { parseCompleteBlob } from "@/core/project-format/complete-blob";
 import { ClientLogin, type RandomSource } from "./crypto/dh";
-import { parseInfoLines, type GatewayInfo } from "./info";
+import { consolePrefixesFor, type ConsolePrefixes } from "./console-prefixes";
+import { parseInfoLines, summarizeInfo, type GatewayInfo } from "./info";
 import type { Duplex } from "./transport";
 import { XmodemReceiver } from "./xmodem/xmodem";
 import { XmodemSender } from "./xmodem/sender";
@@ -16,7 +17,7 @@ import { XmodemSender } from "./xmodem/sender";
  * Diagnostics (docs/reference/console-protocol.md, live-validated): free-text
  * console commands (`runConsoleCommand` — responses close on an idle gap
  * because unknown commands are answered with silence) and the live monitor
- * (`setMonitor` — `SPONS=1`/`COMMS=1` on both ports, pushed lines are routed
+ * (`setMonitor` — `<port><PREFIX>:SPONS=1`/`COMMS=1` on both ports, pushed lines are routed
  * to a listener). A single pump loop owns channel reads while diagnostics is
  * active; transfers suspend it (`withPumpSuspended`).
  *
@@ -78,18 +79,62 @@ const CRLF = Uint8Array.of(0x0d, 0x0a);
 const CR = 0x0d;
 const LF = 0x0a;
 
-/** Pre-commands pausing gateway activity during an upload (PROTOCOL.md §10.1). */
-const SEND_PRE_COMMANDS = ["0:SPONS=0", "1:SPONS=0", "0:COMMS=0", "1:COMMS=0", "0:DEBUG=0", "1:DEBUG=0"];
 /** The MAPS waits up to 20 s for `<TYPE>FILE:READY` (PROTOCOL.md §10.3). */
 const SEND_READY_TIMEOUT_MS = 20_000;
 /** The gateway can take a while to apply the received config (sonda: 60 s). */
 const SEND_VALIDATION_TIMEOUT_MS = 60_000;
-/** Fast close for SPONS/COMMS toggles: the ACK is a single `SKTn - OK` line. */
+/** Fast close for SPONS/COMMS/DEBUG toggles: the ACK is a single `<port><PREFIX>:OK` line. */
 const TOGGLE_OPTS: ConsoleCommandOptions = {
   idleMs: 80,
   timeoutMs: 3_000,
-  doneWhen: (line) => line.includes(" - OK") || line.includes("ERR"),
+  doneWhen: (line) => /^[0-2][A-Z]{2}:OK$/.test(line) || line.includes("ERR"),
 };
+
+/** `<port><PREFIX>:` head of a protocol console line (`0KX:`, `1MM:`). */
+const PROTOCOL_HEAD_RE = /^([0-2][A-Z]{2}):/;
+
+/**
+ * True when `line` answers `command`: same `<port><PREFIX>` and either an
+ * ACK/error or the value of the signal the command addressed. Any other
+ * protocol line is a push (SPONS/COMMS/DEBUG) that only coincides in time.
+ */
+export function isCommandAnswer(command: string, line: string): boolean {
+  const head = PROTOCOL_HEAD_RE.exec(line)?.[1];
+  if (!head) return true;
+  if (PROTOCOL_HEAD_RE.exec(command)?.[1] !== head) return false;
+  const rest = line.slice(head.length + 1);
+  if (rest === "OK" || rest.startsWith("Unknown") || rest.includes("ERR")) return true;
+  const id = /^([0-9A-Fa-f]+)[?=]/.exec(command.slice(head.length + 1))?.[1];
+  return id !== undefined && rest.toUpperCase().startsWith(`${id.toUpperCase()}=`);
+}
+
+/** Monitor toggles, in the MAPS order (frmMain.cs:2153-2181). */
+const MONITOR_TOGGLES = ["SPONS", "COMMS", "DEBUG"] as const;
+
+type MonitorToggle = (typeof MONITOR_TOGGLES)[number];
+
+/** Optional monitor streams; `SPONS` (value changes) is always on. */
+export interface MonitorOptions {
+  /**
+   * `COMMS=1` on both ports: the raw bus frames in hex (`1MM:RTUB [Tx] 01 03 …`,
+   * `0KX:[Tx] BC …`), polling included. On by default — the bus traffic is
+   * what the monitor is for; the MAPS "Comms" checkbox starts unchecked.
+   */
+  comms?: boolean;
+  /**
+   * `DEBUG=1` on both ports. Off by default like the MAPS "Debug" checkbox:
+   * it adds bus timeouts (`1MM:RTUB Timeout!`) but also firmware internals
+   * (`0KX:DB_MSG …`) and a second decoded `[Tx]` line per Modbus request.
+   */
+  debug?: boolean;
+}
+
+/** Toggles for the chosen streams, in the MAPS order. */
+function enabledToggles(streams: Required<MonitorOptions>): MonitorToggle[] {
+  return MONITOR_TOGGLES.filter(
+    (toggle) => toggle === "SPONS" || (toggle === "COMMS" ? streams.comms : streams.debug),
+  );
+}
 
 /** Buffered text/binary channel over a Duplex, decrypting on arrival (sonda's `Canal`). */
 class Channel {
@@ -194,6 +239,7 @@ export interface ConsoleCommandOptions {
 
 /** Pending console-command response collector, fed by the pump loop. */
 interface ConsoleCollector {
+  command: string;
   lines: string[];
   lastLineAt: number;
   deadline: number;
@@ -246,6 +292,9 @@ export class GatewaySession {
   private collector: ConsoleCollector | null = null;
   private monitorOn = false;
   private monitorListener: ((line: string) => void) | undefined;
+  private monitorStreams: Required<MonitorOptions> = { comms: true, debug: false };
+  /** Console prefixes of the connected application (from INFO? APPID). */
+  private prefixes: ConsolePrefixes | undefined;
 
   /** True after a successful LOGIN2 when the firmware encrypts the session. */
   encrypted = false;
@@ -318,6 +367,7 @@ export class GatewaySession {
     this.connected = true;
 
     const info = await this.queryInfo();
+    this.prefixes = consolePrefixesFor(summarizeInfo(info).appId);
     this.startKeepAlive();
     return { info, encrypted: this.encrypted };
   }
@@ -510,13 +560,22 @@ export class GatewaySession {
     const { command, filePrefix, okMarkers, payload, lengthArg, options } = params;
     return this.withBusy(() =>
       this.withPumpSuspended(async () => {
-      // Pre-commands: pause comms/debug on both ports during the upload.
-      for (const cmd of SEND_PRE_COMMANDS) {
-        channel.sendLine(cmd);
-        await this.readLineMatching(
-          (l) => l.includes(" - OK") || l.includes("ERR") || l.includes("INVALID"),
-          5_000,
-        );
+      // Pre-commands: pause comms/debug on both ports during the upload, with
+      // the application's prefix like the MAPS (frmSendSingle.cs:303,
+      // `0KX:SPONS=0`); an unknown application keeps the MAPS empty prefix.
+      const prefixes = this.prefixes ?? ["", ""];
+      for (const toggle of MONITOR_TOGGLES) {
+        for (const [port, prefix] of prefixes.entries()) {
+          channel.sendLine(`${port}${prefix}:${toggle}=0`);
+          await this.readLineMatching(
+            (l) =>
+              /^[0-2][A-Z]{2}:OK\b/.test(l) ||
+              l.includes(" - OK") ||
+              l.includes("ERR") ||
+              l.includes("INVALID"),
+            5_000,
+          );
+        }
       }
       this.events.log?.("Gateway comms paused for the upload (SPONS/COMMS/DEBUG=0)");
 
@@ -594,6 +653,16 @@ export class GatewaySession {
     return this.monitorOn;
   }
 
+  /** True while the live monitor also has `COMMS=1` on. */
+  get monitoringComms(): boolean {
+    return this.monitorOn && this.monitorStreams.comms;
+  }
+
+  /** True while the live monitor also has `DEBUG=1` on. */
+  get monitoringDebug(): boolean {
+    return this.monitorOn && this.monitorStreams.debug;
+  }
+
   /**
    * Free-text console command (docs/reference/console-protocol.md). Sends the
    * line and collects response lines until an idle gap (`idleMs`) or the
@@ -609,22 +678,28 @@ export class GatewaySession {
   }
 
   /**
-   * Enables/disables the live monitor: `SPONS=1` + `COMMS=1` + `DEBUG=1` on
-   * both ports (docs/reference/console-protocol.md §2). DEBUG makes bus
-   * timeouts visible (`1MM:RTUB Timeout!`) — with a silent bus they are the
-   * only signal that the monitor is alive. While enabled, every pushed line
-   * is routed to `listener`. Toggling ACKs are consumed internally.
+   * Enables/disables the live monitor: `SPONS=1`, plus `COMMS=1`/`DEBUG=1`
+   * per `options`, on both ports, with the application's prefix
+   * (`0KX:SPONS=1`, `1MM:SPONS=1`; docs/reference/console-protocol.md §2).
+   * While enabled, every pushed line is routed to `listener`. Toggling ACKs
+   * are consumed internally.
    */
-  async setMonitor(enabled: boolean, listener?: (line: string) => void): Promise<void> {
+  async setMonitor(
+    enabled: boolean,
+    listener?: (line: string) => void,
+    options: MonitorOptions = {},
+  ): Promise<void> {
     this.requireChannel();
+    const prefixes = this.prefixes;
+    if (!prefixes) {
+      // Unknown application: nothing was enabled, so only enabling is an error.
+      if (!enabled) return;
+      throw new GatewayError("protocol", "The live monitor does not support this gateway application");
+    }
     return this.withBusy(async () => {
       this.ensurePump();
       // Disable first so a re-subscribe never stacks pushes on the gateway.
-      for (const port of [0, 1]) {
-        await this.commandLocked(`${port}:SPONS=0`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:COMMS=0`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:DEBUG=0`, TOGGLE_OPTS);
-      }
+      await this.toggleMonitor(prefixes, false, MONITOR_TOGGLES);
       this.monitorOn = false;
       this.monitorListener = undefined;
       if (!enabled) {
@@ -633,15 +708,31 @@ export class GatewaySession {
         this.pumpDesired = false;
         return;
       }
-      for (const port of [0, 1]) {
-        await this.commandLocked(`${port}:SPONS=1`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:COMMS=1`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:DEBUG=1`, TOGGLE_OPTS);
-      }
+      const streams = { comms: options.comms ?? true, debug: options.debug ?? false };
+      const toggles = enabledToggles(streams);
+      await this.toggleMonitor(prefixes, true, toggles);
       this.monitorListener = listener;
+      this.monitorStreams = streams;
       this.monitorOn = true;
-      this.events.log?.("Diagnostics monitor enabled (SPONS/COMMS on both ports)");
+      this.events.log?.(`Diagnostics monitor enabled (${toggles.join("/")} on both ports)`);
     });
+  }
+
+  /**
+   * Sets `toggles` on both ports, busy lock held. Disabling passes all of
+   * them so no stale COMMS/DEBUG stream survives.
+   */
+  private async toggleMonitor(
+    prefixes: ConsolePrefixes,
+    on: boolean,
+    toggles: readonly MonitorToggle[],
+  ): Promise<void> {
+    const value = on ? 1 : 0;
+    for (const toggle of toggles) {
+      for (const [port, prefix] of prefixes.entries()) {
+        await this.commandLocked(`${port}${prefix}:${toggle}=${value}`, TOGGLE_OPTS);
+      }
+    }
   }
 
   /** Console command with the busy lock already held (collector round-trip). */
@@ -653,6 +744,7 @@ export class GatewaySession {
     const result = new Promise<ConsoleResult>((resolve) => {
       const now = Date.now();
       this.collector = {
+        command,
         lines: [],
         lastLineAt: now,
         deadline: now + timeoutMs,
@@ -686,7 +778,11 @@ export class GatewaySession {
         const now = Date.now();
         if (line !== null) {
           const text = new TextDecoder().decode(line).replace(/\r\n$/, "");
-          if (this.collector) {
+          // Like the MAPS (ManageConsoleViewers, frmMain.cs:3274), pushes are
+          // routed by line type, not by the command that happens to be pending.
+          if (this.collector && this.monitorOn && !isCommandAnswer(this.collector.command, text)) {
+            this.monitorListener?.(text);
+          } else if (this.collector) {
             this.collector.lines.push(text);
             this.collector.lastLineAt = now;
             if (this.collector.doneWhen?.(text)) {
@@ -742,26 +838,20 @@ export class GatewaySession {
   private async withPumpSuspended<T>(op: () => Promise<T>): Promise<T> {
     const resume = this.monitorOn;
     const listener = this.monitorListener;
-    if (resume) {
-      for (const port of [0, 1]) {
-        await this.commandLocked(`${port}:SPONS=0`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:COMMS=0`, TOGGLE_OPTS);
-        await this.commandLocked(`${port}:DEBUG=0`, TOGGLE_OPTS);
-      }
+    // monitorOn implies known prefixes (setMonitor refuses to enable without).
+    const prefixes = this.prefixes;
+    if (resume && prefixes) {
+      await this.toggleMonitor(prefixes, false, MONITOR_TOGGLES);
       this.monitorOn = false;
     }
     await this.suspendPump();
     try {
       return await op();
     } finally {
-      if (resume && this.connected && !this.closed) {
+      if (resume && prefixes && this.connected && !this.closed) {
         try {
           this.ensurePump();
-          for (const port of [0, 1]) {
-            await this.commandLocked(`${port}:SPONS=1`, TOGGLE_OPTS);
-            await this.commandLocked(`${port}:COMMS=1`, TOGGLE_OPTS);
-            await this.commandLocked(`${port}:DEBUG=1`, TOGGLE_OPTS);
-          }
+          await this.toggleMonitor(prefixes, true, enabledToggles(this.monitorStreams));
           this.monitorListener = listener;
           this.monitorOn = true;
         } catch {

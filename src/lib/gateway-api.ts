@@ -66,6 +66,10 @@ export interface GatewaySessionStatus {
   encrypted: boolean;
   busy: boolean;
   monitoring: boolean;
+  /** True while the monitor also streams raw bus frames (`COMMS=1`). */
+  monitorComms: boolean;
+  /** True while the monitor also streams firmware debug lines (`DEBUG=1`). */
+  monitorDebug: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
 }
@@ -256,6 +260,7 @@ export async function scanMeGroups(
 export async function setGatewayMonitor(
   id: string,
   enabled: boolean,
+  streams: { comms?: boolean; debug?: boolean } = {},
 ): Promise<GatewaySessionStatus> {
   const data = await sessionScoped(
     id,
@@ -264,7 +269,7 @@ export async function setGatewayMonitor(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ enabled, ...streams }),
       },
     ),
   );

@@ -168,3 +168,17 @@ Pendents (abans de disseny):
   `SecurityConfiguration`, `DNS`/`DNS2` al model compartit IBOX).
 - **Banner d'issues amb accions** (V11): generalitzar `ScreenIssues` amb
   navegació al camp/secció afectada.
+- **Pre-comandes de pujada sense prefix** [fet i validat en viu 2026-09-25: re-pujada del mateix blob, pre-comandes en 0,03 s, projecte idèntic]: `SEND_PRE_COMMANDS` envia
+  `0:SPONS=0`…; el MAPS les envia amb prefix (`frmSendSingle.cs:303`,
+  `0KX:SPONS=0`) i el firmware ignora la variant sense prefix en silenci
+  (validat en viu 2026-09-25). Cada pre-comanda espera fins a 5 s i no atura res.
+- **Pushes dins la resposta d'una comanda** [fet 2026-09-25, `isCommandAnswer`]: mentre una comanda de
+  consola espera el seu silenci, el col·lector s'empassa les línies espontànies
+  (`0KX:00020003=1.00;1`, `0KX:[Tx] BC …`, `DB_MSG`) i surten a la consola en
+  lloc del monitor. El MAPS encamina cada línia rebuda pel seu tipus
+  (`ManageConsoleViewers`, frmMain.cs:3274), no per comanda.
+- **COMMS/DEBUG sempre actius** [fet 2026-09-25: DEBUG opcional, botó "Debug" apagat per defecte]: el MAPS només activa `SPONS` per
+  defecte; `COMMS` i `DEBUG` depenen de les caselles del visor (frmMain.cs:2159).
+  Nosaltres activem tot: `DEBUG=1` al costat KNX omple el log de `DB_MSG`/`DB_AL`
+  i al Modbus cada petició surt dues vegades (`[Tx] 01 03 …` de COMMS i
+  `[Tx] Slv:1 Func:3 …` de DEBUG).
