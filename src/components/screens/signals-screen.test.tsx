@@ -354,7 +354,8 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
-  it("selects the current page from the header, then all matching rows", () => {
+  // Renders 102 rows: under a loaded full-suite run it can pass the 5 s default.
+  it("selects the current page from the header, then all matching rows", { timeout: 15_000 }, () => {
     const view = buildKnxView();
     if (view.family !== "knx-mbm") throw new Error("expected knx");
     const extra = Array.from({ length: 100 }, (_, i) => ({
