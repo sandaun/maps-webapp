@@ -317,6 +317,19 @@ describe("diagnostics console and monitor", () => {
     session.close();
   });
 
+  it("keeps DEBUG off unless the monitor is enabled with the debug option", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    await session.setMonitor(true, () => {});
+    expect(session.monitoringDebug).toBe(false);
+    await session.setMonitor(true, () => {}, { debug: true });
+    expect(session.monitoringDebug).toBe(true);
+    await session.setMonitor(false);
+    expect(session.monitoringDebug).toBe(false);
+    session.close();
+  });
+
   it("refuses the monitor for an application without known console prefixes", async () => {
     const fake = new FakeGateway({ password: "admin", infoBody: "INFO:APPID:999\r\n" });
     const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });

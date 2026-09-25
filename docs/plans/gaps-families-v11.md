@@ -177,7 +177,7 @@ Pendents (abans de disseny):
   (`0KX:00020003=1.00;1`, `0KX:[Tx] BC …`, `DB_MSG`) i surten a la consola en
   lloc del monitor. El MAPS encamina cada línia rebuda pel seu tipus
   (`ManageConsoleViewers`, frmMain.cs:3274), no per comanda.
-- **COMMS/DEBUG sempre actius** [decisió]: el MAPS només activa `SPONS` per
+- **COMMS/DEBUG sempre actius** [fet 2026-09-25: DEBUG opcional, botó "Debug" apagat per defecte]: el MAPS només activa `SPONS` per
   defecte; `COMMS` i `DEBUG` depenen de les caselles del visor (frmMain.cs:2159).
   Nosaltres activem tot: `DEBUG=1` al costat KNX omple el log de `DB_MSG`/`DB_AL`
   i al Modbus cada petició surt dues vegades (`[Tx] 01 03 …` de COMMS i

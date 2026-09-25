@@ -162,13 +162,24 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   );
 
   /* ----- monitor lifecycle: stream only while this screen is open ----- */
+  // Firmware debug lines (DEBUG=1) are opt-in, like the MAPS "Debug" checkbox.
+  const [debug, setDebug] = React.useState(false);
+  const debugRef = React.useRef(debug);
   React.useEffect(() => {
     if (!session.connected) return;
-    setGatewayMonitor(session.id, true).catch(() => {});
+    setGatewayMonitor(session.id, true, debugRef.current).catch(() => {});
     return () => {
       setGatewayMonitor(session.id, false).catch(() => {});
     };
   }, [session.id, session.connected]);
+
+  function toggleDebug() {
+    const next = !debug;
+    setDebug(next);
+    debugRef.current = next;
+    // Re-enabling re-applies the toggles (setMonitor disables first).
+    if (session.connected) setGatewayMonitor(session.id, true, next).catch(() => {});
+  }
 
   /* ----- traffic buffer (own copy so Clear/Pause are local) ----- */
   const [frames, setFrames] = React.useState<MonitorFrame[]>([]);
@@ -568,6 +579,13 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
         </ChipButton>
         <ChipButton on={showTs} onClick={() => setShowTs((v) => !v)}>
           Time stamp
+        </ChipButton>
+        <ChipButton
+          on={debug}
+          onClick={toggleDebug}
+          title="Firmware debug lines: bus timeouts, plus internal traces"
+        >
+          Debug
         </ChipButton>
         <div className="h-[22px] w-px bg-border" />
         {FILTER_TABS.map((tab) => (
@@ -1053,10 +1071,12 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
 function ChipButton({
   on,
   onClick,
+  title,
   children,
 }: {
   on: boolean;
   onClick: () => void;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -1064,6 +1084,7 @@ function ChipButton({
       type="button"
       aria-pressed={on}
       onClick={onClick}
+      title={title}
       className={cn(
         "cursor-pointer whitespace-nowrap rounded-[4px] border px-[10px] py-[7px] text-[12.5px] font-bold",
         on ? "border-hms-accent bg-info-bg text-hms-accent" : "border-border bg-white text-fg-muted",
