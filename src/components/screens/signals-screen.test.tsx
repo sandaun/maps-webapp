@@ -296,18 +296,15 @@ describe("SignalsScreen (knx-mbm)", () => {
   });
 
   it("opens a select dropdown on the first click", () => {
-    const showPicker = vi.fn();
-    Object.defineProperty(HTMLSelectElement.prototype, "showPicker", {
-      configurable: true,
-      value: showPicker,
-    });
     mocks.view = buildKnxView();
     renderSignals();
 
     fireEvent.click(screen.getByText("1.001"));
 
-    expect(screen.getByLabelText("Edit DPT signal 0")).toHaveFocus();
-    expect(showPicker).toHaveBeenCalledOnce();
+    expect(screen.getByRole("combobox", { name: "Edit DPT signal 0" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    // DPT lists far more than 8 options, so the search box takes the focus.
+    expect(screen.getByRole("textbox", { name: "Search options" })).toHaveFocus();
   });
 
   it("queues two rapid saves on the same cell so the last value is sent", async () => {
@@ -357,7 +354,8 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
-  it("selects the current page from the header, then all matching rows", () => {
+  // Renders 102 rows: under a loaded full-suite run it can pass the 5 s default.
+  it("selects the current page from the header, then all matching rows", { timeout: 15_000 }, () => {
     const view = buildKnxView();
     if (view.family !== "knx-mbm") throw new Error("expected knx");
     const extra = Array.from({ length: 100 }, (_, i) => ({

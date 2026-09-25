@@ -16,6 +16,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-table": "^9.1.2",
     "class-variance-authority": "^0.7.1",

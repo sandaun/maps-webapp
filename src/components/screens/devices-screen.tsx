@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
+import { Radio } from "@/components/ui/radio";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertyCheckbox } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
@@ -226,48 +227,33 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
           <Select
             id={`rtu-${nodeIndex}-baud`}
             value={form.baudrate}
-            onChange={(e) => set("baudrate", Number(e.target.value))}
-          >
-            {BAUD_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(value) => set("baudrate", Number(value))}
+            options={BAUD_RATES.map((rate) => ({ value: String(rate), label: String(rate) }))}
+          />
         </Field>
         <Field label="Data bits" htmlFor={`rtu-${nodeIndex}-databits`}>
           <Select
             id={`rtu-${nodeIndex}-databits`}
             value={form.dataBits}
-            onChange={(e) => set("dataBits", Number(e.target.value))}
-          >
-            {[5, 6, 7, 8].map((bits) => (
-              <option key={bits} value={bits}>
-                {bits}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(value) => set("dataBits", Number(value))}
+            options={[5, 6, 7, 8].map((bits) => ({ value: String(bits), label: String(bits) }))}
+          />
         </Field>
         <Field label="Parity" htmlFor={`rtu-${nodeIndex}-parity`}>
           <Select
             id={`rtu-${nodeIndex}-parity`}
             value={form.parity}
-            onChange={(e) => set("parity", Number(e.target.value) as 0 | 1 | 2)}
-          >
-            <option value={0}>None</option>
-            <option value={1}>Odd</option>
-            <option value={2}>Even</option>
-          </Select>
+            onValueChange={(value) => set("parity", Number(value) as 0 | 1 | 2)}
+            options={[{ value: "0", label: "None" }, { value: "1", label: "Odd" }, { value: "2", label: "Even" }]}
+          />
         </Field>
         <Field label="Stop bits" htmlFor={`rtu-${nodeIndex}-stopbits`}>
           <Select
             id={`rtu-${nodeIndex}-stopbits`}
             value={form.stopBits}
-            onChange={(e) => set("stopBits", Number(e.target.value) as 1 | 2)}
-          >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </Select>
+            onValueChange={(value) => set("stopBits", Number(value) as 1 | 2)}
+            options={[{ value: "1", label: "1" }, { value: "2", label: "2" }]}
+          />
         </Field>
         <Field label="Inter-frame (ms)" htmlFor={`rtu-${nodeIndex}-tir`}>
           <NumberInput
@@ -281,11 +267,9 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
           <Select
             id={`rtu-${nodeIndex}-port`}
             value={form.physicalPort}
-            onChange={(e) => set("physicalPort", Number(e.target.value) as 0 | 1)}
-          >
-            <option value={1}>Port B</option>
-            <option value={0}>Port A</option>
-          </Select>
+            onValueChange={(value) => set("physicalPort", Number(value) as 0 | 1)}
+            options={[{ value: "1", label: "Port B" }, { value: "0", label: "Port A" }]}
+          />
         </Field>
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
           <PropertyCheckbox id={`rtu-${nodeIndex}-pollAfterWrite`} checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
@@ -412,7 +396,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-name`}
           inlineDot
           aria-label="Device name"
-          className="h-7 w-40 text-xs"
+          size="sm"
+          className="w-40"
           value={form.name}
           maxLength={128}
           onChange={(e) => set("name", e.target.value)}
@@ -423,7 +408,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-manufacturer`}
           inlineDot
           aria-label="Manufacturer"
-          className="h-7 w-32 text-xs"
+          size="sm"
+          className="w-32"
           value={form.manufacturer}
           maxLength={128}
           onChange={(e) => set("manufacturer", e.target.value)}
@@ -435,7 +421,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Slave"
           type="number"
-          className="h-7 w-20 font-mono text-xs"
+          size="sm"
+          className="w-20"
           value={form.slave}
           min={slaveRange.min}
           max={slaveRange.max}
@@ -447,13 +434,12 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-baseRegister`}
           inlineDot
           aria-label="Base register"
-          className="h-7 w-24 text-xs"
+          size="sm"
+          className="w-24"
           value={form.baseRegister}
-          onChange={(e) => set("baseRegister", Number(e.target.value) as 0 | 1)}
-        >
-          <option value={0}>0-based</option>
-          <option value={1}>1-based</option>
-        </Select>
+          onValueChange={(value) => set("baseRegister", Number(value) as 0 | 1)}
+          options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
+        />
       </TableCell>
       <TableCell>
         <Input
@@ -461,7 +447,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Timeout"
           type="number"
-          className="h-7 w-24 font-mono text-xs"
+          size="sm"
+          className="w-24"
           value={form.timeout}
           min={DEVICE_TIMEOUT_RANGE.min}
           max={DEVICE_TIMEOUT_RANGE.max}
@@ -496,7 +483,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
               ]).then((ok) => ok && setConfirmRemove(false))
             }
           >
-            <div className="whitespace-normal text-[12.5px] text-text-body">
+            <div className="text-[12.5px] text-text-body">
               {signals.length === 0 ? (
                 <p>No signals use this device.</p>
               ) : (
@@ -505,8 +492,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
                     {`${signals.length} ${signals.length === 1 ? "signal uses" : "signals use"} this device`}
                   </legend>
                   <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name={`${group}-signals`}
                       checked={signalMode === "delete"}
                       onChange={() => setSignalMode("delete")}
@@ -514,8 +500,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
                     <span>Delete the device and its signals</span>
                   </label>
                   <label className="flex items-start gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name={`${group}-signals`}
                       checked={signalMode === "unassign"}
                       onChange={() => setSignalMode("unassign")}

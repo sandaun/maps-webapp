@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
 import type { KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import { formatGroupAddress } from "@/protocols/knx/address";
 import { useCurrentProject } from "@/lib/current-project";
@@ -31,6 +30,7 @@ import {
   type MonitorProto,
 } from "@/lib/diagnostics-parsing";
 import { useSessionEvents } from "@/lib/use-session-events";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
@@ -584,20 +584,14 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
             {tab.label}
           </button>
         ))}
-        <div className="relative ml-[6px] w-[210px]">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter frames (text or regex)"
-            aria-label="Filter frames"
-            className="w-full rounded-[4px] border border-border bg-[#FBFBFC] py-[6px] pl-[27px] pr-[9px] text-[12.5px]"
-          />
-          <Search
-            className="pointer-events-none absolute left-[8px] top-[8px] size-[13px] text-fg-subtle"
-            strokeWidth={2.4}
-            aria-hidden
-          />
-        </div>
+        <Input
+          search
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Filter frames (text or regex)"
+          aria-label="Filter frames"
+          className="ml-[6px] w-[210px]"
+        />
         <div className="flex-1" />
         <button
           type="button"
@@ -887,20 +881,15 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                 </button>
               </div>
               <div className="flex shrink-0 items-center gap-[9px] border-b border-border px-[14px] py-[7px]">
-                <div className="relative w-[190px] shrink-0">
-                  <input
-                    value={svFilter}
-                    onChange={(event) => setSvFilter(event.target.value)}
-                    placeholder="Filter signals"
-                    aria-label="Filter signals"
-                    className="w-full rounded-[4px] border border-border bg-[#FBFBFC] py-[5px] pl-[27px] pr-[9px] text-[12px]"
-                  />
-                  <Search
-                    className="pointer-events-none absolute left-[8px] top-[7px] size-[13px] text-fg-subtle"
-                    strokeWidth={2.4}
-                    aria-hidden
-                  />
-                </div>
+                <Input
+                  search
+                  size="sm"
+                  value={svFilter}
+                  onChange={(event) => setSvFilter(event.target.value)}
+                  placeholder="Filter signals"
+                  aria-label="Filter signals"
+                  className="w-[190px] shrink-0"
+                />
                 <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-fg-subtle">
                   type a value and press Enter to write from that side
                 </span>

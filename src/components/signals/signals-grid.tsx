@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import { GripVertical } from "lucide-react";
 import { applyFlagChange } from "@/protocols/knx";
 import type { ProjectPatchInput, SignalPatchInput } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
-import { SelectBox } from "@/components/ui/select-box";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -144,7 +145,7 @@ export function SignalsGrid<R>({
   const [draft, setDraft] = React.useState("");
   const [status, setStatus] = React.useState<Record<string, CellStatus>>({});
   const [tooltip, setTooltip] = React.useState<{ text: string; left: number; top: number } | null>(null);
-  const inputRef = React.useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | HTMLButtonElement | null>(null);
   const widthsKey = compact ? `${widthStorageKey}:compact` : widthStorageKey;
   const widthSnapshot = React.useSyncExternalStore(
     React.useCallback((listener) => subscribeToWidths(widthsKey, listener), [widthsKey]),
@@ -234,18 +235,6 @@ export function SignalsGrid<R>({
     if (col.kind === "none" || col.kind === "switch" || col.kind === "flags") return;
     setEditing({ id: rowId(row), field: col.id });
     setDraft(editorSeed(col, row));
-  }
-
-  function openSelectEditor(row: R, col: GridColumn<R>) {
-    flushSync(() => startEdit(row, col));
-    const select = document.querySelector<HTMLSelectElement>('select[data-grid-editor="select"]');
-    if (!select) return;
-    select.focus();
-    try {
-      select.showPicker();
-    } catch {
-      // Focusing still leaves the native select usable when showPicker is unavailable.
-    }
   }
 
   function commitEdit(row: R, col: GridColumn<R>) {
@@ -389,10 +378,11 @@ export function SignalsGrid<R>({
         ...cellPresentation,
         extra: "justify-center",
         children: (
-          <SelectBox
+          <Checkbox
             aria-label={`Select signal ${id}`}
             checked={selected.has(id)}
-            onCheckedChange={() => onToggle(id)}
+            onChange={() => onToggle(id)}
+            onClick={(e) => e.stopPropagation()}
           />
         ),
       });
@@ -477,16 +467,18 @@ export function SignalsGrid<R>({
         ...cellPresentation,
         extra: "p-0",
         children: (
-          <select
-            data-grid-editor="select"
+          <Select
+            variant="cell"
+            size="sm"
+            defaultOpen
             ref={(el) => {
               inputRef.current = el;
             }}
             aria-label={`Edit ${col.header} signal ${id}`}
-            className="h-full w-full border-0 bg-transparent px-1 text-[12px] outline-2 outline-hms-accent/35"
+            className={col.mono ? "font-mono" : "font-sans"}
             value={draft}
-            onChange={(e) => {
-              const value = e.target.value;
+            options={col.options?.(row) ?? []}
+            onValueChange={(value) => {
               setDraft(value);
               setEditing(null);
               const parsed = col.parse?.(row, value);
@@ -498,15 +490,11 @@ export function SignalsGrid<R>({
                 save(id, col.id, parsed.patch, col.inverseFromText?.(row) ?? {});
               }
             }}
-            onBlur={() => setEditing(null)}
+            onOpenChange={(open) => {
+              if (!open) setEditing(null);
+            }}
             onKeyDown={(e) => onEditorKeyDown(e, rowIndex, col, row)}
-          >
-            {(col.options?.(row) ?? []).map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          />
         ),
       });
     }
@@ -517,15 +505,11 @@ export function SignalsGrid<R>({
       extra: cn(editable && "hover:ring-1 hover:ring-inset hover:ring-hms-accent/30"),
       role: editable ? "button" : undefined,
       tabIndex: editable ? 0 : undefined,
-      onClick: () => {
-        if (col.kind === "select") openSelectEditor(row, col);
-        else startEdit(row, col);
-      },
+      onClick: () => startEdit(row, col),
       onKeyDown: (e) => {
         if (!editable || (e.key !== "Enter" && e.key !== "F2")) return;
         e.preventDefault();
-        if (col.kind === "select") openSelectEditor(row, col);
-        else startEdit(row, col);
+        startEdit(row, col);
       },
       children: (
         <>
@@ -762,11 +746,12 @@ export function SignalsGrid<R>({
               }}
             >
               {col.id === "select" ? (
-                <SelectBox
+                <Checkbox
                   aria-label="Select all signals"
                   checked={allPageOn}
                   indeterminate={somePageOn && !allPageOn}
-                  onCheckedChange={() => onTogglePage()}
+                  onChange={() => onTogglePage()}
+                  onClick={(e) => e.stopPropagation()}
                 />
               ) : compact ? (
                 <Tooltip>

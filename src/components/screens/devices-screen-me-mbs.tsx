@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Crosshair, Loader2, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { Crosshair, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import { CONTROLLER_MODELS } from "@/protocols/me";
 import type { ScannedMeGroup } from "@/gateway-families/me-mbs/bus-scan";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import type { SelectOption } from "@/components/ui/select";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
 import { Modal } from "@/components/ui/modal";
 
@@ -122,16 +123,14 @@ export function MeMbsDevicesView({ view }: { view: MeMbsView }) {
       {railOpen ? (
         <aside className="flex w-[314px] shrink-0 flex-col border-r border-border bg-white">
           <div className="flex items-center gap-2 border-b border-border p-3">
-            <div className="relative min-w-0 flex-1">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter devices"
-                aria-label="Filter devices"
-                className="w-full rounded-[4px] border border-border bg-[#FBFBFC] py-[6px] pl-[27px] pr-[9px] text-[12.5px] focus-visible:outline-2 focus-visible:outline-hms-accent"
-              />
-              <Search className="pointer-events-none absolute left-2 top-[7px] size-[13px] text-fg-subtle" />
-            </div>
+            <Input
+              search
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter devices"
+              aria-label="Filter devices"
+              className="flex-1"
+            />
             <button
               type="button"
               disabled={!connected || !selectedController}
@@ -565,27 +564,17 @@ function ControllerDetail({
           <SelectControl
             id={`dev-cc-${c.index}-type`}
             value={form.type}
-            onChange={(e) => set("type", Number(e.target.value))}
-          >
-            {Object.entries(CONTROLLER_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("type", Number(value))}
+            options={Object.entries(CONTROLLER_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+          />
         </FieldRow>
         <FieldRow label="Centralized controller model">
           <SelectControl
             id={`dev-cc-${c.index}-model`}
             value={form.model}
-            onChange={(e) => setModel(Number(e.target.value))}
-          >
-            {ME_MODEL_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => setModel(Number(value))}
+            options={ME_MODEL_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
+          />
         </FieldRow>
         {form.model === CONTROLLER_MODELS.AG_150 ? (
           <FieldRow label="Old model compatibility" hint="Forced by the model">
@@ -596,11 +585,9 @@ function ControllerDetail({
             <SelectControl
               id={`dev-cc-${c.index}-compat`}
               value={form.compatibility}
-              onChange={(e) => set("compatibility", Number(e.target.value))}
-            >
-              <option value={0}>New model</option>
-              <option value={1}>Old model</option>
-            </SelectControl>
+              onValueChange={(value) => set("compatibility", Number(value))}
+              options={[{ value: "0", label: "New model" }, { value: "1", label: "Old model" }]}
+            />
           </FieldRow>
         )}
         <FieldRow label="Individual error signals" hint="Indoor and outdoor unit errors per group">
@@ -762,28 +749,18 @@ function GroupDetail({
           <SelectControl
             id={`dev-g-${controller.index}-${g.index}-type`}
             value={form.type}
-            onChange={(e) => set("type", Number(e.target.value))}
-          >
-            {GROUP_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("type", Number(value))}
+            options={GROUP_TYPE_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
+          />
         </FieldRow>
         {caps.fan || dirtyKeys.has("fanSpeeds") ? (
           <FieldRow label="Num of fan speeds" hint="0 to 4">
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-fans`}
               value={form.fanSpeeds}
-              onChange={(e) => set("fanSpeeds", Number(e.target.value))}
-            >
-              {[0, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </SelectControl>
+              onValueChange={(value) => set("fanSpeeds", Number(value))}
+              options={[0, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
+            />
           </FieldRow>
         ) : (
           <FieldRow label="Num of fan speeds">
@@ -795,11 +772,9 @@ function GroupDetail({
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-setpoint`}
               value={form.dualSetPoint ? 1 : 0}
-              onChange={(e) => set("dualSetPoint", Number(e.target.value) === 1)}
-            >
-              <option value={0}>Single Setpoint</option>
-              <option value={1}>Multiple Setpoint</option>
-            </SelectControl>
+              onValueChange={(value) => set("dualSetPoint", Number(value) === 1)}
+              options={[{ value: "0", label: "Single Setpoint" }, { value: "1", label: "Multiple Setpoint" }]}
+            />
           </FieldRow>
         ) : (
           <FieldRow label="Setpoint type">
@@ -811,11 +786,9 @@ function GroupDetail({
             <SelectControl
               id={`dev-g-${controller.index}-${g.index}-urc`}
               value={form.urc ? 1 : 0}
-              onChange={(e) => set("urc", Number(e.target.value) === 1)}
-            >
-              <option value={1}>Available</option>
-              <option value={0}>Not available</option>
-            </SelectControl>
+              onValueChange={(value) => set("urc", Number(value) === 1)}
+              options={[{ value: "1", label: "Available" }, { value: "0", label: "Not available" }]}
+            />
           </FieldRow>
         ) : (
           <FieldRow label="URC controller">
@@ -1251,7 +1224,6 @@ function ScanGroupsModal({
                   checked={isSelected}
                   onChange={() => toggle(g.group)}
                   onClick={(e) => e.stopPropagation()}
-                  className="h-[15px] w-[15px]"
                 />,
                 <span key="group" className="font-mono text-[12px]">
                   G{g.group}
@@ -1430,45 +1402,34 @@ function TextControl({
   max?: number;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        disabled={disabled}
-        maxLength={maxLength}
-        min={min}
-        max={max}
-        onChange={onChange}
-        style={{ width }}
-        className={cn("h-auto rounded-[4px] px-[9px] py-[6px] text-[12.5px]", mono && "font-mono")}
-      />
-      {unit && <span className="font-mono text-[11.5px] text-fg-subtle">{unit}</span>}
-    </div>
+    <Input
+      id={id}
+      type={type}
+      value={value}
+      disabled={disabled}
+      maxLength={maxLength}
+      min={min}
+      max={max}
+      onChange={onChange}
+      unit={unit}
+      style={{ width }}
+      className={cn(mono && "font-mono")}
+    />
   );
 }
 
 function SelectControl({
   id,
   value,
-  onChange,
-  children,
+  options,
+  onValueChange,
 }: {
   id: string;
   value: string | number;
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  children: React.ReactNode;
+  options: readonly SelectOption[];
+  onValueChange: (value: string) => void;
 }) {
-  return (
-    <Select
-      id={id}
-      value={value}
-      onChange={onChange}
-      className="h-auto w-auto max-w-[190px] rounded-[4px] px-[7px] py-[5px] text-[12px]"
-    >
-      {children}
-    </Select>
-  );
+  return <Select id={id} value={value} options={options} onValueChange={onValueChange} className="w-auto max-w-[190px]" />;
 }
 
 function ToggleControl({
