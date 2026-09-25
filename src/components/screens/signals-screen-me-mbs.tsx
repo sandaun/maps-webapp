@@ -45,11 +45,15 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
   const [hideDisabled, setHideDisabled] = React.useState(false);
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
-  const visibility = useColumnVisibility("signals-hidden:me-mbs:v1");
+  const allColumns = React.useMemo(() => meMbsColumns(project), [project]);
+  const defaultHidden = React.useMemo(
+    () => allColumns.filter((col) => col.defaultHidden).map((col) => col.id),
+    [allColumns],
+  );
+  const visibility = useColumnVisibility("signals-hidden:me-mbs:v1", defaultHidden);
   const { compact, toggle: toggleCompact } = useGridCompact();
 
   const rows = React.useMemo(() => signals.map((s) => toMeRow(project, s)), [project, signals]);
-  const allColumns = React.useMemo(() => meMbsColumns(project), [project]);
   const columns = React.useMemo(
     () => allColumns.filter((col) => col.group === "project" || !visibility.isHidden(col.id)),
     [allColumns, visibility],

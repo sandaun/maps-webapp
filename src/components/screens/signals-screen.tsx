@@ -66,11 +66,15 @@ function SignalsView({
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
-  const visibility = useColumnVisibility("signals-hidden:knx-mbm:v1");
+  const allColumns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
+  const defaultHidden = React.useMemo(
+    () => allColumns.filter((col) => col.defaultHidden).map((col) => col.id),
+    [allColumns],
+  );
+  const visibility = useColumnVisibility("signals-hidden:knx-mbm:v1", defaultHidden);
   const { compact, toggle: toggleCompact } = useGridCompact();
 
   const rows = React.useMemo(() => signals.map((s) => toKnxRow(mbm, s)), [mbm, signals]);
-  const allColumns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
   const columns = React.useMemo(
     () => allColumns.filter((col) => col.group === "project" || !visibility.isHidden(col.id)),
     [allColumns, visibility],

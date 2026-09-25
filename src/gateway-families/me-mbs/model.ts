@@ -52,6 +52,8 @@ export interface MeMbsSignal {
   /** Conversion refs, raw `idx,inverted;…` form (operations / filters). */
   idxOperations: string;
   idxFilters: string;
+  /** Read-only MAPS "Conv. Id" summary of both sides (`conversionCode`). */
+  conversionCode: string;
   virtual: boolean;
 }
 
