@@ -10,6 +10,7 @@ const buttonVariants = cva(
         default: "bg-hms-accent text-white hover:bg-hms-accent-hover",
         secondary: "border border-border bg-white text-text-body hover:bg-hms-muted",
         ghost: "text-text-body hover:bg-hms-muted",
+        "ghost-destructive": "text-text-body hover:bg-error-bg hover:text-error",
         destructive: "bg-error text-white hover:opacity-90",
       },
       size: {

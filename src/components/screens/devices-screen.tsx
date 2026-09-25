@@ -144,7 +144,7 @@ function NodeShell({
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>{title}</CardTitle>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
+        <Button size="sm" variant="ghost-destructive" disabled={busy} onClick={() => setConfirmRemove(true)}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
           Remove node
         </Button>
@@ -357,7 +357,8 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
               <TableHead>Manufacturer</TableHead>
               <TableHead>Slave</TableHead>
               <TableHead>Base register</TableHead>
-              <TableHead>Timeout (ms)</TableHead>
+              {/* MAPS hides the timeout of TCP devices (p_devAdvanced) and never sends it for them. */}
+              {locator.kind === "rtu" && <TableHead>Timeout (ms)</TableHead>}
               <TableHead>Enabled</TableHead>
               <TableHead>
                 <span className="sr-only">Actions</span>
@@ -441,20 +442,22 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
         />
       </TableCell>
-      <TableCell>
-        <Input
-          id={`${group}-timeout`}
-          inlineDot
-          aria-label="Timeout"
-          type="number"
-          size="sm"
-          className="w-24"
-          value={form.timeout}
-          min={DEVICE_TIMEOUT_RANGE.min}
-          max={DEVICE_TIMEOUT_RANGE.max}
-          onChange={(e) => set("timeout", Number(e.target.value))}
-        />
-      </TableCell>
+      {locator.kind === "rtu" && (
+        <TableCell>
+          <Input
+            id={`${group}-timeout`}
+            inlineDot
+            aria-label="Timeout"
+            type="number"
+            size="sm"
+            className="w-24"
+            value={form.timeout}
+            min={DEVICE_TIMEOUT_RANGE.min}
+            max={DEVICE_TIMEOUT_RANGE.max}
+            onChange={(e) => set("timeout", Number(e.target.value))}
+          />
+        </TableCell>
+      )}
       <TableCell>
         <PropertyCheckbox
           id={`${group}-enabled`}
@@ -465,7 +468,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
         <ImmediatePropertyError id={`${group}-enabled`} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
+        <Button size="sm" variant="ghost-destructive" disabled={busy} onClick={() => setConfirmRemove(true)}>
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
           Remove
         </Button>
         {error && !confirmRemove && <p role="alert" className="text-xs text-error">{error}</p>}

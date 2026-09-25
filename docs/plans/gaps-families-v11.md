@@ -149,6 +149,10 @@ Pendents (abans de disseny):
 | Security | [decidir] | idem |
 | KNX Keys (Key1–3) | [falta] | parsejades, sense edició; el V11 no les mostra — prioritat baixa |
 | Devices: add/remove nodes i devices, edició inline | [fet] | més complet que el V11 |
+| Devices: camps i valors per defecte com MAPS | [fet 2026-09-25] | el timeout només surt a RTU (MAPS l'amaga a TCP, `p_devAdvanced`, i no l'envia al binari); un device nou neix deshabilitat, amb el primer slave lliure des de 1 i nom `Device <slave>` (`CreateRTUSlave`/`CreateTCPSlave`, `GetFirstFreeAddress`, `GetFirstFreeDeviceName`) |
+| Devices: afegir N devices de cop | [falta] | desktop: `nb_RTUdevToAdd` + `b_addRTUDevice_Click` (`frmExternalMBM.cs:1061`), respecta `GetMaxDevicesPerNode` |
+| Devices: clonar un device | [falta] | desktop: `b_devClone_Click` (`frmExternalMBM.cs:1599`) + `frmCloneCount` (quantes còpies) i `GetFirstFreeClonedName` |
+| Devices: esborrar-ne diversos alhora | [falta] | desktop: `p_devDeleteMultiple` / `b_deviceDeleteMultiple` (devices marcats a l'arbre) |
 | Poll now / estat online / mètriques per device | [blocat] | V11 ho dissenya; cal API en viu |
 | Edit poll records | [falta] | desktop: `frmPollRecords.cs`; els poll records es generen dels senyals, el desktop permet retoc manual. Decidir si hi donem suport o sempre es regeneren dels senyals |
 | **Projecte des de template real** (New project) | [falta] | avui: 2 entrades hardcoded i còpia de la fixture sintètica pre-poblada. V11: 26 templates, variants de capacitat/llicència, order code. Cal catàleg real i projecte net |
