@@ -48,6 +48,22 @@
   --color-row-rule: #f4f5f6;
   --color-toggle-off: #cbd1d6;
 
+  /* Diagnostics console: an inverse (dark) surface in the light theme.
+     Text levels are console-fg with an opacity modifier (/45, /90…). */
+  --color-console-bg: #0b2233;
+  --color-console-header: #122b3b;
+  --color-console-rule: #06161f;
+  --color-console-fg: #ffffff;
+  --color-console-accent: #1dc3eb;
+  --color-console-object: #1dc3eb;
+  --color-console-tx: #f0c674;
+  --color-console-rx: #7fd8b0;
+  --color-console-warn: #f0c674;
+  --color-console-error: #ff9e91;
+  --color-console-knx: #e7b75a;
+  --color-console-knx-bg: #3b2a08;
+  --color-console-modbus: #1dc3eb;
+
 }
 
 /* Typography roles from the V9 reference. */

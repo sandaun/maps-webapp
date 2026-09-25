@@ -48,17 +48,17 @@ const CON_DEFAULT_HEIGHT = 320;
 const CON_MIN_HEIGHT = 120;
 const CON_MAX_HEIGHT = 760;
 
-const CON_ECHO = "#1DC3EB";
-const CON_ANSWER = "rgba(255,255,255,.86)";
-const CON_SILENT = "rgba(255,255,255,.4)";
-const CON_WARN = "#F0C674";
-const CON_ERROR = "#FF9E91";
-const CON_LOG = "rgba(255,255,255,.45)";
+const CON_ECHO = "text-console-accent";
+const CON_ANSWER = "text-console-fg/86";
+const CON_SILENT = "text-console-fg/40";
+const CON_WARN = "text-console-warn";
+const CON_ERROR = "text-console-error";
+const CON_LOG = "text-console-fg/45";
 
 const PROTO_BADGE: Record<MonitorProto, string> = {
-  KNX: "bg-[#3B2A08] text-[#E7B75A]",
-  MODBUS: "bg-[rgba(29,195,235,.15)] text-[#1DC3EB]",
-  SYS: "bg-[rgba(255,255,255,.2)] text-white",
+  KNX: "bg-console-knx-bg text-console-knx",
+  MODBUS: "bg-console-modbus/15 text-console-modbus",
+  SYS: "bg-console-fg/20 text-console-fg",
 };
 
 const PROTO_DESC: Record<MonitorProto, string> = {
@@ -78,7 +78,8 @@ const QUICK_COMMANDS = ["INFO?", "APPINFO?", "DIAGS?", "HARDINFO?"];
 
 interface ConsoleLine {
   t: string;
-  color: string;
+  /** Console text class (CON_*). */
+  tone: string;
   text: string;
 }
 
@@ -320,8 +321,8 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const [conLines, setConLines] = React.useState<ConsoleLine[]>([]);
   const conLogRef = React.useRef<HTMLDivElement>(null);
 
-  const echo = React.useCallback((color: string, text: string) => {
-    const line: ConsoleLine = { t: formatConsoleStamp(new Date()), color, text };
+  const echo = React.useCallback((tone: string, text: string) => {
+    const line: ConsoleLine = { t: formatConsoleStamp(new Date()), tone, text };
     setConLines((prev) => [...prev, line].slice(-CONSOLE_LIMIT));
   }, []);
 
@@ -345,7 +346,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
         ...prev,
         ...visible.map((entry) => ({
           t: `[${formatFrameTime(entry.at)}]`,
-          color: CON_LOG,
+          tone: CON_LOG,
           text: `# ${entry.line}`,
         })),
       ].slice(-CONSOLE_LIMIT),
@@ -637,9 +638,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       <div ref={bodyRef} className="flex min-h-0 flex-1">
         <div ref={columnRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* traffic monitor */}
-          <div className="flex min-h-[160px] flex-1 flex-col bg-[#0B2233]">
+          <div className="flex min-h-[160px] flex-1 flex-col bg-console-bg">
             <div ref={trafficScrollRef} className="flex-1 overflow-auto pb-5">
-              <div className="sticky top-0 z-[2] flex min-w-[640px] bg-[#122B3B] px-[14px] py-[6px] font-mono text-[10px] font-semibold tracking-[.08em] text-[rgba(255,255,255,.45)]">
+              <div className="sticky top-0 z-[2] flex min-w-[640px] bg-console-header px-[14px] py-[6px] font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45">
                 {showTs && <div className="w-[88px] shrink-0">TIME</div>}
                 <div className="w-[74px] shrink-0">SOURCE</div>
                 <div className="w-[46px] shrink-0">DIR</div>
@@ -648,7 +649,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                 <div className="w-[96px] shrink-0">OBJECT</div>
               </div>
               {renderedFrames.length === 0 && (
-                <div className="px-[14px] py-6 font-mono text-[11.5px] leading-[1.7] text-[rgba(255,255,255,.3)]">
+                <div className="px-[14px] py-6 font-mono text-[11.5px] leading-[1.7] text-console-fg/30">
                   {frames.length === 0
                     ? "No frames yet — the monitor streams when the gateway pushes data."
                     : "No frames match the current filter."}
@@ -664,11 +665,11 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                       onClick={() => setOpenIdx(open ? null : frame.i)}
                       className={cn(
                         "flex w-full min-w-[640px] cursor-pointer items-start px-[14px] py-[4px] text-left font-mono text-[11.5px]",
-                        open && "bg-[rgba(29,195,235,.10)]",
+                        open && "bg-console-accent/10",
                       )}
                     >
                       {showTs && (
-                        <div className="w-[88px] shrink-0 text-[rgba(255,255,255,.42)]">
+                        <div className="w-[88px] shrink-0 text-console-fg/42">
                           {formatFrameTime(frame.at)}
                         </div>
                       )}
@@ -686,17 +687,17 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                         className={cn(
                           "w-[46px] shrink-0",
                           frame.dir === "TX"
-                            ? "text-[#F0C674]"
+                            ? "text-console-tx"
                             : frame.dir === "RX"
-                              ? "text-[#7FD8B0]"
-                              : "text-[rgba(255,255,255,.35)]",
+                              ? "text-console-rx"
+                              : "text-console-fg/35",
                         )}
                       >
                         {frame.dir}
                       </div>
                       <div
                         title={frame.frame}
-                        className="w-[150px] shrink-0 truncate pr-[8px] text-[rgba(255,255,255,.6)]"
+                        className="w-[150px] shrink-0 truncate pr-[8px] text-console-fg/60"
                       >
                         {frame.frame || "—"}
                       </div>
@@ -704,15 +705,15 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                         title={frame.dec}
                         className={cn(
                           "min-w-[260px] flex-1 whitespace-normal break-words leading-[1.5]",
-                          failed ? "text-[#FF9E91]" : "text-[rgba(255,255,255,.9)]",
+                          failed ? "text-console-error" : "text-console-fg/90",
                         )}
                       >
                         {frame.dec}
                       </div>
-                      <div className="w-[96px] shrink-0 text-[#1DC3EB]">{frame.obj}</div>
+                      <div className="w-[96px] shrink-0 text-console-object">{frame.obj}</div>
                     </button>
                     {open && (
-                      <div className="border-l-2 border-[#1DC3EB] bg-[rgba(255,255,255,.04)] px-[14px] pb-[12px] pl-[24px] pt-[10px] font-mono text-[11.5px] leading-[1.7] text-[rgba(255,255,255,.7)]">
+                      <div className="border-l-2 border-console-accent bg-console-fg/4 px-[14px] pb-[12px] pl-[24px] pt-[10px] font-mono text-[11.5px] leading-[1.7] text-console-fg/70">
                         <div>Raw frame {frame.frame || "—"}</div>
                         <div>
                           Protocol {frame.proto} · {PROTO_DESC[frame.proto]}
@@ -727,16 +728,16 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                 );
               })}
             </div>
-            <div className="flex shrink-0 gap-4 bg-[rgba(255,255,255,.05)] px-[14px] py-[6px] font-mono text-[11px] text-[rgba(255,255,255,.5)]">
+            <div className="flex shrink-0 gap-4 bg-console-fg/5 px-[14px] py-[6px] font-mono text-[11px] text-console-fg/50">
               <span>{frames.length} frames</span>
               <span>{formatRates(rates)}</span>
               {heldCount > 0 && (
-                <span className="text-[#F0C674]">
+                <span className="text-console-warn">
                   AutoScroll off · {heldCount} new frames held
                 </span>
               )}
               {timeoutCount > 0 && (
-                <span className="text-[#FF9E91]">{timeoutCount} timeouts</span>
+                <span className="text-console-error">{timeoutCount} timeouts</span>
               )}
               <div className="flex-1" />
               <span>{streamState}</span>
@@ -747,20 +748,20 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           {conOpen && (
             <div
               style={{ height: conHeight }}
-              className="flex min-h-0 shrink-0 flex-col border-t-2 border-[#06161F] bg-[#0B2233]"
+              className="flex min-h-0 shrink-0 flex-col border-t-2 border-console-rule bg-console-bg"
             >
               <div
                 onPointerDown={onConPointerDown}
                 title="Drag to resize the console"
                 className="flex h-[8px] shrink-0 cursor-row-resize items-center justify-center bg-border-strong hover:bg-hms-accent"
               >
-                <div className="h-[2px] w-[34px] rounded-[2px] bg-[rgba(255,255,255,.6)]" />
+                <div className="h-[2px] w-[34px] rounded-[2px] bg-console-fg/60" />
               </div>
-              <div className="flex shrink-0 items-center gap-3 bg-[rgba(255,255,255,.05)] px-[14px] py-[6px]">
-                <span className="whitespace-nowrap font-mono text-[10px] font-semibold tracking-[.08em] text-[rgba(255,255,255,.45)]">
+              <div className="flex shrink-0 items-center gap-3 bg-console-fg/5 px-[14px] py-[6px]">
+                <span className="whitespace-nowrap font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45">
                   CONSOLE
                 </span>
-                <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-[rgba(255,255,255,.34)]">
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-console-fg/34">
                   commands you send to the gateway and its answers — not bus traffic
                 </span>
                 <div className="flex-1" />
@@ -769,7 +770,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                     key={cmd}
                     type="button"
                     onClick={() => void runConsoleCommand(cmd)}
-                    className="cursor-pointer whitespace-nowrap font-mono text-[11px] text-[#1DC3EB]"
+                    className="cursor-pointer whitespace-nowrap font-mono text-[11px] text-console-accent"
                   >
                     {cmd}
                   </button>
@@ -777,7 +778,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                 <button
                   type="button"
                   onClick={() => setConLines([])}
-                  className="cursor-pointer font-mono text-[11px] text-[rgba(255,255,255,.42)]"
+                  className="cursor-pointer font-mono text-[11px] text-console-fg/42"
                 >
                   Clear
                 </button>
@@ -785,23 +786,23 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                   type="button"
                   onClick={() => setConOpen(false)}
                   aria-label="Close console"
-                  className="cursor-pointer px-[2px] text-[15px] leading-none text-[rgba(255,255,255,.42)]"
+                  className="cursor-pointer px-[2px] text-[15px] leading-none text-console-fg/42"
                 >
                   ×
                 </button>
               </div>
               <div ref={conLogRef} className="min-h-0 flex-1 overflow-auto px-[14px] py-[8px]">
                 {conLines.length === 0 && (
-                  <div className="font-mono text-[11.5px] leading-[1.7] text-[rgba(255,255,255,.3)]">
+                  <div className="font-mono text-[11.5px] leading-[1.7] text-console-fg/30">
                     No commands sent yet — try INFO? to ask the gateway who it is.
                   </div>
                 )}
                 {conLines.map((line, index) => (
                   <div key={index} className="flex gap-[8px] font-mono text-[11.5px] leading-[1.7]">
-                    <span className="whitespace-nowrap text-[rgba(255,255,255,.28)]">
+                    <span className="whitespace-nowrap text-console-fg/28">
                       {showTs ? line.t : ""}
                     </span>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap" style={{ color: line.color }}>
+                    <span className={cn("min-w-0 flex-1 whitespace-pre-wrap", line.tone)}>
                       {line.text}
                     </span>
                   </div>
@@ -812,18 +813,18 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           {/* console input bar — always visible */}
           <div
             className={cn(
-              "flex shrink-0 items-center gap-[9px] bg-[#0B2233] px-[14px] py-[7px]",
-              conOpen ? "border-t border-[rgba(255,255,255,.08)]" : "border-t-2 border-[#06161F]",
+              "flex shrink-0 items-center gap-[9px] bg-console-bg px-[14px] py-[7px]",
+              conOpen ? "border-t border-console-fg/8" : "border-t-2 border-console-rule",
             )}
           >
             <button
               type="button"
               onClick={() => setConOpen((v) => !v)}
-              className="cursor-pointer whitespace-nowrap font-mono text-[10px] font-semibold tracking-[.08em] text-[rgba(255,255,255,.45)]"
+              className="cursor-pointer whitespace-nowrap font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45"
             >
               {conOpen ? "CONSOLE ▾" : "CONSOLE ▸"}
             </button>
-            <span className="font-mono text-[12px] font-semibold text-[#1DC3EB]">&gt;</span>
+            <span className="font-mono text-[12px] font-semibold text-console-accent">&gt;</span>
             <input
               value={conInput}
               onChange={(event) => setConInput(event.target.value)}
@@ -832,7 +833,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
               }}
               placeholder="Type a gateway command and press Enter — INFO?"
               aria-label="Gateway console command"
-              className="min-w-0 flex-1 rounded-[4px] border border-[rgba(255,255,255,.14)] bg-[rgba(255,255,255,.06)] px-[9px] py-[6px] font-mono text-[11.5px] text-white placeholder:text-[rgba(255,255,255,.35)]"
+              className="min-w-0 flex-1 rounded-[4px] border border-console-fg/14 bg-console-fg/6 px-[9px] py-[6px] font-mono text-[11.5px] text-console-fg placeholder:text-console-fg/35"
             />
             <button
               type="button"
