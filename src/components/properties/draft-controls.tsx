@@ -20,7 +20,7 @@ export function PropertyCheckbox({
       {...props}
       aria-disabled={disabled || undefined}
       aria-busy={disabled || undefined}
-      className={cn(props.className, disabled && "cursor-progress opacity-50")}
+      className={cn(props.className, disabled && "opacity-50 [&>input]:cursor-progress")}
       onChange={(event) => {
         if (!disabled) onChange?.(event);
       }}

@@ -1251,7 +1251,6 @@ function ScanGroupsModal({
                   checked={isSelected}
                   onChange={() => toggle(g.group)}
                   onClick={(e) => e.stopPropagation()}
-                  className="h-[15px] w-[15px]"
                 />,
                 <span key="group" className="font-mono text-[12px]">
                   G{g.group}

@@ -6,7 +6,7 @@ import { GripVertical } from "lucide-react";
 import { applyFlagChange } from "@/protocols/knx";
 import type { ProjectPatchInput, SignalPatchInput } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
-import { SelectBox } from "@/components/ui/select-box";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -389,10 +389,11 @@ export function SignalsGrid<R>({
         ...cellPresentation,
         extra: "justify-center",
         children: (
-          <SelectBox
+          <Checkbox
             aria-label={`Select signal ${id}`}
             checked={selected.has(id)}
-            onCheckedChange={() => onToggle(id)}
+            onChange={() => onToggle(id)}
+            onClick={(e) => e.stopPropagation()}
           />
         ),
       });
@@ -762,11 +763,12 @@ export function SignalsGrid<R>({
               }}
             >
               {col.id === "select" ? (
-                <SelectBox
+                <Checkbox
                   aria-label="Select all signals"
                   checked={allPageOn}
                   indeterminate={somePageOn && !allPageOn}
-                  onCheckedChange={() => onTogglePage()}
+                  onChange={() => onTogglePage()}
+                  onClick={(e) => e.stopPropagation()}
                 />
               ) : compact ? (
                 <Tooltip>
