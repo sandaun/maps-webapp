@@ -26,6 +26,7 @@ import type {
 } from "@/lib/project-types";
 import { ConfigurationScreen } from "./configuration-screen";
 import { DevicesScreen } from "./devices-screen";
+import { chooseOption } from "@/components/ui/select-testing";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
 vi.mock("@/lib/api", async (original) => ({
@@ -334,7 +335,7 @@ describe("V12 property saving", () => {
     const model = screen.getByRole("combobox", {
       name: "Controller 1 · Model",
     });
-    fireEvent.change(model, { target: { value: "0" } });
+    chooseOption(model, "AG-150A or older");
     fireEvent.click(
       screen.getByRole("button", {
         name: "Select controller 1 group 1",
@@ -374,10 +375,7 @@ describe("V12 property saving", () => {
     render(<Workspace devices />);
     await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" });
     expect(screen.queryByRole("button", { name: "Save node" })).toBeNull();
-    fireEvent.change(
-      screen.getByRole("combobox", { name: "RTU node 1 · Baudrate" }),
-      { target: { value: "19200" } },
-    );
+    chooseOption(screen.getByRole("combobox", { name: "RTU node 1 · Baudrate" }), "19200");
     const name = screen.getAllByRole("textbox", { name: "Device name" })[0];
     fireEvent.change(name, { target: { value: "Meter draft" } });
     expect(screen.getByText("2 unsaved changes")).toBeInTheDocument();
@@ -482,9 +480,7 @@ describe("V12 property saving", () => {
 
     it("holds structural actions of the project while a Save is in flight", async () => {
       render(<Workspace devices />);
-      fireEvent.change(await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" }), {
-        target: { value: "19200" },
-      });
+      chooseOption(await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" }), "19200");
       const release = holdNextPatch();
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       await screen.findByRole("button", { name: "Saving…" });
@@ -521,21 +517,21 @@ describe("V12 property saving", () => {
       await screen.findByRole("textbox", { name: "Project name" });
       fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
       const parity = screen.getByRole("combobox", { name: "Parity" });
-      const original = (parity as HTMLSelectElement).value;
-      fireEvent.change(parity, { target: { value: original === "2" ? "1" : "2" } });
+      const original = parity.textContent!;
+      chooseOption(parity, original === "Even" ? "Odd" : "Even");
       expect(parity).toHaveAttribute("data-dirty", "true");
       expect(parity).not.toHaveClass("border-hms-accent");
       expect(parity).not.toHaveClass("bg-[#F4FAFE]");
       expect(parity).toHaveAccessibleDescription("(unsaved)");
       expect(labelOf(parity)).toBe("Parity");
-      fireEvent.change(parity, { target: { value: original } });
+      chooseOption(parity, original);
       expect(parity).not.toHaveAccessibleDescription();
     });
 
     it("puts the dot before the control in the KNX device table and marks node fields by label", async () => {
       render(<Workspace devices />);
       const baud = await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" });
-      fireEvent.change(baud, { target: { value: "19200" } });
+      chooseOption(baud, "19200");
       expect(labelOf(baud)).toBe("Baudrate");
       const name = screen.getAllByRole("textbox", { name: "Device name" })[0];
       const cell = name.closest("td")!;
@@ -602,7 +598,7 @@ describe("V12 property saving", () => {
       const app = render(<Workspace />);
       await screen.findByRole("textbox", { name: "Project name" });
       fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
-      fireEvent.change(screen.getByRole("combobox", { name: "Parity" }), { target: { value: "2" } });
+      chooseOption(screen.getByRole("combobox", { name: "Parity" }), "Even");
       app.unmount();
       familyById(family).applyPatches(xml, [{ type: "updateRtuConfig", patch: { parity: 1 } }]);
       revision++;
@@ -629,7 +625,7 @@ describe("V12 property saving", () => {
       fireEvent.change(await screen.findByRole("textbox", { name: "Controller 1 · Description" }), {
         target: { value: "Main" },
       });
-      fireEvent.change(screen.getByRole("combobox", { name: "Controller 1 · Model" }), { target: { value: "1" } });
+      chooseOption(screen.getByRole("combobox", { name: "Controller 1 · Model" }), "EB-50GU");
       expect(screen.getByText("Description · Model")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Select controller 1 group 1" }));
       fireEvent.change(await screen.findByRole("textbox", { name: "Controller 1 · G1 · Description" }), {

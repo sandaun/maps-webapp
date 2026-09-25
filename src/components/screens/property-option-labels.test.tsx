@@ -12,6 +12,7 @@ import type { OptionLabels } from "@/lib/property-option-labels";
 import type { FamilyId, ProjectView } from "@/lib/project-types";
 import { ConfigurationScreen } from "./configuration-screen";
 import { DevicesScreen } from "./devices-screen";
+import { readOptions } from "@/components/ui/select-testing";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
 vi.mock("@/lib/api", async (original) => ({
@@ -35,11 +36,11 @@ function viewOf(family: FamilyId): ProjectView {
 /** Every option of every labelled property select must read as its shared label. */
 function checkRenderedSelects(view: ProjectView, seen: Set<OptionLabels>) {
   const fields = new Map(propertyFields(view).map((field) => [field.id, field]));
-  for (const select of document.querySelectorAll("select")) {
+  for (const select of screen.queryAllByRole("combobox")) {
     const labels = fields.get(select.id)?.optionLabels;
     if (!labels) continue;
-    for (const option of select.options) {
-      expect(`${select.id}=${option.value} → ${option.textContent}`).toBe(
+    for (const option of readOptions(select)) {
+      expect(`${select.id}=${option.value} → ${option.label}`).toBe(
         `${select.id}=${option.value} → ${labels[option.value]}`,
       );
     }

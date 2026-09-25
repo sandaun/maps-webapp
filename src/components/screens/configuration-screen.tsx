@@ -11,6 +11,7 @@ import { MEDIA_OPTIONS } from "@/lib/property-option-labels";
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
+import type { SelectOption } from "@/components/ui/select";
 import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, PropertySwitch } from "@/components/properties/draft-controls";
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
@@ -224,24 +225,15 @@ function TextControl({
 function SelectControl({
   id,
   value,
-  onChange,
-  children,
+  options,
+  onValueChange,
 }: {
   id: string;
   value: string | number;
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  children: React.ReactNode;
+  options: readonly SelectOption[];
+  onValueChange: (value: string) => void;
 }) {
-  return (
-    <Select
-      id={id}
-      value={value}
-      onChange={onChange}
-      className="h-auto w-auto min-w-[220px] rounded-[4px] px-[9px] py-[6px] text-[12.5px]"
-    >
-      {children}
-    </Select>
-  );
+  return <Select id={id} value={value} options={options} onValueChange={onValueChange} className="w-auto min-w-[220px]" />;
 }
 
 function ToggleControl({
@@ -437,14 +429,9 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
           <SelectControl
             id="cfg-mbm-media"
             value={form.media}
-            onChange={(e) => set("media", Number(e.target.value))}
-          >
-            {MEDIA_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("media", Number(value))}
+            options={MEDIA_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
+          />
         </FieldRow>
         <FieldRow
           label="Deadband to internal system"
@@ -555,14 +542,9 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
           <SelectControl
             id="cfg-mbs-media"
             value={form.media}
-            onChange={(e) => set("media", Number(e.target.value))}
-          >
-            {MEDIA_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("media", Number(value))}
+            options={MEDIA_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
+          />
         </FieldRow>
         <FieldRow
           label="Modbus addresses"
@@ -575,34 +557,25 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
           <SelectControl
             id="cfg-mbs-addrmode"
             value={form.addressMode}
-            onChange={(e) => set("addressMode", Number(e.target.value))}
-          >
-            <option value={0}>Fixed</option>
-            <option value={1}>Custom</option>
-          </SelectControl>
+            onValueChange={(value) => set("addressMode", Number(value))}
+            options={[{ value: "0", label: "Fixed" }, { value: "1", label: "Custom" }]}
+          />
         </FieldRow>
         <FieldRow label="Byte order">
           <SelectControl
             id="cfg-mbs-byteorder"
             value={form.byteOrder}
-            onChange={(e) => set("byteOrder", Number(e.target.value))}
-          >
-            {Object.entries(BYTE_ORDER_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("byteOrder", Number(value))}
+            options={Object.entries(BYTE_ORDER_LABELS).map(([value, label]) => ({ value, label }))}
+          />
         </FieldRow>
         <FieldRow label="Register base">
           <SelectControl
             id="cfg-mbs-regbase"
             value={form.registerBase}
-            onChange={(e) => set("registerBase", Number(e.target.value))}
-          >
-            <option value={0}>0-based</option>
-            <option value={1}>1-based</option>
-          </SelectControl>
+            onValueChange={(value) => set("registerBase", Number(value))}
+            options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
+          />
         </FieldRow>
         <FieldRow
           label="Comm. error timeout"
@@ -636,48 +609,33 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
           <SelectControl
             id="cfg-mbs-baud"
             value={form.baudrate}
-            onChange={(e) => set("baudrate", Number(e.target.value))}
-          >
-            {BAUD_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("baudrate", Number(value))}
+            options={BAUD_RATES.map((rate) => ({ value: String(rate), label: String(rate) }))}
+          />
         </FieldRow>
         <FieldRow label="Data bits">
           <SelectControl
             id="cfg-mbs-databits"
             value={form.dataBits}
-            onChange={(e) => set("dataBits", Number(e.target.value))}
-          >
-            {[5, 6, 7, 8].map((bits) => (
-              <option key={bits} value={bits}>
-                {bits}
-              </option>
-            ))}
-          </SelectControl>
+            onValueChange={(value) => set("dataBits", Number(value))}
+            options={[5, 6, 7, 8].map((bits) => ({ value: String(bits), label: String(bits) }))}
+          />
         </FieldRow>
         <FieldRow label="Parity">
           <SelectControl
             id="cfg-mbs-parity"
             value={form.parity}
-            onChange={(e) => set("parity", Number(e.target.value))}
-          >
-            <option value={0}>None</option>
-            <option value={1}>Odd</option>
-            <option value={2}>Even</option>
-          </SelectControl>
+            onValueChange={(value) => set("parity", Number(value))}
+            options={[{ value: "0", label: "None" }, { value: "1", label: "Odd" }, { value: "2", label: "Even" }]}
+          />
         </FieldRow>
         <FieldRow label="Stop bits">
           <SelectControl
             id="cfg-mbs-stopbits"
             value={form.stopBits}
-            onChange={(e) => set("stopBits", Number(e.target.value))}
-          >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </SelectControl>
+            onValueChange={(value) => set("stopBits", Number(value))}
+            options={[{ value: "1", label: "1" }, { value: "2", label: "2" }]}
+          />
         </FieldRow>
         <FieldRow label="Slave id" hint={`${SLAVE_ID_RANGE.min}–${SLAVE_ID_RANGE.max}`}>
           <TextControl
@@ -697,11 +655,9 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
           <SelectControl
             id="cfg-mbs-slavemode"
             value={form.slaveAddressMode}
-            onChange={(e) => set("slaveAddressMode", Number(e.target.value))}
-          >
-            <option value={0}>Single Slave</option>
-            <option value={1}>Multiple Slaves</option>
-          </SelectControl>
+            onValueChange={(value) => set("slaveAddressMode", Number(value))}
+            options={[{ value: "0", label: "Single Slave" }, { value: "1", label: "Multiple Slaves" }]}
+          />
         </FieldRow>
         {(form.slaveAddressMode === 1 || [...dirtyKeys].some((key) => key.startsWith("slaves."))) && (
           <FieldRow
@@ -830,11 +786,9 @@ function DeviceMeSection({ view }: { view: Extract<ProjectView, { family: "me-mb
           <SelectControl
             id="cfg-me-tempMode"
             value={form.temperatureMode}
-            onChange={(e) => set("temperatureMode", Number(e.target.value))}
-          >
-            <option value={0}>Celsius</option>
-            <option value={1}>Fahrenheit</option>
-          </SelectControl>
+            onValueChange={(value) => set("temperatureMode", Number(value))}
+            options={[{ value: "0", label: "Celsius" }, { value: "1", label: "Fahrenheit" }]}
+          />
         </FieldRow>
         <FieldRow label="Polling period" hint="For the whole installation">
           <TextControl

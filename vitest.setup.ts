@@ -29,5 +29,14 @@ if (typeof window.localStorage?.getItem !== "function") {
   Object.defineProperty(window, "localStorage", { configurable: true, value: memory });
 }
 
+// jsdom has no ResizeObserver; Radix popper measures its content with one.
+if (typeof window.ResizeObserver === "undefined") {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // vitest runs without globals, so RTL's automatic cleanup never registers.
 afterEach(() => cleanup());

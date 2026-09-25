@@ -1,9 +1,9 @@
 "use client";
 
-import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import type { InputHTMLAttributes } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { Select, type SelectProps } from "@/components/ui/select";
 import { Switch, type SwitchProps } from "@/components/ui/switch";
 import { usePropertyField } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
@@ -99,7 +99,7 @@ export function DraftInput({ inlineDot, ...props }: InputHTMLAttributes<HTMLInpu
 }
 
 /** V12: a pending select keeps its normal border and background (the dot marks it). */
-export function DraftSelect({ inlineDot, ...props }: SelectHTMLAttributes<HTMLSelectElement> & DraftControlProps) {
+export function DraftSelect({ inlineDot, ...props }: SelectProps & DraftControlProps) {
   const { field, entry, change, disabled, error } = usePropertyField(props.id);
   if (!field) return <Select {...props} />;
   const value = entry && entry.conflict !== "entity" ? entry.value : field.base;
@@ -114,7 +114,7 @@ export function DraftSelect({ inlineDot, ...props }: SelectHTMLAttributes<HTMLSe
           disabled={props.disabled || disabled}
           aria-invalid={!!error || !!entry?.conflict}
           aria-describedby={describedBy(field.id, error, !!entry, props["aria-describedby"])}
-          onChange={(event) => change(field.id, event.target.value)}
+          onValueChange={(next) => change(field.id, next)}
           data-dirty={!!entry}
         />
       </div>

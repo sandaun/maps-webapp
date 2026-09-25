@@ -76,6 +76,10 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .property-save-bar { animation: property-save-up .22s ease-out; }
+@keyframes select-menu-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .property-save-bar { animation: none; }
 }

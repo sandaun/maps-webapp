@@ -100,17 +100,13 @@ export function BulkEditDialog<R>({
         </label>
         <Select
           id="bulk-field"
+          size="sm"
           className="mt-1"
           value={field}
-          onChange={(e) => selectField(e.target.value)}
+          onValueChange={selectField}
+          options={bulkCols.map((c) => ({ value: c.id, label: c.bulkLabel ?? c.header }))}
           aria-label="Bulk edit field"
-        >
-          {bulkCols.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.bulkLabel}
-            </option>
-          ))}
-        </Select>
+        />
         {col?.kind === "switch" ? (
           <div className="mt-4 flex items-center gap-2">
             <Switch aria-label="Bulk value" checked={checked} onCheckedChange={setChecked} />
@@ -123,17 +119,13 @@ export function BulkEditDialog<R>({
             </label>
             <Select
               id="bulk-value"
+              size="sm"
               className="mt-1"
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onValueChange={setValue}
+              options={col.options?.(sample) ?? []}
               aria-label="Bulk value"
-            >
-              {(col.options?.(sample) ?? []).map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </Select>
+            />
           </>
         ) : (
           <>

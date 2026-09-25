@@ -227,48 +227,33 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
           <Select
             id={`rtu-${nodeIndex}-baud`}
             value={form.baudrate}
-            onChange={(e) => set("baudrate", Number(e.target.value))}
-          >
-            {BAUD_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(value) => set("baudrate", Number(value))}
+            options={BAUD_RATES.map((rate) => ({ value: String(rate), label: String(rate) }))}
+          />
         </Field>
         <Field label="Data bits" htmlFor={`rtu-${nodeIndex}-databits`}>
           <Select
             id={`rtu-${nodeIndex}-databits`}
             value={form.dataBits}
-            onChange={(e) => set("dataBits", Number(e.target.value))}
-          >
-            {[5, 6, 7, 8].map((bits) => (
-              <option key={bits} value={bits}>
-                {bits}
-              </option>
-            ))}
-          </Select>
+            onValueChange={(value) => set("dataBits", Number(value))}
+            options={[5, 6, 7, 8].map((bits) => ({ value: String(bits), label: String(bits) }))}
+          />
         </Field>
         <Field label="Parity" htmlFor={`rtu-${nodeIndex}-parity`}>
           <Select
             id={`rtu-${nodeIndex}-parity`}
             value={form.parity}
-            onChange={(e) => set("parity", Number(e.target.value) as 0 | 1 | 2)}
-          >
-            <option value={0}>None</option>
-            <option value={1}>Odd</option>
-            <option value={2}>Even</option>
-          </Select>
+            onValueChange={(value) => set("parity", Number(value) as 0 | 1 | 2)}
+            options={[{ value: "0", label: "None" }, { value: "1", label: "Odd" }, { value: "2", label: "Even" }]}
+          />
         </Field>
         <Field label="Stop bits" htmlFor={`rtu-${nodeIndex}-stopbits`}>
           <Select
             id={`rtu-${nodeIndex}-stopbits`}
             value={form.stopBits}
-            onChange={(e) => set("stopBits", Number(e.target.value) as 1 | 2)}
-          >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-          </Select>
+            onValueChange={(value) => set("stopBits", Number(value) as 1 | 2)}
+            options={[{ value: "1", label: "1" }, { value: "2", label: "2" }]}
+          />
         </Field>
         <Field label="Inter-frame (ms)" htmlFor={`rtu-${nodeIndex}-tir`}>
           <NumberInput
@@ -282,11 +267,9 @@ function RtuNodeCard({ node, nodeIndex }: { node: MbmRtuNode; nodeIndex: number 
           <Select
             id={`rtu-${nodeIndex}-port`}
             value={form.physicalPort}
-            onChange={(e) => set("physicalPort", Number(e.target.value) as 0 | 1)}
-          >
-            <option value={1}>Port B</option>
-            <option value={0}>Port A</option>
-          </Select>
+            onValueChange={(value) => set("physicalPort", Number(value) as 0 | 1)}
+            options={[{ value: "1", label: "Port B" }, { value: "0", label: "Port A" }]}
+          />
         </Field>
         <label className="flex items-center gap-2 self-end pb-2 text-sm">
           <PropertyCheckbox id={`rtu-${nodeIndex}-pollAfterWrite`} checked={form.pollAfterWrite} onChange={(e) => set("pollAfterWrite", e.target.checked)} />
@@ -448,13 +431,12 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           id={`${group}-baseRegister`}
           inlineDot
           aria-label="Base register"
-          className="h-7 w-24 text-xs"
+          size="sm"
+          className="w-24"
           value={form.baseRegister}
-          onChange={(e) => set("baseRegister", Number(e.target.value) as 0 | 1)}
-        >
-          <option value={0}>0-based</option>
-          <option value={1}>1-based</option>
-        </Select>
+          onValueChange={(value) => set("baseRegister", Number(value) as 0 | 1)}
+          options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
+        />
       </TableCell>
       <TableCell>
         <Input
