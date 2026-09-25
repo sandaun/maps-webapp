@@ -121,6 +121,29 @@ describe("xml-ops", () => {
     expect(project.mbm.rtuNodes[0].devices[1]).toMatchObject({ name: "Meter", slave: 22 });
   });
 
+  it("adds devices disabled, on the first free slave and named after it (MAPS CreateRTUSlave)", () => {
+    const doc = parseFixture();
+    const slaves = projectFromXml(doc).mbm.rtuNodes[0].devices.map((device) => device.slave);
+    const idx = addDevice(doc, { kind: "rtu", nodeIndex: 0 });
+    let expected = 1;
+    while (slaves.includes(expected)) expected++;
+    expect(projectFromXml(doc).mbm.rtuNodes[0].devices[idx]).toMatchObject({
+      slave: expected,
+      name: `Device ${expected}`,
+      timeout: 1000,
+      enabled: false,
+    });
+  });
+
+  it("skips taken names when naming a new device (MAPS GetFirstFreeDeviceName)", () => {
+    const doc = parseFixture();
+    addTcpNode(doc);
+    addDevice(doc, { kind: "tcp", nodeIndex: 0 });
+    updateDevice(doc, { kind: "tcp", nodeIndex: 0, deviceIndex: 0 }, { slave: 5, name: "Device 1" });
+    addDevice(doc, { kind: "tcp", nodeIndex: 0 });
+    expect(projectFromXml(doc).mbm.tcpNodes[0].devices[1]).toMatchObject({ slave: 1, name: "Device 2" });
+  });
+
   it("setKnxExtendedAddresses toggles the flag", () => {
     const doc = parseFixture();
     setKnxExtendedAddresses(doc, true);
@@ -172,7 +195,7 @@ describe("topology removal (MAPS DeleteDevice / DeleteTCPNode)", () => {
     const project = projectFromXml(doc);
     expect(project.mbm.rtuNodes[0].devices.map((d) => [d.index, d.name])).toEqual([
       [0, "Heat pump"],
-      [1, "Device 2"],
+      [1, "Device 3"],
     ]);
     expect(refOf(doc, 2)).toBeUndefined();
     expect(refOf(doc, 4)).toBeUndefined();
@@ -196,7 +219,8 @@ describe("topology removal (MAPS DeleteDevice / DeleteTCPNode)", () => {
     updateDevice(doc, { kind: "rtu", nodeIndex: 0, deviceIndex: 1 }, { name: "Edited" });
     const devices = projectFromXml(doc).mbm.rtuNodes[0].devices;
     expect(devices.map((d) => d.index)).toEqual([0, 1, 2]);
-    expect(devices.map((d) => d.name)).toEqual(["Device 1", "Edited", "Device 2"]);
+    // Slave 1 was freed by the removal, so the new device takes it and its name.
+    expect(devices.map((d) => d.name)).toEqual(["Device 2", "Edited", "Device 1"]);
   });
 
   it("removes a TCP node: renumbers later nodes, unassigns its signals and shifts later ports", () => {

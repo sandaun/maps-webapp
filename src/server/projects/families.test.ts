@@ -29,6 +29,15 @@ function topology() {
     { type: "addTcpNode" },
     { type: "addDevice", locator: { kind: "tcp", nodeIndex: 0 } },
     { type: "addDevice", locator: { kind: "tcp", nodeIndex: 1 } },
+    // New devices start disabled, as in MAPS; enable them so their signals are emitted.
+    ...([["rtu", 0, 1], ["rtu", 0, 2], ["tcp", 0, 0], ["tcp", 1, 0]] as const).map(
+      ([kind, nodeIndex, deviceIndex]): ProjectPatch => ({
+        type: "updateDevice",
+        locator: { kind, nodeIndex },
+        deviceIndex,
+        patch: { enabled: true },
+      }),
+    ),
     ...refs.map((): ProjectPatch => ({ type: "addSignal" })),
     { type: "updateSignal", id: 0, patch: { description: "s0" } },
     { type: "updateSignal", id: 1, patch: { description: "s1" } },

@@ -315,7 +315,8 @@ export function updateTcpNode(doc: XmlDocument, nodeIndex: number, patch: Partia
 export function addDevice(doc: XmlDocument, locator: NodeLocator): number {
   const node = nodeAt(doc, locator);
   const index = node.devices.length;
-  appendChildIndented(node.el, deviceToXml(defaultDevice(index)), 4);
+  const siblings = node.devices.map((el) => ({ slave: Number(getAttr(el, "SlaveNum")), name: getAttr(el, "Name") ?? "" }));
+  appendChildIndented(node.el, deviceToXml(defaultDevice(index, siblings)), 4);
   return index;
 }
 

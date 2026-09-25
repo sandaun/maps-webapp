@@ -63,15 +63,25 @@ export interface MbmConfig {
   tcpNodes: MbmTcpNode[];
 }
 
-export function defaultDevice(index: number): MbmDevice {
+/**
+ * A new device as MAPS CreateRTUSlave / CreateTCPSlave make it: disabled, on
+ * the first free slave id from 1 and named after it (GetFirstFreeAddress /
+ * GetFirstFreeDeviceName).
+ */
+export function defaultDevice(index: number, siblings: Array<Pick<MbmDevice, "slave" | "name">> = []): MbmDevice {
+  let slave = 1;
+  while (siblings.some((device) => device.slave === slave)) slave++;
+  let num = slave;
+  let name = `Device ${slave}`;
+  while (siblings.some((device) => device.name === name)) name = `Device ${++num}`;
   return {
     index,
-    name: `Device ${index}`,
+    name,
     manufacturer: "",
-    slave: 1,
+    slave,
     baseRegister: 0,
     timeout: DEVICE_TIMEOUT_RANGE.default,
-    enabled: true,
+    enabled: false,
   };
 }
 
