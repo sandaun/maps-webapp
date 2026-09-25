@@ -31,6 +31,16 @@ pas). Al projecte hi ha **dos mecanismes diferents** que sovint es barregen:
   (`knx-mbm/from-xml.ts:157-158`) però es guarden com a **string cru**
   (`"0,0;"`), sense parseig ni validació semàntica (zod: `string.max(1024)`,
   `patch/route.ts:244`).
+- **[bug, 2026-09-25] Aquests dos camps només llegeixen una meitat del senyal.**
+  Cada senyal té dues meitats a l'XML (KNX + MBM, o MBS + ME) i cadascuna porta
+  les seves refs. El codi fa `textOf(intern) ?? textOf(extern)`, però l'etiqueta
+  interna sempre hi és (encara que buida, `""`), així que el `??` no cau mai a
+  l'externa. A la 770 Air, 12 senyals tenen conversions només a la meitat ME i
+  per a `idxOperations` no en tenen cap. Vegeu §5.
+- `conversionCode` (2026-09-25): camp de només lectura calculat a
+  `from-xml.ts` amb **les dues meitats**, port de
+  `CreateStringFromConversions` (`src/core/signals/conversion-code.ts`). És el
+  que mostra la columna "Conv. Id".
 
 ### 1.2 UI
 
@@ -38,6 +48,10 @@ pas). Al projecte hi ha **dos mecanismes diferents** que sovint es barregen:
   per tipus (`conversionDetail`, `configuration-screen.tsx:1074-1114`): filter
   (tipus/comparació/valors), scale (rangs), arith (`y = x·B·(10^A)+C`), logical
   (OR→AND→XOR), LUT (taula + flag inversa).
+- Signals: columna **"Conv. Id"** (2026-09-25) a la banda GATEWAY de les dues
+  famílies, de només lectura i amagada per defecte com a MAPS
+  (`defaultHidden`). Mostra `conversionCode`, p.ex.
+  `DIRECTION[>/<]:INDEXES[-;0;1;-]`.
 - **Cap UI escriu conversions ni assignacions**: ni alta/edició/eliminació de
   conversions, ni assignació per senyal. L'única via d'entrada és la
   importació XLSX (columna "Operations", `xlsx-signals.ts:102`).
@@ -69,6 +83,21 @@ pas). Al projecte hi ha **dos mecanismes diferents** que sovint es barregen:
     invers i marcades invertides** (`idx,1`). Filtres: simètric
     (`SaveFilters` :544-573).
 - Format del string d'assignació: `idx,inverted;` (`IntesisXML.cs:310-323`).
+- **Columnes del grid de senyals** (`IntesisConversion.GetColumnHeaders`,
+  `IntesisConversion.cs:415-440`), les dues amb `Visible = false` per defecte:
+  - **"Conv. Id"** (`column_conversionsCode`): text de només lectura
+    `DIRECTION[x]:INDEXES[f;op1;op2;f]` fet amb les dues meitats
+    (`CreateStringFromConversions`, `:698-762`). Direccions: `>` només intern,
+    `<` només extern, `>/<` / `</>` tots dos (segons si l'intern té alguna op
+    no invertida).
+  - **"Conversions"** (`column_conversions`): botó "Enabled" / "-" que obre
+    `frmSelectConversion` (`IntesisProjectKnxMbm_RT.cs:641-705`,
+    `IntesisProjectMbsMe_RT.cs:624-690`).
+- **Excel**: el full "Signals" bolca **totes les columnes del grid**
+  (`IntesisExcel.cs:152-170`), així que les conversions hi van com el text de
+  "Conv. Id", amb les dues meitats. En importar, `CheckConversionIntegrity`
+  (`ExcelParser.cs:232`) valida aquesta columna i `ConvertStringToConversion`
+  (`IntesisConversion.cs:800-830`) en treu les refs de cada meitat.
 - **RemapLUTs**: sense editor enlloc; són dades fixes del firmware RT.
 
 ## 3. La bidireccionalitat, explicada de veritat
@@ -82,8 +111,8 @@ conversió inversa com a entrada separada de la taula activa.
 
 La nostra maquinària XBL **ja ho suporta tot** (transformConversion + refs per
 costat). El problema actual: com que no hi ha UI d'assignació i el patch
-escriu **el mateix string als dos costats** (`knx-mbm/xml-ops.ts:146-153`,
-`me-mbs/xml-ops.ts:228-231`), un senyal read-write amb conversió aplica la
+escriu **el mateix string als dos costats** (`knx-mbm/xml-ops.ts:168-174`,
+`me-mbs/xml-ops.ts:250-256`), un senyal read-write amb conversió aplica la
 mateixa cadena no invertida en ambdues direccions → **doble conversió en el
 mateix sentit en escriptura**. És el bug de bidireccionalitat que ja havíem
 detectat.
@@ -98,8 +127,8 @@ detectat.
   escrigui les refs simètriques als dos costats (intern no invertit, extern
   invertit i en ordre invers) — replicant `SaveOperations`/`SaveFilters`.
 - UI: a la taula/drawer de senyals, selector de pipeline per senyal amb la
-  restricció per direcció del senyal (read/write/readwrite). Disseny pendent
-  (capítol V12 amb Claude design).
+  restricció per direcció del senyal (read/write/readwrite). A MAPS s'hi entra
+  pel botó de la columna "Conversions" (§2). Disseny pendent amb Claude design.
 
 ### 4.2 Gestió de la llista (config)
 
@@ -121,3 +150,30 @@ detectat.
 - Unificar la interfície `Conversion` duplicada de les dues famílies en un sol
   mòdul (p.ex. `src/protocols/conversions.ts`).
 - Params com a numbers al model en lloc de strings.
+
+## 5. Divergències amb MAPS pendents (detectades 2026-09-25)
+
+Trobades en fer la columna "Conv. Id". Són anteriors a aquesta feina i van en
+una branca pròpia. Cal fer-les bé perquè afecten el que arriba al gateway i el
+que s'intercanvia amb MAPS.
+
+1. **Model d'una sola meitat.** `idxOperations` / `idxFilters`
+   (`knx-mbm/from-xml.ts:157-158`, `me-mbs/from-xml.ts:197-200`) només tenen la
+   meitat interna (§1.1). MAPS guarda les refs de cada meitat per separat
+   (`FilterIDs` / `OperationIDs` de l'objecte intern i de l'extern). Cal que el
+   model tingui les dues meitats, i que tot el que ara fa servir aquests camps
+   (export, import, patch) passi a fer-les servir.
+2. **Export XLSX.** KNX-MBM escriu "Filters" / "Operations" amb el text cru
+   d'una sola meitat (`maps-grid-values.ts:278-279`); ME-MBS no n'escriu res
+   (`meSignalRow`). MAPS escriu la columna "Conv. Id" amb les dues meitats
+   (§2). Conseqüència: un Excel nostre no porta bé les conversions a MAPS, i a
+   ME-MBS no en porta cap.
+3. **Import XLSX.** Només KNX-MBM llegeix "Filters" / "Operations"
+   (`imports/xlsx-signals.ts:101-102`) i aplica el mateix text a les dues
+   meitats. Hauria de llegir "Conv. Id" i repartir-lo per meitats com
+   `ConvertStringToConversion`.
+4. **Patch.** Escriu el mateix text a les dues meitats (§3): cal fer-ho com
+   `SaveOperations` / `SaveFilters` (extern en ordre invers i invertit). Avui
+   cap pantalla el fa servir, però l'API l'accepta.
+5. **Botó "Conversions" del grid.** Falta (§4.1).
+
