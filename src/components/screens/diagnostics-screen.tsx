@@ -353,19 +353,20 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       if (!cmd) return;
       setConInput("");
       setConOpen(true);
-      echo(CON_ECHO, `> ${cmd}`);
+      // MAPS convention: `<` sent, `>` received (frmMain.cs:3281, 3416).
+      echo(CON_ECHO, `< ${cmd}`);
       try {
         const result = await sendConsoleCommand(session.id, cmd);
         if (result.lines.length === 0) {
-          echo(CON_SILENT, "< (no answer — this firmware ignores unknown commands)");
+          echo(CON_SILENT, "> (no answer — this firmware ignores unknown commands)");
         } else {
-          for (const answer of result.lines) echo(CON_ANSWER, `< ${answer}`);
+          for (const answer of result.lines) echo(CON_ANSWER, `> ${answer}`);
         }
         if (result.timedOut) {
-          echo(CON_WARN, "< (answer may be incomplete — timed out waiting for it to settle)");
+          echo(CON_WARN, "> (answer may be incomplete — timed out waiting for it to settle)");
         }
       } catch (err) {
-        echo(CON_ERROR, `< ${errorMessage(err, "Command failed")}`);
+        echo(CON_ERROR, `> ${errorMessage(err, "Command failed")}`);
       }
     },
     [echo, session.id],
