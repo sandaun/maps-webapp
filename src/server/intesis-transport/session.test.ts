@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GatewayError, GatewaySession } from "./session";
+import { GatewayError, GatewaySession, isCommandAnswer } from "./session";
 import { FAKE_INFO_BODY, FakeGateway, makeTestBlob } from "./testing/fake-gateway";
 
 /**
@@ -305,6 +305,18 @@ describe("diagnostics console and monitor", () => {
     session.close();
   });
 
+  it("routes pushes that arrive during a command to the monitor, not to its answer", async () => {
+    const fake = new FakeGateway({ password: "admin" });
+    const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
+    await session.connect();
+    const lines: string[] = [];
+    await session.setMonitor(true, (line) => lines.push(line));
+    const write = await session.runConsoleCommand("1MM:00000000=1;", FAST);
+    expect(write.lines).toEqual(["1MM:OK"]);
+    expect(lines).toContain("0KX:00020003=1.00;1");
+    session.close();
+  });
+
   it("refuses the monitor for an application without known console prefixes", async () => {
     const fake = new FakeGateway({ password: "admin", infoBody: "INFO:APPID:999\r\n" });
     const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });
@@ -336,5 +348,26 @@ describe("diagnostics console and monitor", () => {
     expect(Buffer.from(data)).toEqual(Buffer.from(blob));
     expect(session.monitoring).toBe(true);
     session.close();
+  });
+});
+
+describe("isCommandAnswer", () => {
+  it("keeps ACKs, errors and the addressed signal's value with the command", () => {
+    expect(isCommandAnswer("0KX:SPONS=1", "0KX:OK")).toBe(true);
+    expect(isCommandAnswer("1MM:000000FF=0;", "1MM:Unknown signal")).toBe(true);
+    expect(isCommandAnswer("1MM:00000001?", "1MM:00000001=0;0")).toBe(true);
+    expect(isCommandAnswer("0KX:00020003?", "0KX:00020003=21.00;0")).toBe(true);
+  });
+
+  it("treats other protocol lines as pushes", () => {
+    expect(isCommandAnswer("1MM:00000000=1;", "0KX:00020003=1.00;1")).toBe(false);
+    expect(isCommandAnswer("0KX:000B000C=1", "0KX:[Tx] BC FF FF 00 03 E3 00 80 00 64 47")).toBe(false);
+    expect(isCommandAnswer("1MM:00000001?", "1MM:00000002=5;1")).toBe(false);
+    expect(isCommandAnswer("INFO?", "1MM:RTUB Timeout!")).toBe(false);
+  });
+
+  it("keeps non-protocol lines with the command", () => {
+    expect(isCommandAnswer("INFO?", "INFO:STATUS:RUNNING")).toBe(true);
+    expect(isCommandAnswer("DIAGS?", "SKT3 - OK")).toBe(true);
   });
 });

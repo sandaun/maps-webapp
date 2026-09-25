@@ -172,7 +172,7 @@ Pendents (abans de disseny):
   `0:SPONS=0`…; el MAPS les envia amb prefix (`frmSendSingle.cs:303`,
   `0KX:SPONS=0`) i el firmware ignora la variant sense prefix en silenci
   (validat en viu 2026-09-25). Cada pre-comanda espera fins a 5 s i no atura res.
-- **Pushes dins la resposta d'una comanda** [falta]: mentre una comanda de
+- **Pushes dins la resposta d'una comanda** [fet 2026-09-25, `isCommandAnswer`]: mentre una comanda de
   consola espera el seu silenci, el col·lector s'empassa les línies espontànies
   (`0KX:00020003=1.00;1`, `0KX:[Tx] BC …`, `DB_MSG`) i surten a la consola en
   lloc del monitor. El MAPS encamina cada línia rebuda pel seu tipus

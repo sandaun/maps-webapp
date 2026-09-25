@@ -92,6 +92,24 @@ const TOGGLE_OPTS: ConsoleCommandOptions = {
   doneWhen: (line) => /^[0-2][A-Z]{2}:OK$/.test(line) || line.includes("ERR"),
 };
 
+/** `<port><PREFIX>:` head of a protocol console line (`0KX:`, `1MM:`). */
+const PROTOCOL_HEAD_RE = /^([0-2][A-Z]{2}):/;
+
+/**
+ * True when `line` answers `command`: same `<port><PREFIX>` and either an
+ * ACK/error or the value of the signal the command addressed. Any other
+ * protocol line is a push (SPONS/COMMS/DEBUG) that only coincides in time.
+ */
+export function isCommandAnswer(command: string, line: string): boolean {
+  const head = PROTOCOL_HEAD_RE.exec(line)?.[1];
+  if (!head) return true;
+  if (PROTOCOL_HEAD_RE.exec(command)?.[1] !== head) return false;
+  const rest = line.slice(head.length + 1);
+  if (rest === "OK" || rest.startsWith("Unknown") || rest.includes("ERR")) return true;
+  const id = /^([0-9A-Fa-f]+)[?=]/.exec(command.slice(head.length + 1))?.[1];
+  return id !== undefined && rest.toUpperCase().startsWith(`${id.toUpperCase()}=`);
+}
+
 /** Monitor toggles, in the MAPS order (frmMain.cs:2153-2181). */
 const MONITOR_TOGGLES = ["SPONS", "COMMS", "DEBUG"] as const;
 
@@ -198,6 +216,7 @@ export interface ConsoleCommandOptions {
 
 /** Pending console-command response collector, fed by the pump loop. */
 interface ConsoleCollector {
+  command: string;
   lines: string[];
   lastLineAt: number;
   deadline: number;
@@ -669,6 +688,7 @@ export class GatewaySession {
     const result = new Promise<ConsoleResult>((resolve) => {
       const now = Date.now();
       this.collector = {
+        command,
         lines: [],
         lastLineAt: now,
         deadline: now + timeoutMs,
@@ -702,7 +722,11 @@ export class GatewaySession {
         const now = Date.now();
         if (line !== null) {
           const text = new TextDecoder().decode(line).replace(/\r\n$/, "");
-          if (this.collector) {
+          // Like the MAPS (ManageConsoleViewers, frmMain.cs:3274), pushes are
+          // routed by line type, not by the command that happens to be pending.
+          if (this.collector && this.monitorOn && !isCommandAnswer(this.collector.command, text)) {
+            this.monitorListener?.(text);
+          } else if (this.collector) {
             this.collector.lines.push(text);
             this.collector.lastLineAt = now;
             if (this.collector.doneWhen?.(text)) {

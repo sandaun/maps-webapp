@@ -83,6 +83,7 @@ export class FakeGateway implements Duplex {
   private signalValues = new Map<string, string>();
   private commsTick = 0;
   private debugOn = false;
+  private sponsOn = false;
   closed = false;
 
   constructor(private readonly config: FakeGatewayConfig) {
@@ -270,11 +271,19 @@ export class FakeGateway implements Duplex {
     const id = `${m[1]}${m[2]}:${m[3]}`.toUpperCase();
     this.signalValues.set(id, m[4]);
     this.respondEncrypted(`${m[1]}${m[2]}:OK\r\n`);
+    if (this.sponsOn && id === "1MM:00000000") {
+      // Live-observed (2026-09-25): the write propagates to the mapped KNX
+      // object and SPONS reports it right after the ACK.
+      const value = Number(m[4]).toFixed(2);
+      this.signalValues.set("0KX:00020003", value);
+      this.respondEncrypted(`0KX:00020003=${value};1\r\n`);
+    }
   }
 
   /** Starts/stops the SPONS/COMMS push timers after a console toggle. */
   private updatePushes(line: string): void {
     const on = line.endsWith("=1");
+    if (/SPONS=/.test(line)) this.sponsOn = on;
     // DEBUG only toggles timeout visibility; it must not restart the stream.
     if (/DEBUG=/.test(line)) {
       this.debugOn = on;
