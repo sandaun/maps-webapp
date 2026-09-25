@@ -44,23 +44,28 @@ function write(key: string, hidden: Record<string, boolean>) {
   for (const listener of listeners.get(key) ?? []) listener();
 }
 
-/** Hidden-column map persisted like grid widths (true = hidden). */
-export function useColumnVisibility(storageKey: string) {
+/**
+ * Hidden-column map persisted like grid widths (true = hidden). Columns in
+ * `defaultHidden` start hidden until the user toggles them.
+ */
+export function useColumnVisibility(storageKey: string, defaultHidden: readonly string[] = []) {
   const snapshot = React.useSyncExternalStore(
     React.useCallback((listener) => subscribe(storageKey, listener), [storageKey]),
     React.useCallback(() => read(storageKey), [storageKey]),
     () => "{}",
   );
   const hidden = React.useMemo(() => parse(snapshot), [snapshot]);
+  const defaults = React.useMemo(() => new Set(defaultHidden), [defaultHidden]);
 
   const toggle = React.useCallback(
     (id: string) => {
-      write(storageKey, { ...parse(read(storageKey)), [id]: !parse(read(storageKey))[id] });
+      const current = parse(read(storageKey));
+      write(storageKey, { ...current, [id]: !(current[id] ?? defaults.has(id)) });
     },
-    [storageKey],
+    [storageKey, defaults],
   );
 
-  const isHidden = React.useCallback((id: string) => hidden[id] === true, [hidden]);
+  const isHidden = React.useCallback((id: string) => hidden[id] ?? defaults.has(id), [hidden, defaults]);
 
   return { hidden, isHidden, toggle };
 }

@@ -24,6 +24,8 @@ export interface GridColumn<R> {
   maxWidth?: number;
   resizable?: boolean;
   frozen?: boolean;
+  /** Starts hidden in the column picker until the user shows it. */
+  defaultHidden?: boolean;
   kind: EditorKind;
   /** Shown in bulk "Edit field…"; omit to exclude from bulk. */
   bulkLabel?: string;
