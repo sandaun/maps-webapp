@@ -497,7 +497,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
               ]).then((ok) => ok && setConfirmRemove(false))
             }
           >
-            <div className="whitespace-normal text-[12.5px] text-text-body">
+            <div className="text-[12.5px] text-text-body">
               {signals.length === 0 ? (
                 <p>No signals use this device.</p>
               ) : (

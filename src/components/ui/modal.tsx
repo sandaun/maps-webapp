@@ -50,7 +50,7 @@ export function Modal({
       <div
         role="dialog"
         aria-label={title}
-        className="relative w-full overflow-hidden rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]"
+        className="relative w-full overflow-hidden whitespace-normal rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]"
         style={{ maxWidth: width }}
       >
         <div className="border-b border-border px-[22px] pb-[14px] pt-[18px]">
