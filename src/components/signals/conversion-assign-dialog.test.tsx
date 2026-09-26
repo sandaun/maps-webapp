@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { XmlDocument } from "@/core/project-format";
-import { projectFromXml, setConversions, updateSignal } from "@/gateway-families/knx-mbm";
+import { setAttr, XmlDocument, type XmlElement } from "@/core/project-format";
+import { addSignal, projectFromXml, setConversions, updateSignal } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxFlags } from "@/protocols/knx";
@@ -223,5 +223,98 @@ describe("ConversionAssignDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("ConversionAssignDialog · bulk", () => {
+  /** Signals 0 (write only), 1 (read only, with Fan %), 2 (read only), 3 (read + write), 4 (virtual). */
+  function selection() {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    setConversions(doc, [
+      { id: 0, description: "Valid", type: 0, params: ["1", "4", "-50", "150"] },
+      { id: 0, description: "Fan %", type: 1, params: ["0", "1000", "0", "100"] },
+    ]);
+    updateSignal(doc, 1, { conversionRefs: { internal: { filters: [], operations: [] }, external: { filters: [], operations: [ref(0)] } } });
+    for (let i = 0; i < 3; i++) addSignal(doc);
+    updateSignal(doc, 2, { knx: { flags: { u: false, t: true, ri: false, w: false, r: true } } });
+    updateSignal(doc, 3, { knx: { flags: READ_WRITE } });
+    const knxObject = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: "4" }])!;
+    const virtualEl = knxObject.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual")!;
+    setAttr(virtualEl, "Status", "True");
+    return projectFromXml(doc);
+  }
+  function openBulk(p = selection()) {
+    render(<ConversionAssignDialog signals={p.signals} project={p} onClose={onClose} onApply={onApply} />);
+    return p;
+  }
+
+  it("applies to the majority direction and lists the skipped signals with the reason", async () => {
+    const p = openBulk();
+    expect(screen.getByRole("dialog", { name: "Conversions · 5 selected signals" })).toBeTruthy();
+    expect(screen.getByText("5 signals · 2 read only · 1 write only · 1 read + write · 1 virtual")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Read only (2)" }).getAttribute("aria-checked")).toBe("true");
+    const skipped = screen.getByRole("region", { name: "Skipped signals" });
+    expect(within(skipped).getByText(/Write only · the operations would run in the other direction/)).toBeTruthy();
+    expect(within(skipped).getByText(/Virtual signal/)).toBeTruthy();
+    // Empty slots would clear the group: Apply needs a slot.
+    expect(screen.getByRole("button", { name: "Apply to 2 signals" })).toBeDisabled();
+    fireEvent.click(slot("Read · Modbus → KNX", /^Modbus side · filter/));
+    fireEvent.click(screen.getByRole("option", { name: /Valid/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply to 2 signals" }));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    const selectionPatch = { conversions: { internalFilter: null, operations: [], externalFilter: 0, master: "internal" } };
+    expect(onApply.mock.calls[0]).toEqual([
+      [
+        { type: "updateSignal", id: 1, patch: selectionPatch },
+        { type: "updateSignal", id: 2, patch: selectionPatch },
+      ],
+      [
+        { type: "restoreSignalConversions", id: 1, refs: p.signals[1].conversions },
+        { type: "restoreSignalConversions", id: 2, refs: p.signals[2].conversions },
+      ],
+    ]);
+  });
+
+  it("switches to another direction of the selection, with its own Define for", () => {
+    openBulk();
+    fireEvent.click(screen.getByRole("radio", { name: "Read + write (1)" }));
+    expect(screen.getByRole("radiogroup", { name: "Define the operations for" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Write · KNX → Modbus" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Read · Modbus → KNX" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Apply to 1 signal" })).toBeTruthy();
+  });
+
+  it("asks before a direction change of the selection discards a typed new entry", () => {
+    openBulk();
+    fireEvent.click(slot("Read · Modbus → KNX", /^Operation next to KNX/));
+    fireEvent.click(screen.getByRole("button", { name: "+ New operation…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Description" }), { target: { value: "Tenths" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Write only (1)" }));
+    expect(screen.getByText("Discard the new operation?")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Read only (2)" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect((screen.getByRole("textbox", { name: "Description" }) as HTMLInputElement).value).toBe("Tenths");
+    fireEvent.click(screen.getByRole("radio", { name: "Write only (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.getByRole("radio", { name: "Write only (1)" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByRole("textbox", { name: "Description" })).toBeNull();
+  });
+
+  it("clears the conversions of the selection after confirming, with an undo", async () => {
+    const p = openBulk();
+    fireEvent.click(screen.getByRole("button", { name: "Clear conversions…" }));
+    expect(screen.getByText("Clear the conversions of 1 signal? Undo puts them back.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear conversions" }));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(onApply.mock.calls[0]).toEqual([
+      [
+        {
+          type: "updateSignal",
+          id: 1,
+          patch: { conversions: { internalFilter: null, operations: [], externalFilter: null, master: "internal" } },
+        },
+      ],
+      [{ type: "restoreSignalConversions", id: 1, refs: p.signals[1].conversions }],
+    ]);
   });
 });

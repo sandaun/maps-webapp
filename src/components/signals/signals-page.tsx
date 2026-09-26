@@ -89,7 +89,14 @@ export function SignalsPageChrome({
       )}
       {tab === "validation" && (
         <div role="tabpanel" className="min-h-0 flex-1 overflow-auto">
-          <ValidationView issues={issues} family={family} onGoToSignal={(id) => setTab("map", { signal: id })} />
+          <ValidationView
+            issues={issues}
+            family={family}
+            onGoToSignal={(id) => setTab("map", { signal: id })}
+            onOpenConversions={
+              family === "knx-mbm" ? (id) => setTab("map", { signal: id, editConversions: true }) : undefined
+            }
+          />
         </div>
       )}
       {tab === "import" && view && (

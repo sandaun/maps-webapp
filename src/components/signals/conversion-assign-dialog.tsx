@@ -4,7 +4,10 @@ import * as React from "react";
 import { X } from "lucide-react";
 import {
   definedFlow,
+  EMPTY_SLOTS,
   flowsOf,
+  halfSteps,
+  hasAnySlot,
   libraryLists,
   refsRoundTrip,
   selectionFromSlots,
@@ -35,6 +38,7 @@ import {
 } from "@/core/conversions/rules";
 import { knxConversionRwMode } from "@/gateway-families/knx-mbm/conversions";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
+import type { ConversionRwMode } from "@/core/signals/conversion-refs";
 import { formatGroupAddress } from "@/protocols/knx/address";
 import { formatDpt } from "@/protocols/knx/dpt";
 import { FORMAT_LABELS } from "@/protocols/modbus/master";
@@ -67,16 +71,32 @@ function flagsText(signal: KnxMbmSignal): string {
     .join(" ");
 }
 
-/** Assignment editor of one KNX–MBM signal (MAPS `frmSelectConversion`, V15 layout). */
+const MODE_LABELS: Record<ConversionRwMode, string> = {
+  read: "Read only",
+  write: "Write only",
+  readwrite: "Read + write",
+};
+const MODE_ORDER: ConversionRwMode[] = ["read", "write", "readwrite"];
+const hasStoredRefs = (signal: KnxMbmSignal) =>
+  halfSteps(signal.conversions.internal).length > 0 || halfSteps(signal.conversions.external).length > 0;
+
+/**
+ * Assignment editor (MAPS `frmSelectConversion`, V15 layout): one KNX–MBM
+ * signal, or — with `signals` — the bulk mode of a selection. In bulk the
+ * slots apply to the signals of one direction (the operations mean something
+ * different on each); the rest are listed as skipped with the reason.
+ */
 export function ConversionAssignDialog({
-  signal,
+  signal: single,
+  signals: selection,
   project,
   busy,
   error,
   onClose,
   onApply,
 }: {
-  signal: KnxMbmSignal;
+  signal?: KnxMbmSignal;
+  signals?: KnxMbmSignal[];
   project: KnxMbmProject;
   busy?: boolean;
   error?: string | null;
@@ -84,8 +104,38 @@ export function ConversionAssignDialog({
   /** Resolves true once the patches are saved; `inverses` undo them. */
   onApply: (patches: ProjectPatchInput[], inverses: ProjectPatchInput[]) => Promise<boolean>;
 }) {
-  const rwMode = knxConversionRwMode(signal.knx.flags);
-  const initial = React.useMemo(() => slotsFromRefs(signal.conversions, rwMode), [signal.conversions, rwMode]);
+  const bulk = !!selection;
+  const targets = React.useMemo(() => selection ?? (single ? [single] : []), [selection, single]);
+  const signal = targets[0];
+  const modeCounts = React.useMemo(() => {
+    const counts: Record<ConversionRwMode, number> = { read: 0, write: 0, readwrite: 0 };
+    for (const s of targets) if (!s.virtual) counts[knxConversionRwMode(s.knx.flags)]++;
+    return counts;
+  }, [targets]);
+  // The majority direction; the user can pick another one present in the selection.
+  const [groupMode, setGroupMode] = React.useState<ConversionRwMode>(() =>
+    MODE_ORDER.reduce((best, mode) => (modeCounts[mode] > modeCounts[best] ? mode : best), MODE_ORDER[0]),
+  );
+  const rwMode = bulk ? groupMode : knxConversionRwMode(signal.knx.flags);
+  const applies = bulk
+    ? targets.filter((s) => !s.virtual && knxConversionRwMode(s.knx.flags) === groupMode)
+    : targets;
+  const skipped = bulk
+    ? targets
+        .filter((s) => !applies.includes(s))
+        .map((s) => ({
+          signal: s,
+          reason: s.virtual
+            ? "Virtual signal · it has no Modbus side, so it cannot have conversions."
+            : `${MODE_LABELS[knxConversionRwMode(s.knx.flags)]} · the operations would run in the other direction.`,
+        }))
+    : [];
+  const clearable = bulk ? targets.filter((s) => !s.virtual && hasStoredRefs(s)) : [];
+  const [confirmClear, setConfirmClear] = React.useState(false);
+  const initial = React.useMemo(
+    () => (bulk ? EMPTY_SLOTS : slotsFromRefs(signal.conversions, rwMode)),
+    [bulk, signal, rwMode],
+  );
   const [slots, setSlots] = React.useState<ConversionSlots>(initial);
   const [added, setAdded] = React.useState<NewEntry[]>([]);
   const [picking, setPicking] = React.useState<SlotKey | null>(null);
@@ -98,7 +148,11 @@ export function ConversionAssignDialog({
    * or an existing entry / "Leave empty" chosen for the open slot.
    */
   const [leaveTo, setLeaveTo] = React.useState<
-    { next: SlotKey | null } | { choose: { slot: SlotKey; index: number | null } } | null
+    | { next: SlotKey | null }
+    | { choose: { slot: SlotKey; index: number | null } }
+    /** Bulk: another direction of the selection. */
+    | { mode: ConversionRwMode }
+    | null
   >(null);
 
   const library = React.useMemo(
@@ -110,7 +164,7 @@ export function ConversionAssignDialog({
   const lanes = [defined, ...flows.filter((flow) => flow !== defined)];
   const draftTyped = !!newDraft && JSON.stringify(newDraft.entry) !== JSON.stringify(newDraft.initial);
   const dirty = JSON.stringify(slots) !== JSON.stringify(initial) || added.length > 0 || draftTyped;
-  const restorable = refsRoundTrip(signal.conversions, rwMode);
+  const restorable = bulk || refsRoundTrip(signal.conversions, rwMode);
 
   const goTo = (next: SlotKey | null) => {
     setPicking(next);
@@ -124,6 +178,10 @@ export function ConversionAssignDialog({
       : "Create or cancel the new operation first.";
   const choose = (slot: SlotKey, index: number | null) => {
     setSlots((s) => ({ ...s, [slot]: index }));
+    goTo(null);
+  };
+  const changeMode = (mode: ConversionRwMode) => {
+    setGroupMode(mode);
     goTo(null);
   };
   const requestPick = (slot: SlotKey) => {
@@ -148,7 +206,9 @@ export function ConversionAssignDialog({
     flows.length === 2
       ? (["op1", "op2"] as const).map(entryAt).filter((conv): conv is ConversionValues => !!conv && !conversionHasInverse(conv))
       : [];
-  const blocked = missing.length > 0 || noInverse.length > 0;
+  // Bulk: empty slots would clear the group; "Clear conversions" is the explicit way to do that.
+  const blocked =
+    missing.length > 0 || noInverse.length > 0 || (bulk && (!hasAnySlot(slots) || applies.length === 0));
 
   const close = () => {
     if (dirty && !confirmDiscard) setConfirmDiscard(true);
@@ -164,6 +224,16 @@ export function ConversionAssignDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, confirmDiscard, onClose]);
 
+  const restoreAll = (list: KnxMbmSignal[]): ProjectPatchInput[] =>
+    list.map((s) => ({ type: "restoreSignalConversions", id: s.id, refs: s.conversions }));
+  const clear = async () => {
+    const patches: ProjectPatchInput[] = clearable.map((s) => ({
+      type: "updateSignal",
+      id: s.id,
+      patch: { conversions: selectionFromSlots(EMPTY_SLOTS) },
+    }));
+    if (await onApply(patches, restoreAll(clearable))) onClose();
+  };
   const apply = async () => {
     const counts = { filters: project.conversions.filter((c) => c.type === CONVERSION_TYPE.FILTER).length };
     const additions: ProjectPatchInput[] = added.map((entry) => ({
@@ -176,7 +246,11 @@ export function ConversionAssignDialog({
     }));
     const patches: ProjectPatchInput[] = [
       ...additions,
-      { type: "updateSignal", id: signal.id, patch: { conversions: selectionFromSlots(slots) } },
+      ...applies.map((s) => ({
+        type: "updateSignal" as const,
+        id: s.id,
+        patch: { conversions: selectionFromSlots(slots) },
+      })),
     ];
     // Undo puts back the refs both halves had (even non-standard ones), then drops the new
     // entries, which are the last positions of their lists.
@@ -184,7 +258,7 @@ export function ConversionAssignDialog({
     const addedFilters = added.filter((e) => e.type === CONVERSION_TYPE.FILTER).length;
     const addedOperations = added.length - addedFilters;
     const inverses: ProjectPatchInput[] = [
-      { type: "restoreSignalConversions", id: signal.id, refs: signal.conversions },
+      ...restoreAll(applies),
       ...Array.from({ length: addedOperations }, (_, i) => ({
         type: "removeConversion" as const,
         list: "operations" as const,
@@ -200,11 +274,21 @@ export function ConversionAssignDialog({
   };
 
   const { modbus } = signal;
-  const meta = [
-    `KNX ${signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—"} · ${formatDpt(signal.knx.dpt)} · flags ${flagsText(signal) || "none"}`,
-    `Modbus ${knxDeviceLabel(project.mbm, signal)} · slave ${knxSlaveLabel(project.mbm, signal)} · register ${modbus.address} · ${FORMAT_LABELS[modbus.format] ?? "?"} ${modbus.lenBits} bit`,
-  ].join("   ·   ");
-  const dirLabel = rwMode === "readwrite" ? "Read + write" : rwMode === "read" ? "Read only" : "Write only";
+  const virtualCount = targets.filter((s) => s.virtual).length;
+  const meta = bulk
+    ? [
+        `${targets.length} signals`,
+        ...MODE_ORDER.filter((mode) => modeCounts[mode] > 0).map((mode) => `${modeCounts[mode]} ${MODE_LABELS[mode].toLowerCase()}`),
+        ...(virtualCount ? [`${virtualCount} virtual`] : []),
+      ].join(" · ")
+    : [
+        `KNX ${signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—"} · ${formatDpt(signal.knx.dpt)} · flags ${flagsText(signal) || "none"}`,
+        `Modbus ${knxDeviceLabel(project.mbm, signal)} · slave ${knxSlaveLabel(project.mbm, signal)} · register ${modbus.address} · ${FORMAT_LABELS[modbus.format] ?? "?"} ${modbus.lenBits} bit`,
+      ].join("   ·   ");
+  const dirLabel = MODE_LABELS[rwMode];
+  const title = bulk
+    ? `Conversions · ${targets.length} selected signals`
+    : `Conversions · #${signal.id + 1} ${signal.description || `Signal ${signal.id + 1}`}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-[26px]">
@@ -216,18 +300,18 @@ export function ConversionAssignDialog({
       />
       <div
         role="dialog"
-        aria-label={`Conversions · #${signal.id + 1} ${signal.description}`}
+        aria-label={title}
         className="relative flex max-h-full w-[960px] max-w-full flex-col overflow-hidden rounded-lg bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]"
       >
         <div className="flex shrink-0 items-start gap-[14px] border-b border-border px-[22px] pb-[14px] pt-[18px]">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-[10px]">
-              <h2 className="font-display text-[19px] font-normal text-hms-blue">
-                Conversions · #{signal.id + 1} {signal.description || `Signal ${signal.id + 1}`}
-              </h2>
-              <span className="inline-flex items-center rounded-full border border-border bg-[#F1F3F5] px-[7px] py-[2px] text-[11px] font-bold text-hms-blue">
-                {dirLabel}
-              </span>
+              <h2 className="font-display text-[19px] font-normal text-hms-blue">{title}</h2>
+              {!bulk && (
+                <span className="inline-flex items-center rounded-full border border-border bg-[#F1F3F5] px-[7px] py-[2px] text-[11px] font-bold text-hms-blue">
+                  {dirLabel}
+                </span>
+              )}
             </div>
             <p className="mt-[5px] font-mono text-[11.5px] leading-[1.5] text-fg-muted">{meta}</p>
           </div>
@@ -243,19 +327,33 @@ export function ConversionAssignDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-[22px] pb-5 pt-4">
-          <DirectionLine
-            signal={signal}
-            rwMode={rwMode}
-            master={slots.master}
-            onMaster={(master) => setSlots((s) => ({ ...s, master }))}
-          />
+          {bulk ? (
+            <BulkDirectionLine
+              counts={modeCounts}
+              mode={groupMode}
+              onMode={(mode) => {
+                if (mode === groupMode) return;
+                if (draftTyped) setLeaveTo({ mode });
+                else changeMode(mode);
+              }}
+              master={slots.master}
+              onMaster={(master) => setSlots((s) => ({ ...s, master }))}
+            />
+          ) : (
+            <DirectionLine
+              signal={signal}
+              rwMode={rwMode}
+              master={slots.master}
+              onMaster={(master) => setSlots((s) => ({ ...s, master }))}
+            />
+          )}
           {lanes.map((flow) => (
             <Lane
               key={flow}
               flow={flow}
               editable={flow === defined}
               derived={flows.length === 2 && flow !== defined}
-              signal={signal}
+              signal={bulk ? undefined : signal}
               project={project}
               rwMode={rwMode}
               slots={slots}
@@ -274,7 +372,8 @@ export function ConversionAssignDialog({
               onKeepEditing={() => setLeaveTo(null)}
               onLeave={() => {
                 if (leaveTo && "choose" in leaveTo) choose(leaveTo.choose.slot, leaveTo.choose.index);
-                else goTo(leaveTo?.next ?? null);
+                else if (leaveTo && "mode" in leaveTo) changeMode(leaveTo.mode);
+                else goTo(leaveTo && "next" in leaveTo ? leaveTo.next : null);
               }}
               onCreate={(slot, entry) => {
                 // A filter can only fill a filter slot and an operation an operation slot.
@@ -289,12 +388,27 @@ export function ConversionAssignDialog({
               noInverse={flow !== defined ? noInverse : []}
             />
           ))}
+          {bulk && <BulkLists applies={applies} skipped={skipped} mode={groupMode} />}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-[9px] border-t border-border bg-card-foot px-[22px] py-[14px]">
-          {confirmDiscard ? (
+          {confirmClear ? (
             <>
-              <p className="min-w-[220px] flex-1 text-[12px] font-bold text-hms-blue">Discard your changes to this signal&apos;s conversions?</p>
+              <p className="min-w-[220px] flex-1 text-[12px] font-bold text-hms-blue">
+                {`Clear the conversions of ${clearable.length} ${clearable.length === 1 ? "signal" : "signals"}? Undo puts them back.`}
+              </p>
+              <Button variant="secondary" size="sm" className="h-8" onClick={() => setConfirmClear(false)}>
+                Keep them
+              </Button>
+              <Button size="sm" className="h-8" disabled={busy} onClick={() => void clear()}>
+                Clear conversions
+              </Button>
+            </>
+          ) : confirmDiscard ? (
+            <>
+              <p className="min-w-[220px] flex-1 text-[12px] font-bold text-hms-blue">
+                {bulk ? "Discard your changes?" : "Discard your changes to this signal's conversions?"}
+              </p>
               <Button variant="secondary" size="sm" className="h-8" onClick={() => setConfirmDiscard(false)}>
                 Keep editing
               </Button>
@@ -316,8 +430,9 @@ export function ConversionAssignDialog({
                 ) : (
                   <>
                     <p>
-                      Applies to this signal only. To change a filter or operation itself, edit it in Configuration →
-                      Conversions.
+                      {bulk
+                        ? "Skipped signals keep their current conversions."
+                        : "Applies to this signal only. To change a filter or operation itself, edit it in Configuration → Conversions."}
                     </p>
                     {!restorable && (
                       <div className="text-warning-text">
@@ -338,6 +453,24 @@ export function ConversionAssignDialog({
                   </>
                 )}
               </div>
+              {bulk && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8"
+                  disabled={clearable.length === 0 || dirty || busy}
+                  title={
+                    dirty
+                      ? "Apply or discard the slots first"
+                      : clearable.length === 0
+                        ? "No selected signal has conversions"
+                        : undefined
+                  }
+                  onClick={() => setConfirmClear(true)}
+                >
+                  Clear conversions…
+                </Button>
+              )}
               <Button variant="secondary" size="sm" className="h-8" onClick={close}>
                 Cancel
               </Button>
@@ -348,7 +481,7 @@ export function ConversionAssignDialog({
                 title={draftTyped ? pendingNewMessage : undefined}
                 onClick={() => void apply()}
               >
-                Apply
+                {bulk ? `Apply to ${applies.length} ${applies.length === 1 ? "signal" : "signals"}` : "Apply"}
               </Button>
             </>
           )}
@@ -413,6 +546,137 @@ function DirectionLine({
   );
 }
 
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: [T, string][];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1">
+      {options.map(([option, text]) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={value === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            "cursor-pointer rounded-[4px] border px-[10px] py-[5px] text-left text-[12px]",
+            value === option
+              ? "border-[#C9DEF0] bg-[#EAF3FB] font-bold text-hms-blue"
+              : "border-border bg-white text-fg-muted hover:border-hms-accent",
+          )}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BulkDirectionLine({
+  counts,
+  mode,
+  onMode,
+  master,
+  onMaster,
+}: {
+  counts: Record<ConversionRwMode, number>;
+  mode: ConversionRwMode;
+  onMode: (mode: ConversionRwMode) => void;
+  master: ConversionSlots["master"];
+  onMaster: (master: ConversionSlots["master"]) => void;
+}) {
+  const present = MODE_ORDER.filter((m) => counts[m] > 0);
+  return (
+    <div className="mb-3 space-y-2">
+      <p className="text-[12.5px] text-fg-muted">
+        The slots replace the conversions of the signals of one direction: an operation means something different when
+        the value travels the other way.
+      </p>
+      {present.length > 1 && (
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <span className="text-[12.5px] font-bold text-text-body">Apply to</span>
+          <Segmented
+            label="Apply to the signals that are"
+            options={present.map((m) => [m, `${MODE_LABELS[m]} (${counts[m]})`])}
+            value={mode}
+            onChange={onMode}
+          />
+        </div>
+      )}
+      {mode === "readwrite" && (
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <span className="text-[12.5px] font-bold text-text-body">Define for</span>
+          <Segmented
+            label="Define the operations for"
+            options={[
+              ["internal", "Write (KNX → Modbus)"],
+              ["external", "Read (Modbus → KNX)"],
+            ]}
+            value={master}
+            onChange={onMaster}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkLists({
+  applies,
+  skipped,
+  mode,
+}: {
+  applies: KnxMbmSignal[];
+  skipped: { signal: KnxMbmSignal; reason: string }[];
+  mode: ConversionRwMode;
+}) {
+  const name = (s: KnxMbmSignal) => s.description || `Signal ${s.id + 1}`;
+  return (
+    <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+      <section aria-label="Signals it applies to" className="overflow-hidden rounded-[6px] border border-border">
+        <h3 className="border-b border-border bg-card-foot px-3 py-2 text-[12px] font-bold text-hms-blue">
+          {`Applies to ${applies.length} ${applies.length === 1 ? "signal" : "signals"}`}
+        </h3>
+        <div className="max-h-[220px] overflow-auto">
+          {applies.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 border-b border-[#F2F3F4] px-3 py-[6px] text-[12px]">
+              <span className="w-[34px] shrink-0 font-mono text-[11px] text-fg-subtle">#{s.id + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-text-body">{name(s)}</span>
+              <span className="whitespace-nowrap font-mono text-[11px] text-fg-subtle">{MODE_LABELS[mode].toLowerCase()}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+      {skipped.length > 0 && (
+        <section aria-label="Skipped signals" className="overflow-hidden rounded-[6px] border border-warning-border">
+          <h3 className="border-b border-warning-border bg-warning-bg px-3 py-2 text-[12px] font-bold text-warning-text">
+            {`${skipped.length} ${skipped.length === 1 ? "signal is" : "signals are"} skipped`}
+          </h3>
+          <div className="max-h-[220px] overflow-auto">
+            {skipped.map(({ signal: s, reason }) => (
+              <div key={s.id} className="flex gap-2 border-b border-[#F4EBDD] px-3 py-[7px] text-[12px]">
+                <span className="w-[34px] shrink-0 pt-px font-mono text-[11px] text-fg-subtle">#{s.id + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-text-body">{name(s)}</div>
+                  <div className="mt-px text-[11.5px] leading-[1.45] text-[#7A4E10]">{reason}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function describeOutcome(outcome: StepOutcome): string {
   switch (outcome.kind) {
     case "value":
@@ -452,7 +716,8 @@ function Lane({
   flow: ConversionFlow;
   editable: boolean;
   derived: boolean;
-  signal: KnxMbmSignal;
+  /** Undefined in bulk: the end nodes stand for every signal. */
+  signal?: KnxMbmSignal;
   project: KnxMbmProject;
   rwMode: ReturnType<typeof knxConversionRwMode>;
   slots: ConversionSlots;
@@ -508,16 +773,22 @@ function Lane({
           <Caption>{side === "knx" ? "KNX" : "Modbus"}</Caption>
           <div className="min-h-[50px] rounded-[6px] bg-hms-blue px-[10px] py-2">
             <div className="truncate font-mono text-[12px] font-semibold text-white">
-              {side === "knx"
-                ? signal.knx.groupAddress > 0
-                  ? formatGroupAddress(signal.knx.groupAddress)
-                  : "—"
-                : `Slave ${knxSlaveLabel(project.mbm, signal)} · ${signal.modbus.address}`}
+              {!signal
+                ? side === "knx"
+                  ? "Group address"
+                  : "Register"
+                : side === "knx"
+                  ? signal.knx.groupAddress > 0
+                    ? formatGroupAddress(signal.knx.groupAddress)
+                    : "—"
+                  : `Slave ${knxSlaveLabel(project.mbm, signal)} · ${signal.modbus.address}`}
             </div>
             <div className="mt-[2px] truncate font-mono text-[10.5px] text-white/60">
-              {side === "knx"
-                ? formatDpt(signal.knx.dpt)
-                : `${FORMAT_LABELS[signal.modbus.format] ?? "?"} · ${signal.modbus.lenBits} bit`}
+              {!signal
+                ? "per signal"
+                : side === "knx"
+                  ? formatDpt(signal.knx.dpt)
+                  : `${FORMAT_LABELS[signal.modbus.format] ?? "?"} · ${signal.modbus.lenBits} bit`}
             </div>
           </div>
           <Value text={value} />

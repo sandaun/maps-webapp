@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatPhysicalAddress } from "@/protocols/knx/address";
 import { BAUD_RATES, COMM_ERROR_TOUT_RANGE, SLAVE_ID_RANGE } from "@/protocols/modbus/slave";
 import { BYTE_ORDER_LABELS } from "@/protocols/modbus/master/types";
@@ -53,6 +53,17 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   const sections = sectionsFor(view.family);
   const [section, setSection] = React.useState<SectionKey>("general");
   const [reveal, setReveal] = React.useState<{ id: string; seq: number }>();
+  // "Open conversion" of a validation issue: /configuration?conversion=f0 selects that library entry.
+  const conversionParam = useSearchParams().get("conversion");
+  const [openedConversion, setOpenedConversion] = React.useState<string | null>(null);
+  if (view.family === "knx-mbm" && conversionParam && /^[fo]\d+$/.test(conversionParam) && conversionParam !== openedConversion) {
+    setOpenedConversion(conversionParam);
+    setSection("conv");
+    setReveal((previous) => ({
+      id: `cfg-conv-${conversionParam[0]}-${conversionParam.slice(1)}-description`,
+      seq: (previous?.seq ?? 0) + 1,
+    }));
+  }
   useRevealProperty(
     React.useCallback((next: string, id: string) => {
       setSection(next as SectionKey);

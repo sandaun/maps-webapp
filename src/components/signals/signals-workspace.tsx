@@ -15,6 +15,7 @@ export function SignalsWorkspace({
   onDelete,
   onClear,
   onEditField,
+  onConversions,
   onSelectAllMatching,
   children,
 }: {
@@ -26,6 +27,8 @@ export function SignalsWorkspace({
   onDelete?: () => void;
   onClear: () => void;
   onEditField?: () => void;
+  /** KNX–MBM: assign conversions to the selection. */
+  onConversions?: () => void;
   onSelectAllMatching: () => void;
   children: React.ReactNode;
 }) {
@@ -62,6 +65,15 @@ export function SignalsWorkspace({
               onClick={onEditField}
             >
               Edit field…
+            </button>
+          ) : null}
+          {onConversions ? (
+            <button
+              type="button"
+              className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
+              onClick={onConversions}
+            >
+              Conversions…
             </button>
           ) : null}
           <button

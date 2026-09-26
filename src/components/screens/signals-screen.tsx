@@ -62,7 +62,7 @@ function SignalsView({
 }) {
   const applyPatches = usePatch();
   const chrome = useWorkspaceChrome();
-  const { setTab, signalId } = useSignalsTab();
+  const { setTab, signalId, editConversions } = useSignalsTab();
   const { mbm, signals } = view.project;
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<SignalMapFilter>("all");
@@ -176,7 +176,19 @@ function SignalsView({
     }
   }
 
+  // "Open conversions" of a validation issue: the editor of that signal, once per link.
+  const editKey = editConversions && signalId !== undefined ? `${signalId}:${searchParams.toString()}` : null;
+  const [openedFrom, setOpenedFrom] = React.useState<string | null>(null);
+  if (editKey && editKey !== openedFrom) {
+    setOpenedFrom(editKey);
+    const target = byId.get(signalId!);
+    if (target && !target.virtual) {
+      setAssignError(null);
+      setAssigning(target.id);
+    }
+  }
   const assigningSignal = assigning === null ? undefined : byId.get(assigning);
+  const [bulkConversions, setBulkConversions] = React.useState(false);
 
   const checkedList = [...checkedIds];
 
@@ -216,6 +228,10 @@ function SignalsView({
       onDelete={removeChecked}
       onClear={clear}
       onEditField={() => setBulkOpen(true)}
+      onConversions={() => {
+        setAssignError(null);
+        setBulkConversions(true);
+      }}
       onSelectAllMatching={() => selectMany(visibleIds)}
     >
       <SignalsToolbar
@@ -306,6 +322,20 @@ function SignalsView({
           error={assignError}
           onClose={() => setAssigning(null)}
           onApply={applyConversions}
+        />
+      )}
+      {bulkConversions && checkedList.length > 0 && (
+        <ConversionAssignDialog
+          signals={checkedList.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s)}
+          project={view.project}
+          busy={assignBusy}
+          error={assignError}
+          onClose={() => setBulkConversions(false)}
+          onApply={async (patches, inverses) => {
+            const ok = await applyConversions(patches, inverses);
+            if (ok) clear();
+            return ok;
+          }}
         />
       )}
       {bulkOpen && (

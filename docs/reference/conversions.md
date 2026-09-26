@@ -208,7 +208,19 @@ MAPS (§5).
   - La cel·la i el tooltip del grid llegeixen les refs desades de cada meitat
     en l'ordre de `CreateConversionList` (no la reconstrucció de l'editor), i
     marquen "non-standard" les que MAPS no escriuria.
-- Pendent (fase 3): assignació massiva i issues de validació.
+- [fet 2026-09-26] **Assignació massiva** ("Conversions…" a la barra de la
+  selecció): les posicions s'apliquen als senyals d'una sola direcció (la
+  majoritària o la que es triï), perquè una operació significa una altra cosa
+  en l'altre sentit; els altres i els virtuals surten com a "skipped" amb el
+  motiu. "Clear conversions…" buida els senyals no virtuals que en tenen.
+  Desfer restaura les refs de cada senyal (`restoreSignalConversions`).
+- [fet 2026-09-26] **Issues** (`validate.ts`, codis a
+  `docs/plans/knx-mbm-mvp.md` §5): `CONV-REF-MISSING`, `CONV-NO-INVERSE`,
+  `CONV-RANGE`, `CONV-VIRTUAL`. Al Check table, "Open conversions" obre
+  l'editor del senyal (`/signals?signal=N&edit=conversions`), "Open
+  conversion" l'entrada de la biblioteca (`/configuration?conversion=f0`) i
+  l'avís dels virtuals, "Go to signal". Les entrades sense ús no són cap
+  issue: ho indica el "unused" de la llista de la biblioteca.
 
 ### 4.2 Gestió de la llista (config) — [fet 2026-09-26]
 
@@ -300,5 +312,5 @@ conversions no són editables (§1.1b).
    interna i l'externa es deriva invertida.
 4. **[fet] Patch.** Escriu cada meitat com `SaveObjectsConfiguration` (§4.1).
    A ME-MBS l'API rebutja editar conversions.
-5. **Editor**: biblioteca i assignació per senyal [fet 2026-09-26] (§4.1,
-   §4.2); assignació massiva [falta].
+5. **[fet 2026-09-26] Editor**: biblioteca, assignació per senyal i massiva, i
+   issues de validació (§4.1, §4.2).

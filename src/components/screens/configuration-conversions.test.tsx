@@ -12,7 +12,7 @@ import { PropertyDraftProvider } from "@/lib/property-drafts";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { ConfigurationScreen } from "./configuration-screen";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), push: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), push: vi.fn(), search: new URLSearchParams() }));
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
   getProjectView: mocks.get,
@@ -20,7 +20,7 @@ vi.mock("@/lib/api", async (original) => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mocks.search,
 }));
 
 let xml: XmlDocument;
@@ -71,6 +71,7 @@ async function openConversions() {
 const row = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}`) });
 
 beforeEach(() => {
+  mocks.search = new URLSearchParams();
   localStorage.clear();
   mocks.get.mockReset();
   mocks.patch.mockReset();
@@ -86,6 +87,18 @@ describe("Configuration → Conversions", () => {
     expect(row("Below 50").textContent).toContain("unused");
     expect(row("x0.1").textContent).toContain("y = x · 0.1");
     expect(row("Chiller mode").textContent).toContain("system");
+  });
+
+  it("opens the library entry of a validation issue from the URL", async () => {
+    mocks.search = new URLSearchParams("conversion=o1");
+    render(
+      <CurrentProjectProvider>
+        <PropertyDraftProvider>
+          <ConfigurationScreen />
+        </PropertyDraftProvider>
+      </CurrentProjectProvider>,
+    );
+    expect(await screen.findByRole("heading", { name: "x0.1" })).toBeTruthy();
   });
 
   it("links the use count to the signals that use the entry", async () => {

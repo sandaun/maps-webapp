@@ -109,7 +109,8 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
   const { save, busy, error } = useSave();
 
   // The save bar reveals the first invalid draft: select its entry so the field is rendered.
-  const [revealed, setRevealed] = React.useState(reveal?.seq);
+  // Starts unseen: the section can mount after the reveal (another section was open).
+  const [revealed, setRevealed] = React.useState<number>();
   if (reveal && reveal.seq !== revealed) {
     setRevealed(reveal.seq);
     const match = reveal.id.match(/^cfg-conv-(f|o)-(\d+)-/);
@@ -456,7 +457,7 @@ function DetailCard({
         {used ? (
           <button
             type="button"
-            onClick={() => router.push(signalsHref("map", undefined, { list: entry.list, index: entry.index }))}
+            onClick={() => router.push(signalsHref("map", undefined, { conversion: { list: entry.list, index: entry.index } }))}
             className="cursor-pointer text-left text-[12px] font-bold text-hms-accent hover:text-hms-accent-hover"
           >
             {`Used by ${used} ${used === 1 ? "signal" : "signals"} →`}

@@ -45,10 +45,13 @@ export function ValidationView({
   issues,
   family,
   onGoToSignal,
+  onOpenConversions,
 }: {
   issues: ValidationIssue[];
   family: "knx-mbm" | "me-mbs";
   onGoToSignal: (id: number) => void;
+  /** KNX–MBM: open the conversions editor of a signal. */
+  onOpenConversions?: (id: number) => void;
 }) {
   const router = useRouter();
   const [tab, setTab] = React.useState<IssueTab>("all");
@@ -119,8 +122,15 @@ export function ValidationView({
           const sev = SEV[issue.severity];
           const signalId =
             issue.ref?.entity === "signal" && typeof issue.ref.id === "number" ? issue.ref.id : undefined;
-          const goLabel =
-            issue.ref?.screen === "devices"
+          // Conversion issues jump to the place to fix them: the signal's editor or the library entry.
+          const conversionEntry =
+            issue.ref?.field === "conversion" && typeof issue.ref.id === "string" ? issue.ref.id : undefined;
+          const openConversions = signalId !== undefined && issue.ref?.field === "conversions" && !!onOpenConversions;
+          const goLabel = conversionEntry
+            ? "Open conversion"
+            : openConversions
+              ? "Open conversions"
+              : issue.ref?.screen === "devices"
               ? "Open devices"
               : issue.ref?.screen === "configuration"
                 ? "Open configuration"
@@ -149,7 +159,9 @@ export function ValidationView({
                       className="rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] font-semibold"
                       style={{ color: sev.color, background: sev.iconBg, borderColor: sev.iconBorder }}
                     >
-                      {String(issue.ref.id)}
+                      {conversionEntry
+                        ? `${conversionEntry.startsWith("f") ? "Filter" : "Operation"} ${Number(conversionEntry.slice(1)) + 1}`
+                        : String(issue.ref.id)}
                     </span>
                   ) : null}
                   <span className="rounded-[3px] bg-hms-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold text-hms-blue">
@@ -161,7 +173,9 @@ export function ValidationView({
                     type="button"
                     className="mt-2.5 text-[12.5px] font-medium text-hms-accent"
                     onClick={() => {
-                      if (signalId !== undefined) onGoToSignal(signalId);
+                      if (conversionEntry) router.push(`/configuration?conversion=${conversionEntry}`);
+                      else if (openConversions) onOpenConversions?.(signalId!);
+                      else if (signalId !== undefined) onGoToSignal(signalId);
                       else if (issue.ref?.screen === "devices") router.push("/devices");
                       else if (issue.ref?.screen === "configuration") router.push("/configuration");
                       else if (issue.ref?.screen === "deploy") router.push("/deploy");

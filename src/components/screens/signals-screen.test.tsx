@@ -486,6 +486,39 @@ describe("SignalsScreen (knx-mbm) · conversions", () => {
     expect(cell.textContent).toContain("non-standard");
   });
 
+  it("assigns conversions to a selection from the bulk toolbar", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Conversions…" }));
+    const dialog = screen.getByRole("dialog", { name: "Conversions · 2 selected signals" });
+    // One write-only and one read-only signal: the tie goes to read only, the other is skipped.
+    expect(within(dialog).getByRole("button", { name: "Apply to 1 signal" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Write only (1)" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Operation next to KNX/ }));
+    fireEvent.click(within(dialog).getByRole("option", { name: /x0.1 to degC/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply to 1 signal" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      {
+        type: "updateSignal",
+        id: 0,
+        patch: { conversions: { internalFilter: null, operations: [0], externalFilter: null, master: "internal" } },
+      },
+    ]);
+    expect(screen.queryByRole("toolbar", { name: "Bulk signal actions" })).not.toBeInTheDocument();
+  });
+
+  it("opens the conversions editor of a validation issue from the URL", () => {
+    Element.prototype.scrollIntoView = vi.fn(); // the grid scrolls the linked row into view
+    mocks.searchParams = new URLSearchParams("signal=1&edit=conversions");
+    mocks.view = buildKnxView();
+    renderSignals();
+    expect(screen.getByRole("dialog", { name: "Conversions · #2 Room temperature" })).toBeInTheDocument();
+  });
+
   it("keeps the cell of a virtual signal inert", () => {
     const view = buildKnxView() as Extract<ProjectView, { family: "knx-mbm" }>;
     view.project.signals[0] = { ...view.project.signals[0], virtual: true };

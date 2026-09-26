@@ -114,6 +114,10 @@ Basada en `CheckProjectObjects` de KNX/MBM, `CheckMBMParams`, `CheckObjects` cre
 | `SIG-DEVICE-REF` | error | senyal apunta a device eliminat |
 | `XFLAG-RT-READ` | warning | ReadFunc sense R ni T al costat KNX |
 | `XFLAG-WU-WRITE` | warning | WriteFunc sense W ni U |
+| `CONV-REF-MISSING` | error (warning si el senyal és inactiu) | ref de conversió fora de la biblioteca: l'XBL llegeix `filters[index]` (`CreateConversionList`) |
+| `CONV-NO-INVERSE` | warning | senyal de lectura i escriptura que executa invertida una SCALE/ARITH sense inversa (divisió per zero al flux gris) |
+| `CONV-RANGE` | warning | filtre In/Out range amb Low > High, o SCALE amb mín ≥ màx (MAPS no ho deixa desar) |
+| `CONV-VIRTUAL` | info | senyal virtual amb conversions (MAPS no deixa assignar-n'hi; ve d'un fitxer importat) |
 
 Nota: el descompilat **no** comprova solapaments de registres a MBM (els fusiona en poll records); el prompt demana detectar solapaments → `MB-REG-OVERLAP` com a **warning** informatiu, no error (decisió documentada; el firmware els tolera).
 
