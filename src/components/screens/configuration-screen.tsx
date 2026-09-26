@@ -27,13 +27,16 @@ const SECTION_LABELS: Record<SectionKey, string> = {
 };
 
 function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
-  return [
+  const sections: { key: SectionKey; label: string }[] = [
     { key: "general", label: SECTION_LABELS.general },
     { key: "network", label: SECTION_LABELS.network },
     { key: "bms", label: family === "knx-mbm" ? "BMS · KNX" : "BMS · Modbus server" },
     { key: "device", label: family === "knx-mbm" ? "Modbus Master" : "Mitsubishi Electric" },
-    { key: "conv", label: SECTION_LABELS.conv },
   ];
+  // MAPS hides the conversions panel when the project disables conversions
+  // (`frmGateway.cs:283`); ME–MBS does (`IntesisProjectMbsMe_RT.ConversionsEnabled`).
+  if (family === "knx-mbm") sections.push({ key: "conv", label: SECTION_LABELS.conv });
+  return sections;
 }
 
 export function ConfigurationScreen() {
@@ -97,7 +100,7 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
             ) : (
               <DeviceMeSection view={view} />
             ))}
-          {section === "conv" && <ConversionsSection view={view} />}
+          {section === "conv" && view.family === "knx-mbm" && <ConversionsSection view={view} />}
           </div>
           <StickySaveBar screen="configuration" />
         </div>
