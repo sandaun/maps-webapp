@@ -35,12 +35,30 @@ pas). Al projecte hi ha **dos mecanismes diferents** que sovint es barregen:
   Cada senyal té dues meitats a l'XML (KNX + MBM, o MBS + ME) i cadascuna porta
   les seves refs. El codi fa `textOf(intern) ?? textOf(extern)`, però l'etiqueta
   interna sempre hi és (encara que buida, `""`), així que el `??` no cau mai a
-  l'externa. A la 770 Air, 12 senyals tenen conversions només a la meitat ME i
-  per a `idxOperations` no en tenen cap. Vegeu §5.
-- `conversionCode` (2026-09-25): camp de només lectura calculat a
-  `from-xml.ts` amb **les dues meitats**, port de
+  l'externa. A KNX-MBM només es llegeix la meitat KNX. A la 770 Air, 12
+  senyals tenen conversions només a la meitat ME i per a `idxOperations` no en
+  tenen cap. Vegeu §5.
+- `conversionCode` (2026-09-25, **només KNX-MBM**): camp de només lectura
+  calculat a `from-xml.ts` amb **les dues meitats**, port de
   `CreateStringFromConversions` (`src/core/signals/conversion-code.ts`). És el
   que mostra la columna "Conv. Id".
+
+### 1.1b ME-MBS no té conversions editables (com MAPS)
+
+`IntesisProjectMbsMe_RT.ConversionsEnabled()` retorna `false`
+(`IntesisProjectMbsMe_RT.cs:3010`; per defecte és `true`,
+`IntesisProject.cs:1780`). Conseqüències a MAPS:
+- el grid de senyals no afegeix les columnes "Conv. Id" / "Conversions"
+  (`frmMain.cs:5293`, `IntesisProjectMbsMe_RT.cs:598`, `:2912`);
+- el panell de conversions de la configuració del gateway s'amaga
+  (`p_conversions.Visible = project.ConversionsEnabled()`, `frmGateway.cs:283`);
+- l'Excel només bolca les columnes del grid, així que **no porta conversions**;
+- les conversions (ARITH i LUT_REMAP) i les refs de cada senyal les genera el
+  codi RT en regenerar els senyals (`signals-engine.ts:529-650`).
+
+A la webapp (2026-09-26): ME-MBS no té columna "Conv. Id" ni secció
+Conversions a Configuration ni el comptador d'Overview. Les refs de l'XML es
+continuen preservant i arriben a l'XBL tal com són.
 
 ### 1.2 UI
 
@@ -48,10 +66,11 @@ pas). Al projecte hi ha **dos mecanismes diferents** que sovint es barregen:
   per tipus (`conversionDetail`, `configuration-screen.tsx:1074-1114`): filter
   (tipus/comparació/valors), scale (rangs), arith (`y = x·B·(10^A)+C`), logical
   (OR→AND→XOR), LUT (taula + flag inversa).
-- Signals: columna **"Conv. Id"** (2026-09-25) a la banda GATEWAY de les dues
-  famílies, de només lectura i amagada per defecte com a MAPS
+- Signals: columna **"Conv. Id"** (2026-09-25) a la banda GATEWAY, **només a
+  KNX-MBM**, de només lectura i amagada per defecte com a MAPS
   (`defaultHidden`). Mostra `conversionCode`, p.ex.
-  `DIRECTION[>/<]:INDEXES[-;0;1;-]`.
+  `DIRECTION[>/<]:INDEXES[-;0;1;-]`. A ME-MBS no hi és (§1.1b).
+- Configuration → Conversions i el comptador d'Overview: només KNX-MBM (§1.1b).
 - **Cap UI escriu conversions ni assignacions**: ni alta/edició/eliminació de
   conversions, ni assignació per senyal. L'única via d'entrada és la
   importació XLSX (columna "Operations", `xlsx-signals.ts:102`).
@@ -155,7 +174,8 @@ detectat.
 
 Trobades en fer la columna "Conv. Id". Són anteriors a aquesta feina i van en
 una branca pròpia. Cal fer-les bé perquè afecten el que arriba al gateway i el
-que s'intercanvia amb MAPS.
+que s'intercanvia amb MAPS. Afecten KNX-MBM; a ME-MBS les conversions no són
+editables (§1.1b) i només cal que l'API no les deixi editar.
 
 1. **Model d'una sola meitat.** `idxOperations` / `idxFilters`
    (`knx-mbm/from-xml.ts:157-158`, `me-mbs/from-xml.ts:197-200`) només tenen la
@@ -164,16 +184,17 @@ que s'intercanvia amb MAPS.
    model tingui les dues meitats, i que tot el que ara fa servir aquests camps
    (export, import, patch) passi a fer-les servir.
 2. **Export XLSX.** KNX-MBM escriu "Filters" / "Operations" amb el text cru
-   d'una sola meitat (`maps-grid-values.ts:278-279`); ME-MBS no n'escriu res
-   (`meSignalRow`). MAPS escriu la columna "Conv. Id" amb les dues meitats
-   (§2). Conseqüència: un Excel nostre no porta bé les conversions a MAPS, i a
-   ME-MBS no en porta cap.
-3. **Import XLSX.** Només KNX-MBM llegeix "Filters" / "Operations"
+   d'una sola meitat (`maps-grid-values.ts:278-279`). MAPS escriu la columna
+   "Conv. Id" amb les dues meitats (§2). Conseqüència: un Excel nostre no porta
+   bé les conversions a MAPS. (ME-MBS no n'escriu cap, i és correcte: MAPS
+   tampoc, §1.1b.)
+3. **Import XLSX.** KNX-MBM llegeix "Filters" / "Operations"
    (`imports/xlsx-signals.ts:101-102`) i aplica el mateix text a les dues
    meitats. Hauria de llegir "Conv. Id" i repartir-lo per meitats com
-   `ConvertStringToConversion`.
+   `ConvertStringToConversion`. (ME-MBS no les llegeix, i és correcte.)
 4. **Patch.** Escriu el mateix text a les dues meitats (§3): cal fer-ho com
    `SaveOperations` / `SaveFilters` (extern en ordre invers i invertit). Avui
-   cap pantalla el fa servir, però l'API l'accepta.
+   cap pantalla el fa servir, però l'API l'accepta. A ME-MBS l'API les hauria
+   de rebutjar.
 5. **Botó "Conversions" del grid.** Falta (§4.1).
 
