@@ -857,6 +857,7 @@ const CONVERSION_TYPE_LABELS: Record<number, string> = {
   4: "LUT remap",
 };
 
+/** Behaviour of each filter type as MAPS simulates it (`IntesisMath.ApplyFilter`). */
 const FILTER_TYPE_LABELS: Record<string, string> = {
   "0": "Comparison — returns 0/1",
   "1": "No-limit — passes the value or invalidates it",
@@ -879,12 +880,14 @@ function conversionDetail(c: ConversionEntry): { label: string; value: string }[
   const [p1, p2, p3, p4] = c.params;
   switch (c.type) {
     case 0: {
+      // "Less than" compares against Param4 only; the ranges use Param3…Param4
+      // (`IntesisMath.ApplyFilter`, `frmConversions.cs:397-434`).
       const rows = [
         { label: "Filter type", value: FILTER_TYPE_LABELS[p1] ?? p1 },
         { label: "Comparison", value: FILTER_COMPARISON_LABELS[p2] ?? p2 },
-        { label: "Value", value: p3 },
+        { label: "Value", value: p2 === "2" ? p4 : p3 },
       ];
-      if (["2", "4", "5"].includes(p2)) rows.push({ label: "Upper value", value: p4 });
+      if (["4", "5"].includes(p2)) rows.push({ label: "Upper value", value: p4 });
       return rows;
     }
     case 1:
