@@ -143,3 +143,80 @@ describe.skipIf(!hasRealFixture)("real KNX–MBM fixture (present only in the lo
     expect(validateProject(project).filter((i) => i.severity === "error")).toEqual([]);
   });
 });
+
+describe("validateProject · conversions", () => {
+  const ref = (index: number, inverted = false) => ({ index, inverted });
+  const conv = (issues: ReturnType<typeof validateProject>) => issues.filter((i) => i.code.startsWith("CONV-"));
+
+  it("reports nothing for the fixture, whose only operation is used", () => {
+    expect(conv(validateProject(validProject()))).toEqual([]);
+  });
+
+  it("blocks the deploy for a ref outside the library on an active signal only", () => {
+    const project = validProject();
+    project.signals[1].conversions.external.filters = [ref(3)];
+    expect(conv(validateProject(project))).toEqual([
+      {
+        code: "CONV-REF-MISSING",
+        severity: "error",
+        message: "Signal 2 uses filter 3, which is not in the conversion library.",
+        ref: { screen: "signals", entity: "signal", id: 1, field: "conversions" },
+      },
+    ]);
+    project.signals[1].active = false;
+    expect(conv(validateProject(project))[0].severity).toBe("warning");
+  });
+
+  it("notes conversions on virtual signals, which MAPS does not let you assign", () => {
+    const project = validProject();
+    project.signals[1].virtual = true;
+    expect(conv(validateProject(project)).map((i) => [i.code, i.severity])).toEqual([["CONV-VIRTUAL", "info"]]);
+    // No "conversions" field: the Check table offers "Go to signal", not the editor it cannot open.
+    expect(conv(validateProject(project))[0].ref).toEqual({ screen: "signals", entity: "signal", id: 1 });
+  });
+
+  it("warns when a read + write signal runs an operation without inverse inverted", () => {
+    const project = validProject();
+    project.conversions = [{ id: 0, description: "Flat", type: 2, params: ["0", "0", "5", "0"] }];
+    project.signals[1].knx.flags = { u: true, t: true, ri: false, w: true, r: true };
+    project.signals[1].conversions = {
+      internal: { filters: [], operations: [ref(0)] },
+      external: { filters: [], operations: [ref(0, true)] },
+    };
+    expect(conv(validateProject(project))).toEqual([
+      expect.objectContaining({
+        code: "CONV-NO-INVERSE",
+        severity: "warning",
+        message: "Signal 2 runs “Flat” (y = 5) inverted, but it has no inverse: the gateway cannot convert one of its directions.",
+      }),
+    ]);
+  });
+
+  it("warns about ranges MAPS does not let you save, and not about unused entries", () => {
+    const project = validProject();
+    project.conversions = [
+      { id: 0, description: "Valid", type: 0, params: ["1", "4", "150", "-50"] },
+      { id: 0, description: "Flat scale", type: 1, params: ["0", "10", "5", "5"] },
+      { id: 1, description: "Kept", type: 2, params: ["-1", "1", "0", "0"] },
+      { id: 0, description: "LUT", type: 4, params: ["0", "0", "0", "0"] },
+    ];
+    project.signals[1].conversions = {
+      internal: { filters: [], operations: [] },
+      external: { filters: [], operations: [ref(1)] },
+    };
+    expect(conv(validateProject(project))).toEqual([
+      {
+        code: "CONV-RANGE",
+        severity: "warning",
+        message: "Filter “Valid” has Low (150) greater than High (-50).",
+        ref: { screen: "configuration", entity: "project", id: "f0", field: "conversion" },
+      },
+      {
+        code: "CONV-RANGE",
+        severity: "warning",
+        message: "Scale “Flat scale” (0…10 → 5…5) needs each min below its max.",
+        ref: { screen: "configuration", entity: "project", id: "o0", field: "conversion" },
+      },
+    ]);
+  });
+});

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import {
@@ -422,6 +422,121 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
       { type: "updateSignal", id: 0, patch: { description: "Heat pump on/off" } },
     ]);
+  });
+});
+
+describe("SignalsScreen (knx-mbm) · conversions", () => {
+  it("shows the conversion chain in its own column, visible by default", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+    const cell = screen.getByRole("button", { name: /^Conversions signal 1:/ });
+    expect(cell.textContent).toContain("0…1000 → 0…100");
+    expect(screen.getByRole("button", { name: "Conversions signal 0: —" })).toBeInTheDocument();
+  });
+
+  it("opens the assignment editor from the cell and saves with an undo", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Conversions signal 0: —" }));
+    const dialog = screen.getByRole("dialog", { name: "Conversions · #1 Heat pump on/off" });
+    // U W flags: write only.
+    expect(within(dialog).getByText("Write only")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Operation next to KNX/ }));
+    fireEvent.click(within(dialog).getByRole("option", { name: /x0.1 to degC/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      {
+        type: "updateSignal",
+        id: 0,
+        patch: { conversions: { internalFilter: null, operations: [0], externalFilter: null, master: "internal" } },
+      },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(2));
+    expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
+      {
+        type: "restoreSignalConversions",
+        id: 0,
+        refs: { internal: { filters: [], operations: [] }, external: { filters: [], operations: [] } },
+      },
+    ]);
+  });
+
+  it("shows the refs each half stores, not the ones the editor would rewrite", () => {
+    const view = buildKnxView() as Extract<ProjectView, { family: "knx-mbm" }>;
+    view.project.conversions = [
+      { id: 0, description: "x2", type: 2, params: ["0", "2", "0", "0"] },
+      { id: 1, description: "x3", type: 2, params: ["0", "3", "0", "0"] },
+    ];
+    // Read-only signal: the gateway only runs the Modbus half, which holds x3.
+    view.project.signals[1] = {
+      ...view.project.signals[1],
+      conversions: {
+        internal: { filters: [], operations: [{ index: 0, inverted: false }] },
+        external: { filters: [], operations: [{ index: 1, inverted: false }] },
+      },
+    };
+    mocks.view = view;
+    renderSignals();
+    const cell = screen.getByRole("button", { name: /^Conversions signal 1:/ });
+    expect(cell.textContent).toContain("y = x · 3");
+    expect(cell.textContent).not.toContain("y = x · 2");
+    expect(cell.textContent).toContain("non-standard");
+  });
+
+  it("assigns conversions to a selection from the bulk toolbar", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Conversions…" }));
+    const dialog = screen.getByRole("dialog", { name: "Conversions · 2 selected signals" });
+    // One write-only and one read-only signal: the tie goes to read only, the other is skipped.
+    expect(within(dialog).getByRole("button", { name: "Apply to 1 signal" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Write only (1)" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Operation next to KNX/ }));
+    fireEvent.click(within(dialog).getByRole("option", { name: /x0.1 to degC/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply to 1 signal" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      {
+        type: "updateSignal",
+        id: 0,
+        patch: { conversions: { internalFilter: null, operations: [0], externalFilter: null, master: "internal" } },
+      },
+    ]);
+    expect(screen.queryByRole("toolbar", { name: "Bulk signal actions" })).not.toBeInTheDocument();
+  });
+
+  it("opens the conversions editor of a validation issue from the URL", () => {
+    Element.prototype.scrollIntoView = vi.fn(); // the grid scrolls the linked row into view
+    mocks.searchParams = new URLSearchParams("signal=1&edit=conversions");
+    mocks.view = buildKnxView();
+    renderSignals();
+    expect(screen.getByRole("dialog", { name: "Conversions · #2 Room temperature" })).toBeInTheDocument();
+  });
+
+  it("keeps the cell of a virtual signal inert", () => {
+    const view = buildKnxView() as Extract<ProjectView, { family: "knx-mbm" }>;
+    view.project.signals[0] = { ...view.project.signals[0], virtual: true };
+    mocks.view = view;
+    renderSignals();
+    expect(screen.getByText("Not available · virtual")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Conversions signal 0:/ })).not.toBeInTheDocument();
+  });
+
+  it("shows only the signals of a library entry when opened from “Used by N signals →”", () => {
+    mocks.searchParams = new URLSearchParams("conversion=o0");
+    mocks.view = buildKnxView();
+    renderSignals();
+    expect(screen.getByText("1 signal uses the operation “x0.1 to degC”.")).toBeInTheDocument();
+    expect(screen.queryByText("Heat pump on/off")).not.toBeInTheDocument();
+    expect(screen.getByText("Room temperature")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all signals" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/signals", { scroll: false });
   });
 });
 

@@ -63,20 +63,23 @@ continuen preservant i arriben a l'XBL tal com són.
 
 ### 1.2 UI
 
-- Configuration → Conversions: master-detail **read-only** amb detall llegible
-  per tipus (`conversionDetail`, `configuration-screen.tsx`): filter
-  (tipus/comparació/valors; "Less than" fa servir el Param4, com
-  `IntesisMath.ApplyFilter`), scale (rangs), arith (`y = x·B·(10^A)+C`),
-  logical (OR→AND→XOR), LUT (taula + flag inversa). Els textos de
-  comportament surten del simulador de MAPS (`IntesisMath.cs:9-230`).
+- Configuration → Conversions (2026-09-26, `configuration-conversions.tsx`):
+  **editor de la biblioteca**. Llista Filters / Operations / System amb resum
+  i "used by N"; detall editable per a FILTER, SCALE i ARITH (A, B, C), de
+  només lectura per a LUT_REMAP i LOGICAL. Les edicions de camps són
+  esborranys de la barra de desar (camps posicionals `cfg-conv-{f|o}-{pos}-…`);
+  afegir, duplicar i esborrar s'apliquen de seguida, com els dispositius de
+  Devices. Regles i simulació: §4.2.
 - Signals: columna **"Conv. Id"** (2026-09-25) a la banda GATEWAY, **només a
   KNX-MBM**, de només lectura i amagada per defecte com a MAPS
   (`defaultHidden`), p.ex. `DIRECTION[>/<]:INDEXES[-;0;1;-]`. A ME-MBS no hi és
   (§1.1b).
 - Configuration → Conversions i el comptador d'Overview: només KNX-MBM (§1.1b).
-- **Cap pantalla escriu encara conversions ni assignacions.** Les vies
-  d'escriptura són l'import XLSX (§2, §5) i l'API de patch (`conversions`,
-  §4.1). L'editor està pendent de disseny (§4).
+- Signals (2026-09-26): columna **"Conversions"** a la banda GATEWAY, visible
+  per defecte (a MAPS és amagada), amb la cadena en l'ordre del flux definit i
+  els dos fluxos al tooltip; obre l'editor d'assignació (§4.1). Als senyals
+  virtuals la cel·la és inert, com a MAPS. "Used by N signals →" de la
+  biblioteca obre el mapa filtrat (`/signals?conversion=f0`).
 
 ### 1.3 XBL (això sí que està complet i verificat)
 
@@ -171,20 +174,102 @@ MAPS (§5).
   `refsFromSelection` (port de `SaveObjectsConfiguration`) i la direcció dels
   flags KNX (`knxConversionRwMode`). Rebutja conversions inexistents i senyals
   virtuals (MAPS no deixa editar-los la cel·la). Ja no accepta refs en text cru.
-- UI: pendent de disseny. El prompt per a Claude design és local a
-  `temp/prompt-claude-design-conversions.md` (biblioteca a Configuration →
-  Conversions, assignació per senyal amb modal des d'una columna del grid,
-  assignació massiva i issues de validació).
+- [fet 2026-09-26] UI per senyal (`conversion-assign-dialog.tsx`, disseny
+  V15): quatre posicions entre KNX i Modbus, un carril per flux actiu i
+  "Define for" (el `master`) als senyals de lectura i escriptura.
+  `src/core/conversions/assignment.ts`:
+  - `slotsFromRefs` és el port de `SelectValues` / `GetFilterIndex` /
+    `GetConversionIndex` (`frmSelectConversion.cs:275-355`) i del flux negre
+    d'`ApplyOperationsRestrictions` (`:356-379`): una sola operació de la
+    meitat externa va a la posició del costat Modbus.
+  - Cada carril segueix la cadena que el gateway construeix per a la seva
+    meitat (`CreateConversionList`, `IntesisConversion.cs:222-290`):
+    escriptura = meitat interna (filtre KNX, op1, op2, filtre Modbus),
+    lectura = meitat externa (filtre Modbus, op2, op1, filtre KNX); les
+    operacions van invertides al flux gris. Un test compara els passos amb
+    `refsFromSelection` per a totes les combinacions.
+  - LUT i LOGICAL es poden fer servir en lectura i escriptura (MAPS no ho
+    impedeix); no se simulen.
+  - **Divergència**: en lectura i escriptura es bloqueja una SCALE o ARITH
+    sense inversa (B·10^A = 0, sortida mín = màx), que MAPS deixa desar però
+    divideix per zero al flux gris.
+  - Refs que no són el format de MAPS (p.ex. la mateixa op a les dues meitats
+    sense invertir): l'editor avisa que desar reescriu les dues meitats i
+    ensenya el que hi ha desat. Refs fora de la biblioteca: error i Apply
+    bloquejat.
+  - "+ New…" del selector crea l'entrada a la biblioteca en aplicar, en el
+    mateix lot que l'assignació; un formulari amb valors escrits compta com a
+    canvi pendent (tancar o canviar de posició demana confirmació).
+  - **Desfer** fa servir `restoreSignalConversions`: torna les dues meitats a
+    les refs que tenien, encara que MAPS no les escriuria, amb les mateixes
+    comprovacions que una selecció (cap senyal virtual, posicions dins de la
+    biblioteca), i després treu les entrades noves. És l'única via que escriu
+    refs en brut, i només per restaurar.
+  - La cel·la i el tooltip del grid llegeixen les refs desades de cada meitat
+    en l'ordre de `CreateConversionList` (no la reconstrucció de l'editor), i
+    marquen "non-standard" les que MAPS no escriuria.
+- [fet 2026-09-26] **Assignació massiva** ("Conversions…" a la barra de la
+  selecció): les posicions s'apliquen als senyals d'una sola direcció (la
+  majoritària o la que es triï), perquè una operació significa una altra cosa
+  en l'altre sentit; els altres i els virtuals surten com a "skipped" amb el
+  motiu. "Clear conversions…" buida els senyals no virtuals que en tenen.
+  Desfer restaura les refs de cada senyal (`restoreSignalConversions`).
+- [fet 2026-09-26] **Issues** (`validate.ts`, codis a
+  `docs/plans/knx-mbm-mvp.md` §5): `CONV-REF-MISSING`, `CONV-NO-INVERSE`,
+  `CONV-RANGE`, `CONV-VIRTUAL`. Al Check table, "Open conversions" obre
+  l'editor del senyal (`/signals?signal=N&edit=conversions`), "Open
+  conversion" l'entrada de la biblioteca (`/configuration?conversion=f0`) i
+  l'avís dels virtuals, "Go to signal". Les entrades sense ús no són cap
+  issue: ho indica el "unused" de la llista de la biblioteca.
 
-### 4.2 Gestió de la llista (config)
+### 4.2 Gestió de la llista (config) — [fet 2026-09-26]
 
-- Add/edit/delete de filters i operations: FILTER, SCALE i ARITH editables,
-  com el desktop; LUT_REMAP i LOGICAL de només lectura (§2). Validacions del
-  desktop (§2).
-- Ops: `addConversion`, `updateConversion`, `removeConversion`. **Divergència
-  volguda**: en esborrar, renumerar les refs dels senyals i treure les de la
-  conversió esborrada, i ensenyar abans quants senyals l'usen. MAPS les deixa
-  apuntant a una altra conversió (§2).
+- Ops de patch `addConversion`, `updateConversion`, `removeConversion`
+  (`knx-mbm/xml-ops.ts`), adreçades per llista + posició com les refs dels
+  senyals. A ME-MBS responen 409 (§1.1b).
+- **Afegir** com `b_addFilter_Click` / `b_addConversion_Click`
+  (`frmConversions.cs:531-625`): al final de la seva llista, amb `Id` i
+  descripció `Filter_<n>` / `Operation_<n>`, on n és la mida de la llista que
+  mostra el manager (sense LUT ni LOGICAL, `frmGateway.cs:579`). Valors per
+  defecte de `CreateDefaultFilter` / `CreateDefaultOperation`
+  (`IntesisConversion.cs:672-696`): 0, 3, 0, 100. MAPS només crea SCALE;
+  una ARITH nova comença a y = x (A=0, B=1, C=0). "Duplicate" és un afegir
+  amb els valors copiats.
+- **Editar** com `SaveCurrentFilterSelection` / `SaveCurrentOperationSelection`
+  (`:582-705`): filtre = Param1 tipus, Param2 comparació, Param3/Param4
+  valors ("Less than" fa servir el Param4); ARITH desa sempre Param4 = 0;
+  canviar SCALE ↔ ARITH conserva els params. LUT_REMAP i LOGICAL: 409.
+- **Regles** (`src/core/conversions/rules.ts`, les mateixes al client i a
+  l'API; només es comproven els camps que s'escriuen, perquè un valor
+  importat que MAPS no hauria permès no bloquegi editar-ne un altre):
+  - filtres: valors ±100000 (`nb_filterParam3/4`), Low ≤ High a In range /
+    Out of range (`ValidateFiltersValue`, `:754-766`);
+  - SCALE: mín ≤ màx a l'entrada i a la sortida (`:726-752`). **Divergència**:
+    també es rebutja mín = màx, que MAPS accepta però divideix per zero en un
+    dels dos sentits (`IntesisMath.EvaluateScaleFunction`);
+  - SCALE i ARITH sense límit de rang: `SetMaxAndMin` treu el ±100000 del
+    dissenyador en carregar (`:189-204`);
+  - tots els valors amb 2 decimals (`DecimalPlaces = 2`);
+  - descripció de les operacions ≤ 32 (`tb_operationDescription.MaxLength`);
+    la dels filtres no té límit a MAPS (l'API en posa 255).
+- **Esborranys**: els params numèrics es comparen pel text que escriu el
+  servidor ("5.00" = "5"), i un valor pendent que no és un número bloqueja
+  el desar encara que la condició o el tipus l'amagui. Canviar-los descarta
+  els valors buits o invàlids que queden amagats, com els NumericUpDown de
+  MAPS, que tornen a l'últim valor vàlid.
+- **Esborrar** — divergència volguda: les refs a l'esborrada desapareixen i
+  les posteriors baixen una posició, a les dues meitats de cada senyal. MAPS
+  les deixa apuntant a una altra conversió (§2). La UI confirma amb els
+  senyals afectats.
+- **Simulació i textos** (`src/core/conversions/formulas.ts`): port de
+  `IntesisMath` (`:9-260`). Tipus de filtre: *Comparison* envia 1/0,
+  *No-limit* deixa passar o descarta, *Limited* substitueix pel límit (a
+  "Different" no canvia res; a "Out of range" els valors de dins passen a
+  Low). SCALE limita l'entrada al rang. Inversa: SCALE intercanvia rangs,
+  ARITH (x − C) / (B·10^A), sense inversa si B = 0. LOGICAL es clona per al
+  sentit invers (`IntesisConversion.CreateConversion`, `:136-179`): el
+  gateway rep les mateixes màscares; el `~mask` de `frmSelectConversion` és
+  només visual. LUT i LOGICAL no es simulen.
 
 ### 4.3 RemapLUTs
 
@@ -227,5 +312,5 @@ conversions no són editables (§1.1b).
    interna i l'externa es deriva invertida.
 4. **[fet] Patch.** Escriu cada meitat com `SaveObjectsConfiguration` (§4.1).
    A ME-MBS l'API rebutja editar conversions.
-5. **[falta] Editor** (biblioteca i assignació per senyal): pendent de disseny
-   (§4.1, §4.2).
+5. **[fet 2026-09-26] Editor**: biblioteca, assignació per senyal i massiva, i
+   issues de validació (§4.1, §4.2).

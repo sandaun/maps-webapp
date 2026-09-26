@@ -318,13 +318,14 @@ export function useDraftForm<T extends object>(group: string, baseline: T) {
   return { form, set, dirtyKeys };
 }
 
-export function useRevealProperty(reveal: (section: string) => void) {
+/** `reveal` gets the section of the first invalid draft and that draft's field id. */
+export function useRevealProperty(reveal: (section: string, id: string) => void) {
   React.useEffect(() => {
     const onReveal = (event: Event) => {
       const entry = (event as CustomEvent<{ id: string; section: string }>)
         .detail;
       if (!entry) return;
-      reveal(entry.section);
+      reveal(entry.section, entry.id);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           const input = document.getElementById(entry.id);

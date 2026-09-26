@@ -10,10 +10,32 @@ export function parseSignalsTab(raw: string | null | undefined): SignalsTabId {
   return "map";
 }
 
-export function signalsHref(tab: SignalsTabId, signal?: number): string {
+/** A library entry the signal map is filtered by: its list and position ("f0", "o2"). */
+export interface ConversionFilterRef {
+  list: "filters" | "operations";
+  index: number;
+}
+
+export function parseConversionFilter(raw: string | null | undefined): ConversionFilterRef | undefined {
+  const match = raw?.match(/^([fo])(\d+)$/);
+  return match ? { list: match[1] === "f" ? "filters" : "operations", index: Number(match[2]) } : undefined;
+}
+
+export function signalsHref(
+  tab: SignalsTabId,
+  signal?: number,
+  extra?: {
+    /** Only the signals that use this library entry. */
+    conversion?: ConversionFilterRef;
+    /** Open the conversions editor of `signal`. */
+    editConversions?: boolean;
+  },
+): string {
   const params = new URLSearchParams();
   if (tab !== "map") params.set("tab", tab);
   if (signal !== undefined && Number.isInteger(signal)) params.set("signal", String(signal));
+  if (extra?.conversion) params.set("conversion", `${extra.conversion.list === "filters" ? "f" : "o"}${extra.conversion.index}`);
+  if (extra?.editConversions && signal !== undefined) params.set("edit", "conversions");
   const query = params.toString();
   return query ? `/signals?${query}` : "/signals";
 }
@@ -41,13 +63,14 @@ export function useSignalsTab() {
   }
 
   const setTab = React.useCallback(
-    (next: SignalsTabId, opts?: { signal?: number }) => {
+    (next: SignalsTabId, opts?: { signal?: number; editConversions?: boolean }) => {
       setTabState(next);
       setSignalId(opts?.signal);
-      router.push(signalsHref(next, opts?.signal), { scroll: false });
+      router.push(signalsHref(next, opts?.signal, { editConversions: opts?.editConversions }), { scroll: false });
     },
     [router],
   );
+  const editConversions = searchParams.get("edit") === "conversions" && urlSignalId !== undefined;
 
-  return { tab, signalId, setTab };
+  return { tab, signalId, setTab, editConversions };
 }

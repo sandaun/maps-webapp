@@ -1,6 +1,6 @@
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
-import type { ConversionSelection } from "@/core/signals/conversion-refs";
+import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import type { MbsConfig } from "@/protocols/modbus/slave";
@@ -90,6 +90,18 @@ export type MeGroupPatchInput = Partial<
   Pick<MeGroupInfo, "enabled" | "description" | "type" | "fanSpeeds" | "dualSetPoint" | "urc" | "capacity">
 >;
 
+/** Mirror of `ConversionPatch` in `knx-mbm/xml-ops.ts`: params as numbers. */
+export interface ConversionPatchInput {
+  description?: string;
+  type?: 1 | 2;
+  param1?: number;
+  param2?: number;
+  param3?: number;
+  param4?: number;
+}
+
+export type ConversionListInput = "filters" | "operations";
+
 /** Mirror of `ProjectPatch` in `src/server/projects/families.ts`. */
 export type ProjectPatchInput =
   | { type: "setGeneralInfo"; name?: string; description?: string }
@@ -109,6 +121,16 @@ export type ProjectPatchInput =
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatchInput }
   /** `deviceIndex` is the device position; `signals` mirrors the MAPS delete dialog. */
   | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: "delete" | "unassign" }
+  /** KNX–MBM conversion library; `values` copies an entry (Duplicate). */
+  | {
+      type: "addConversion";
+      conversionType: 0 | 1 | 2;
+      values?: { description: string; params: [number, number, number, number] };
+    }
+  | { type: "updateConversion"; list: ConversionListInput; index: number; patch: ConversionPatchInput }
+  | { type: "removeConversion"; list: ConversionListInput; index: number }
+  /** KNX–MBM undo of an assignment: both halves exactly as they were. */
+  | { type: "restoreSignalConversions"; id: number; refs: SignalConversionRefs }
   | { type: "updateMbsConfig"; patch: MbsConfigPatchInput }
   | { type: "updateRtuConfig"; patch: Partial<MbsConfig["rtu"]> }
   | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }

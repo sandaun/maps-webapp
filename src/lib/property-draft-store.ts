@@ -338,12 +338,21 @@ export function createPropertyDraftStore() {
         (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity),
       );
       const invalid: Record<string, string> = {};
+      const pending = new Map(edits.map((edit) => [edit.id, edit]));
       for (const entry of edits) {
         const field = fields.find((field) => field.id === entry.id);
+        const siblings = field ? fields.filter((other) => other.group === field.group) : [];
+        const valueOf = (key: string) => {
+          const sibling = siblings.find((other) => other.key === key);
+          if (!sibling) return "";
+          const edit = pending.get(sibling.id);
+          return edit && !edit.conflict ? edit.value : sibling.base;
+        };
+        const edited = new Set(siblings.filter((other) => pending.has(other.id)).map((other) => other.key));
         const message = entry.conflict
           ? "Review this change before saving."
           : field
-            ? validateField(field, entry.value)
+            ? validateField(field, entry.value, valueOf, edited)
             : "This property is no longer available.";
         if (message) invalid[entry.id] = message;
       }
@@ -449,6 +458,13 @@ export function createPropertyDraftStore() {
               if (index === patch.deviceIndex) removed = true;
               else if (index > patch.deviceIndex)
                 id = `${match[1]}-${match[2]}-device-${index - 1}${match[4]}`;
+            }
+          } else if (patch.type === "removeConversion") {
+            const match = id.match(/^cfg-conv-(f|o)-(\d+)(-.*)$/);
+            if (match && (match[1] === "f") === (patch.list === "filters")) {
+              const index = Number(match[2]);
+              if (index === patch.index) removed = true;
+              else if (index > patch.index) id = `cfg-conv-${match[1]}-${index - 1}${match[3]}`;
             }
           } else if (
             patch.type === "updateMbsConfig" &&

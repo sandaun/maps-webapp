@@ -32,22 +32,55 @@ export function knxSelectionRefs(
   selection: ConversionSelection,
   flags?: KnxFlags,
 ): { refs: SignalConversionRefs } | { error: string } {
+  const target = conversionTarget(doc, id);
+  if ("error" in target) return target;
+  const filters = [selection.internalFilter, selection.externalFilter].filter((f): f is number => f !== null);
+  if (filters.some((index) => index >= target.filterCount) || selection.operations.some((index) => index >= target.operationCount)) {
+    return { error: `Signal ${id + 1} uses a conversion that is not in the project.` };
+  }
+  return { refs: refsFromSelection(selection, knxConversionRwMode(flags ?? readFlags(target.knx))) };
+}
+
+/**
+ * Refs of both halves exactly as given, for undoing an assignment: the
+ * previous refs may be ones `frmSelectConversion` would not write (imported
+ * files), so they cannot go through a selection. Same checks as a selection:
+ * no virtual signal, every position in the project's lists.
+ */
+export function knxRestoredRefs(
+  doc: XmlDocument,
+  id: number,
+  refs: SignalConversionRefs,
+): { refs: SignalConversionRefs } | { error: string } {
+  const target = conversionTarget(doc, id);
+  if ("error" in target) return target;
+  const halves = [refs.internal, refs.external];
+  if (
+    halves.some(
+      (half) =>
+        half.filters.some((ref) => ref.index >= target.filterCount) ||
+        half.operations.some((ref) => ref.index >= target.operationCount),
+    )
+  ) {
+    return { error: `Signal ${id + 1} uses a conversion that is not in the project.` };
+  }
+  return { refs };
+}
+
+function conversionTarget(
+  doc: XmlDocument,
+  id: number,
+): { knx: XmlElement; filterCount: number; operationCount: number } | { error: string } {
   const knx = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: String(id) }]);
   if (!knx) return { error: `Signal ${id} does not exist.` };
   if (parseBool(attrOfChild(knx, "Virtual", "Status"), false)) {
     return { error: `Signal ${id + 1} is virtual; virtual signals cannot have conversions.` };
   }
-
   const types = (doc.find(["IBOX", "Conversions"])?.children ?? [])
     .filter((c): c is XmlElement => c.kind === "element" && c.tag === "Conversion")
     .map((el) => getAttr(el, "Type"));
   const filterCount = types.filter((type) => type === "0").length;
-  const operationCount = types.length - filterCount;
-  const filters = [selection.internalFilter, selection.externalFilter].filter((f): f is number => f !== null);
-  if (filters.some((index) => index >= filterCount) || selection.operations.some((index) => index >= operationCount)) {
-    return { error: `Signal ${id + 1} uses a conversion that is not in the project.` };
-  }
-  return { refs: refsFromSelection(selection, knxConversionRwMode(flags ?? readFlags(knx))) };
+  return { knx, filterCount, operationCount: types.length - filterCount };
 }
 
 function readFlags(knx: XmlElement): KnxFlags {

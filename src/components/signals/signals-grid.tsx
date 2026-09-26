@@ -499,6 +499,33 @@ export function SignalsGrid<R>({
       });
     }
 
+    if (col.onOpen) {
+      const open = col.canOpen?.(row) ?? true;
+      const title = col.getTitle?.(row) ?? col.getText(row);
+      return cellShell(col, {
+        ...cellPresentation,
+        extra: cn(open ? "cursor-pointer hover:bg-row-hover hover:ring-1 hover:ring-inset hover:ring-hms-accent/30" : "cursor-default"),
+        role: open ? "button" : undefined,
+        tabIndex: open ? 0 : undefined,
+        onClick: open ? () => col.onOpen?.(row) : undefined,
+        onKeyDown: (e) => {
+          if (!open || (e.key !== "Enter" && e.key !== "F2")) return;
+          e.preventDefault();
+          col.onOpen?.(row);
+        },
+        children: (
+          <span
+            className="flex min-w-0 flex-1 items-center overflow-hidden"
+            aria-label={open ? `${col.header} signal ${id}: ${col.getText(row)}` : undefined}
+            onMouseEnter={(event) => showTooltip(event, title, true)}
+            onMouseLeave={() => setTooltip(null)}
+          >
+            {compact || !col.renderContent ? displayedCell(col, row, compact) : col.renderContent(row)}
+          </span>
+        ),
+      });
+    }
+
     const editable = col.kind !== "none";
     return cellShell(col, {
       ...cellPresentation,
@@ -819,7 +846,7 @@ export function SignalsGrid<R>({
         ? createPortal(
             <div
               role="tooltip"
-              className="pointer-events-none fixed z-[100] max-w-[320px] rounded-md bg-[#17384A] px-2.5 py-1.5 text-xs leading-4 text-white shadow-lg"
+              className="pointer-events-none fixed z-[100] max-w-[320px] whitespace-pre-line rounded-md bg-[#17384A] px-2.5 py-1.5 text-xs leading-4 text-white shadow-lg"
               style={{ left: tooltip.left, top: tooltip.top }}
             >
               {tooltip.text}

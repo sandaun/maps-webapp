@@ -4,12 +4,16 @@ import * as React from "react";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
-import { useSignalsTab } from "@/lib/signals-tabs";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signalsUsingConversion } from "@/core/conversions/usage";
+import { parseConversionFilter, signalsHref, useSignalsTab } from "@/lib/signals-tabs";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { ScreenGate } from "@/components/screens/screen-gate";
 import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
+import { ConversionAssignDialog } from "@/components/signals/conversion-assign-dialog";
+import { ConversionChainCell } from "@/components/signals/conversion-chain";
 import { columnGroupsFor } from "@/components/signals/column-groups";
 import { knxMbmColumns, KNX_TAB_ORDER, toKnxRow } from "@/components/signals/columns-knx-mbm";
 import { SignalsGrid } from "@/components/signals/signals-grid";
@@ -58,7 +62,7 @@ function SignalsView({
 }) {
   const applyPatches = usePatch();
   const chrome = useWorkspaceChrome();
-  const { setTab, signalId } = useSignalsTab();
+  const { setTab, signalId, editConversions } = useSignalsTab();
   const { mbm, signals } = view.project;
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<SignalMapFilter>("all");
@@ -66,7 +70,27 @@ function SignalsView({
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
-  const allColumns = React.useMemo(() => knxMbmColumns(view.project), [view.project]);
+  const [assigning, setAssigning] = React.useState<number | null>(null);
+  const [assignError, setAssignError] = React.useState<string | null>(null);
+  const [assignBusy, setAssignBusy] = React.useState(false);
+  const allColumns = React.useMemo(
+    () =>
+      knxMbmColumns(view.project).map((col) =>
+        col.id === "conversionChain"
+          ? {
+              ...col,
+              // MAPS makes the cell of virtual signals read-only (IntesisProjectKnxMbm_RT.cs:709-712).
+              canOpen: (row: ReturnType<typeof toKnxRow>) => !row.signal.virtual,
+              onOpen: (row: ReturnType<typeof toKnxRow>) => {
+                setAssignError(null);
+                setAssigning(row.signal.id);
+              },
+              renderContent: (row: ReturnType<typeof toKnxRow>) => <ConversionChainCell chain={row.conversionChain} />,
+            }
+          : col,
+      ),
+    [view.project],
+  );
   const defaultHidden = React.useMemo(
     () => allColumns.filter((col) => col.defaultHidden).map((col) => col.id),
     [allColumns],
@@ -74,7 +98,25 @@ function SignalsView({
   const visibility = useColumnVisibility("signals-hidden:knx-mbm:v1", defaultHidden);
   const { compact, toggle: toggleCompact } = useGridCompact();
 
-  const rows = React.useMemo(() => signals.map((s) => toKnxRow(mbm, s)), [mbm, signals]);
+  const conversions = view.project.conversions;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const conversionParam = searchParams.get("conversion");
+  const conversionFilter = parseConversionFilter(conversionParam);
+  const filterEntry = conversionFilter
+    ? conversions.filter((c) => (c.type === 0) === (conversionFilter.list === "filters"))[conversionFilter.index]
+    : undefined;
+  const allRows = React.useMemo(
+    () => signals.map((s) => toKnxRow(mbm, s, conversions)),
+    [mbm, signals, conversions],
+  );
+  // "Used by N signals →" of Configuration → Conversions: only the signals that use that entry.
+  const rows = React.useMemo(() => {
+    const filterRef = parseConversionFilter(conversionParam);
+    if (!filterRef) return allRows;
+    const using = new Set(signalsUsingConversion(signals, filterRef.list, filterRef.index).map((s) => s.id));
+    return allRows.filter((row) => using.has(row.signal.id));
+  }, [allRows, signals, conversionParam]);
   const columns = React.useMemo(
     () => allColumns.filter((col) => col.group === "project" || !visibility.isHidden(col.id)),
     [allColumns, visibility],
@@ -118,6 +160,36 @@ function SignalsView({
     }
   }
 
+  async function applyConversions(patches: ProjectPatchInput[], inverses?: ProjectPatchInput[]): Promise<boolean> {
+    setAssignError(null);
+    setAssignBusy(true);
+    try {
+      await applyPatches(patches);
+      chrome.bumpDirty(patches.length);
+      if (inverses) chrome.pushUndo({ label: "conversions", patches: inverses });
+      return true;
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : "Could not save the conversions.");
+      return false;
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
+  // "Open conversions" of a validation issue: the editor of that signal, once per link.
+  const editKey = editConversions && signalId !== undefined ? `${signalId}:${searchParams.toString()}` : null;
+  const [openedFrom, setOpenedFrom] = React.useState<string | null>(null);
+  if (editKey && editKey !== openedFrom) {
+    setOpenedFrom(editKey);
+    const target = byId.get(signalId!);
+    if (target && !target.virtual) {
+      setAssignError(null);
+      setAssigning(target.id);
+    }
+  }
+  const assigningSignal = assigning === null ? undefined : byId.get(assigning);
+  const [bulkConversions, setBulkConversions] = React.useState(false);
+
   const checkedList = [...checkedIds];
 
   function setActiveForChecked(active: boolean) {
@@ -156,6 +228,10 @@ function SignalsView({
       onDelete={removeChecked}
       onClear={clear}
       onEditField={() => setBulkOpen(true)}
+      onConversions={() => {
+        setAssignError(null);
+        setBulkConversions(true);
+      }}
       onSelectAllMatching={() => selectMany(visibleIds)}
     >
       <SignalsToolbar
@@ -183,6 +259,20 @@ function SignalsView({
           onToggle={visibility.toggle}
         />
       ) : null}
+      {conversionFilter && (
+        <p className="mx-[18px] mt-2 flex items-center gap-3 rounded-lg border border-[#C9DEF0] bg-[#F5FAFE] px-4 py-2 text-[12.5px] text-hms-blue">
+          <span className="flex-1">
+            {`${rows.length} ${rows.length === 1 ? "signal uses" : "signals use"} ${conversionFilter.list === "filters" ? "the filter" : "the operation"} “${filterEntry ? filterEntry.description || "Untitled" : "?"}”.`}
+          </span>
+          <button
+            type="button"
+            className="font-bold text-hms-accent hover:text-hms-accent-hover"
+            onClick={() => router.push(signalsHref("map"), { scroll: false })}
+          >
+            Show all signals
+          </button>
+        </p>
+      )}
       {actionError && (
         <p role="alert" className="mx-[18px] mt-2 rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-sm text-error">
           {actionError}
@@ -223,6 +313,31 @@ function SignalsView({
         onPrev={() => setPage((p) => Math.max(0, p - 1))}
         onNext={() => setPage((p) => p + 1)}
       />
+      {assigningSignal && (
+        <ConversionAssignDialog
+          key={assigningSignal.id}
+          signal={assigningSignal}
+          project={view.project}
+          busy={assignBusy}
+          error={assignError}
+          onClose={() => setAssigning(null)}
+          onApply={applyConversions}
+        />
+      )}
+      {bulkConversions && checkedList.length > 0 && (
+        <ConversionAssignDialog
+          signals={checkedList.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s)}
+          project={view.project}
+          busy={assignBusy}
+          error={assignError}
+          onClose={() => setBulkConversions(false)}
+          onApply={async (patches, inverses) => {
+            const ok = await applyConversions(patches, inverses);
+            if (ok) clear();
+            return ok;
+          }}
+        />
+      )}
       {bulkOpen && (
         <BulkEditDialog
           columns={columns}

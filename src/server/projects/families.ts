@@ -1,6 +1,6 @@
 import "server-only";
 import type { XmlDocument } from "@/core/project-format";
-import type { ConversionSelection } from "@/core/signals/conversion-refs";
+import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import {
   addDevice as knxAddDevice,
@@ -24,6 +24,13 @@ import {
   updateTcpNode as knxUpdateTcpNode,
   validateProject as validateKnxMbmProject,
   knxSelectionRefs,
+  knxRestoredRefs,
+  addConversion as knxAddConversion,
+  updateConversion as knxUpdateConversion,
+  removeConversion as knxRemoveConversion,
+  ConversionEditError,
+  type ConversionLocator,
+  type ConversionPatch,
   type KnxMbmProject,
   type RemovedDeviceSignals,
   type NodeLocator,
@@ -116,7 +123,30 @@ export type KnxMbmPatch =
   | { type: "updateTcpNode"; nodeIndex: number; patch: TcpNodePatch }
   | { type: "addDevice"; locator: NodeLocator }
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatch }
-  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: RemovedDeviceSignals };
+  | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: RemovedDeviceSignals }
+  | ConversionLibraryPatch;
+
+/**
+ * Conversion library edits (Configuration → Conversions). `values` makes the
+ * new entry a copy (Duplicate); without it the entry gets the MAPS defaults.
+ */
+type ConversionLibraryPatch =
+  | {
+      type: "addConversion";
+      conversionType: 0 | 1 | 2;
+      values?: { description: string; params: [number, number, number, number] };
+    }
+  | ({ type: "updateConversion"; patch: ConversionPatch } & ConversionLocator)
+  | ({ type: "removeConversion" } & ConversionLocator)
+  /** Undo of an assignment: both halves back to the refs they had, even if MAPS would not write them. */
+  | { type: "restoreSignalConversions"; id: number; refs: SignalConversionRefs };
+
+const CONVERSION_LIBRARY_TYPES = new Set([
+  "addConversion",
+  "updateConversion",
+  "removeConversion",
+  "restoreSignalConversions",
+]);
 
 /** `updateSignal` payload of the API: conversions come as a selection, never as raw refs. */
 type KnxMbmSignalPatchInput = Omit<KnxMbmSignalPatch, "conversionRefs"> & { conversions?: ConversionSelection };
@@ -133,7 +163,8 @@ export type MeMbsPatch =
   | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }
   | { type: "updateMeScalars"; patch: MeScalarsPatch }
   | { type: "updateController"; controllerIndex: number; patch: MeControllerPatch }
-  | { type: "updateGroup"; controllerIndex: number; groupIndex: number; patch: MeGroupPatch };
+  | { type: "updateGroup"; controllerIndex: number; groupIndex: number; patch: MeGroupPatch }
+  | ConversionLibraryPatch;
 
 /** Patch operations accepted by the API (validated with zod at the edge). */
 export type ProjectPatch = KnxMbmPatch | MeMbsPatch;
@@ -170,6 +201,7 @@ const KNX_MBM_TYPES = new Set([
   "addDevice",
   "updateDevice",
   "removeDevice",
+  ...CONVERSION_LIBRARY_TYPES,
 ]);
 
 const ME_MBS_TYPES = new Set([
@@ -184,6 +216,8 @@ const ME_MBS_TYPES = new Set([
   "updateMeScalars",
   "updateController",
   "updateGroup",
+  // Accepted only to answer with the reason: MAPS has no conversions editor for this family.
+  ...CONVERSION_LIBRARY_TYPES,
 ]);
 
 const KNX_MBM: FamilyEntry = {
@@ -315,6 +349,24 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
     case "removeDevice":
       knxRemoveDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.signals);
       break;
+    case "restoreSignalConversions": {
+      const result = knxRestoredRefs(doc, patch.id, patch.refs);
+      if ("error" in result) throw new ProjectServiceError(422, result.error);
+      knxUpdateSignal(doc, patch.id, { conversionRefs: result.refs });
+      break;
+    }
+    case "addConversion":
+    case "updateConversion":
+    case "removeConversion":
+      try {
+        if (patch.type === "addConversion") knxAddConversion(doc, patch.conversionType, patch.values);
+        else if (patch.type === "updateConversion") knxUpdateConversion(doc, patch, patch.patch);
+        else knxRemoveConversion(doc, patch);
+      } catch (error) {
+        if (error instanceof ConversionEditError) throw new ProjectServiceError(error.status, error.message);
+        throw error;
+      }
+      break;
   }
 }
 
@@ -339,6 +391,9 @@ const ME_DERIVED_SIGNALS_MESSAGE =
 function applyMeMbsPatches(doc: XmlDocument, patches: MeMbsPatch[]): void {
   if (patches.some((p) => p.type === "addSignal" || p.type === "removeSignal")) {
     throw new ProjectServiceError(409, ME_DERIVED_SIGNALS_MESSAGE);
+  }
+  if (patches.some((p) => CONVERSION_LIBRARY_TYPES.has(p.type))) {
+    throw new ProjectServiceError(409, ME_FIXED_CONVERSIONS_MESSAGE);
   }
   for (const patch of patches.filter((p) => p.type === "updateSignal")) applyMeMbsPatch(doc, patch);
   try {
@@ -382,5 +437,10 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
     case "updateGroup":
       updateGroupAndSignals(doc, patch.controllerIndex, patch.groupIndex, patch.patch);
       break;
+    case "addConversion":
+    case "updateConversion":
+    case "removeConversion":
+    case "restoreSignalConversions":
+      throw new ProjectServiceError(409, ME_FIXED_CONVERSIONS_MESSAGE);
   }
 }

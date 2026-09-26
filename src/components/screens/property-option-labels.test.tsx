@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { projectFromXml as readKnx } from "@/gateway-families/knx-mbm";
@@ -46,6 +46,15 @@ function checkRenderedSelects(view: ProjectView, seen: Set<OptionLabels>) {
     }
     seen.add(labels);
   }
+  // Choice chips (conversion library): one radio per option, in the field's option order.
+  for (const group of screen.queryAllByRole("radiogroup")) {
+    const field = fields.get(group.id);
+    if (!field?.optionLabels || !field.options) continue;
+    expect(within(group).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(
+      field.options.map((option) => field.optionLabels![String(Number(option))]),
+    );
+    seen.add(field.optionLabels);
+  }
 }
 
 beforeEach(() => {
@@ -68,7 +77,7 @@ describe("shared option labels match the rendered selects", () => {
     );
     await screen.findByRole("textbox", { name: "Project name" });
     for (const section of family === "knx-mbm"
-      ? ["BMS · KNX", "Modbus Master"]
+      ? ["BMS · KNX", "Modbus Master", "Conversions"]
       : ["BMS · Modbus server", "Mitsubishi Electric"]) {
       fireEvent.click(screen.getByRole("button", { name: section }));
       checkRenderedSelects(view, seen);
