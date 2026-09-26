@@ -194,10 +194,6 @@ function readSignals(doc: XmlDocument): MeMbsSignal[] {
       description: (m ? textOf(m, "Description") : undefined) ?? "",
       me: e ? readMeEndpoint(e) : defaultMeEndpoint(),
       modbus: m ? readMbsEndpoint(m) : defaultMbsEndpoint(),
-      idxOperations:
-        (m ? textOf(m, "IdxOperations") : undefined) ?? (e ? textOf(e, "IdxOperations") : "") ?? "",
-      idxFilters:
-        (m ? textOf(m, "IdxFilters") : undefined) ?? (e ? textOf(e, "IdxFilters") : "") ?? "",
       virtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
     };
   });

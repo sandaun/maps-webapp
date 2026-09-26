@@ -14,6 +14,7 @@ import {
   portForTcpNode,
   type MbmConfig,
 } from "@/protocols/modbus/master";
+import { conversionCode } from "@/core/signals/conversion-code";
 import type { SignalPatchInput } from "@/lib/project-types";
 import { projectColumns } from "./columns-project";
 import type { GridColumn } from "./types";
@@ -84,6 +85,7 @@ export interface KnxSignalRow {
   nodeLabel: string;
   deviceLabel: string;
   slaveLabel: string;
+  conversionCode: string;
   searchText: string;
 }
 
@@ -124,6 +126,7 @@ export function toKnxRow(mbm: MbmConfig, signal: KnxMbmSignal): KnxSignalRow {
     nodeLabel: node,
     deviceLabel: device,
     slaveLabel: slave,
+    conversionCode: conversionCode(signal.conversions),
     searchText: [signal.id, signal.description, groupAddress, dpt, node, device, signal.modbus.address]
       .join(" ")
       .toLowerCase(),
@@ -284,7 +287,7 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       defaultHidden: true,
       kind: "none",
       mono: true,
-      getText: (row) => row.signal.conversionCode,
+      getText: (row) => row.conversionCode,
     },
     {
       id: "node",

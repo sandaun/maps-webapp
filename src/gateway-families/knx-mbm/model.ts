@@ -1,3 +1,4 @@
+import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxFlags } from "@/protocols/knx";
 import type { MbmConfig } from "@/protocols/modbus/master";
 
@@ -43,11 +44,8 @@ export interface KnxMbmSignal {
   description: string;
   knx: KnxEndpoint;
   modbus: MbmEndpoint;
-  /** Conversion refs, raw `idx,inverted;…` form (operations / filters). */
-  idxOperations: string;
-  idxFilters: string;
-  /** Read-only MAPS "Conv. Id" summary of both sides (`conversionCode`). */
-  conversionCode: string;
+  /** Conversion refs per half: internal = KNX object, external = Modbus signal. */
+  conversions: SignalConversionRefs;
   virtual: boolean;
 }
 

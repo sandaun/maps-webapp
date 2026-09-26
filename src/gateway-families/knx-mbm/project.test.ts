@@ -56,10 +56,26 @@ describe("projectFromXml", () => {
     expect(onOff.modbus.writeFunc).toBe(6);
     expect(temp.modbus.readFunc).toBe(3);
     expect(temp.modbus.format).toBe(3); // Float
-    expect(temp.idxOperations).toBe("0,0;");
+    expect(temp.conversions).toEqual({
+      internal: { filters: [], operations: [{ index: 0, inverted: false }] },
+      external: { filters: [], operations: [{ index: 0, inverted: false }] },
+    });
 
     expect(project.conversions).toHaveLength(1);
     expect(project.conversions[0].description).toBe("x0.1 to degC");
+  });
+
+  it("reads the conversion refs of each half, even when the KNX half is empty", () => {
+    const knxLine = "\r\n      <IdxOperations>0,0;</IdxOperations>";
+    expect(SYNTHETIC_KNX_MBM_XML).toContain(knxLine);
+    const doc = XmlDocument.parse(
+      SYNTHETIC_KNX_MBM_XML.replace(knxLine, "\r\n      <IdxOperations></IdxOperations>"),
+    );
+    const temp = projectFromXml(doc).signals[1];
+    expect(temp.conversions).toEqual({
+      internal: { filters: [], operations: [] },
+      external: { filters: [], operations: [{ index: 0, inverted: false }] },
+    });
   });
 
   it("does not expose the gateway password in the model", () => {

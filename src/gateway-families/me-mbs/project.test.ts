@@ -61,15 +61,13 @@ describe("projectFromXml (synthetic)", () => {
     expect(ctrl.groups[1].enabled).toBe(false);
 
     expect(project.signals).toHaveLength(9);
-    const [commErr, onAll, onOff, , fan, setpoint] = project.signals;
+    const [commErr, onAll, onOff, , , setpoint] = project.signals;
     expect(commErr.me).toMatchObject({ groupIndex: -1, signalSpecIndex: 0, isStatus: true });
     expect(commErr.modbus).toMatchObject({ address: 0, readWrite: READ_WRITE.READ });
     expect(onAll.modbus.readWrite).toBe(READ_WRITE.TRIGGER);
     expect(onOff.modbus).toMatchObject({ address: 100, readWrite: READ_WRITE.READWRITE });
     expect(onOff.me).toMatchObject({ groupIndex: 0, signalIndex: 0 });
-    expect(fan.idxOperations).toBe("17,0");
     expect(setpoint.modbus.format).toBe(1); // Signed C2
-    expect(setpoint.idxOperations).toBe("0,1");
 
     expect(project.conversions).toHaveLength(1);
   });

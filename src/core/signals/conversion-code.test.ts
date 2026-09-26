@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { conversionCode } from "./conversion-code";
+import { conversionCode as fromRefs } from "./conversion-code";
+import { readHalfConversionRefs, type HalfConversionRefs } from "./conversion-refs";
 
-const none = { filters: "", operations: "" };
+type RawHalf = { filters: string | undefined; operations: string | undefined };
+
+const none: RawHalf = { filters: "", operations: "" };
+const half = (raw: RawHalf): HalfConversionRefs => readHalfConversionRefs(raw.filters, raw.operations);
+const conversionCode = (internal: RawHalf, external: RawHalf) =>
+  fromRefs({ internal: half(internal), external: half(external) });
 
 describe("conversionCode (IntesisConversion.CreateStringFromConversions)", () => {
   it("returns a dash when neither side has conversions", () => {

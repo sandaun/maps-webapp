@@ -10,14 +10,8 @@
  * `mapIndex` is never passed by these families, so it is not ported.
  */
 
-import { parseConversionIds, type ConversionIdRef } from "@/core/xbl/conversions";
-
-export interface SideConversionRefs {
-  /** Raw `IdxFilters` (`idx,inverted;…`). */
-  filters: string | undefined;
-  /** Raw `IdxOperations` (`idx,inverted;…`). */
-  operations: string | undefined;
-}
+import type { ConversionIdRef } from "@/core/xbl/conversions";
+import type { SignalConversionRefs } from "./conversion-refs";
 
 const EMPTY = "-;-;-;-";
 
@@ -38,14 +32,14 @@ function withDirection(direction: string, value: string): string {
 }
 
 /** Port of `CreateStringFromConversions` — "-" when neither side has conversions. */
-export function conversionCode(internal: SideConversionRefs, external: SideConversionRefs): string {
-  const intOperations = parseConversionIds(internal.operations);
-  const [intFilter1, intFilter2] = pickFilters(parseConversionIds(internal.filters));
+export function conversionCode({ internal, external }: SignalConversionRefs): string {
+  const intOperations = internal.operations;
+  const [intFilter1, intFilter2] = pickFilters(internal.filters);
   const [intOp1, intOp2] = pickOperations(intOperations);
   const text = `${intFilter1};${intOp1};${intOp2};${intFilter2}`;
 
-  const [extFilter1, extFilter2] = pickFilters(parseConversionIds(external.filters));
-  const [extOp1, extOp2] = pickOperations(parseConversionIds(external.operations));
+  const [extFilter1, extFilter2] = pickFilters(external.filters);
+  const [extOp1, extOp2] = pickOperations(external.operations);
   const text2 = `${extFilter2};${extOp2};${extOp1};${extFilter1}`;
 
   if (text === EMPTY && text2 === EMPTY) return "-";

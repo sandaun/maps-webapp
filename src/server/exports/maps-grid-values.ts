@@ -4,6 +4,7 @@
  * in the desktop vocabulary, not the V9 grid labels.
  */
 
+import { formatConversionIds } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
 import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
@@ -275,8 +276,8 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
     dashNumber(modbus.bit),
     dashNumber(modbus.numOfBits),
     signal.virtual ? "-" : String(project.mbm.deadband),
-    signal.idxFilters,
-    signal.idxOperations,
+    formatConversionIds(signal.conversions.internal.filters),
+    formatConversionIds(signal.conversions.internal.operations),
   ];
 }
 

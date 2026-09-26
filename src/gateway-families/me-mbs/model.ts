@@ -49,9 +49,6 @@ export interface MeMbsSignal {
   description: string;
   me: MeEndpoint;
   modbus: MbsEndpoint;
-  /** Conversion refs, raw `idx,inverted;…` form (operations / filters). */
-  idxOperations: string;
-  idxFilters: string;
   virtual: boolean;
 }
 
