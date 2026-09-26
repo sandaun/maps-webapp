@@ -10,10 +10,22 @@ export function parseSignalsTab(raw: string | null | undefined): SignalsTabId {
   return "map";
 }
 
-export function signalsHref(tab: SignalsTabId, signal?: number): string {
+/** A library entry the signal map is filtered by: its list and position ("f0", "o2"). */
+export interface ConversionFilterRef {
+  list: "filters" | "operations";
+  index: number;
+}
+
+export function parseConversionFilter(raw: string | null | undefined): ConversionFilterRef | undefined {
+  const match = raw?.match(/^([fo])(\d+)$/);
+  return match ? { list: match[1] === "f" ? "filters" : "operations", index: Number(match[2]) } : undefined;
+}
+
+export function signalsHref(tab: SignalsTabId, signal?: number, conversion?: ConversionFilterRef): string {
   const params = new URLSearchParams();
   if (tab !== "map") params.set("tab", tab);
   if (signal !== undefined && Number.isInteger(signal)) params.set("signal", String(signal));
+  if (conversion) params.set("conversion", `${conversion.list === "filters" ? "f" : "o"}${conversion.index}`);
   const query = params.toString();
   return query ? `/signals?${query}` : "/signals";
 }

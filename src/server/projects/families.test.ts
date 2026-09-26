@@ -210,9 +210,42 @@ describe("KNX–MBM conversion library patches", () => {
   });
 });
 
+describe("KNX–MBM undo of an assignment (restoreSignalConversions)", () => {
+  it("puts back non-standard refs exactly after an assignment rewrote them", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    // The fixture's read-only signal 1 has the operation on both halves: MAPS would not write that.
+    const before = projectFromXml(doc).signals[1].conversions;
+    const beforeXml = doc.serialize();
+    knx.applyPatches(doc, [
+      { type: "updateSignal", id: 1, patch: { conversions: { internalFilter: null, operations: [], externalFilter: null, master: "internal" } } },
+    ]);
+    expect(projectFromXml(doc).signals[1].conversions.external.operations).toEqual([]);
+    knx.applyPatches(doc, [{ type: "restoreSignalConversions", id: 1, refs: before }]);
+    expect(projectFromXml(doc).signals[1].conversions).toEqual(before);
+    // Only the trailing ";" of the fixture differs: refs are written without it, like MAPS.
+    expect(doc.serialize()).toBe(beforeXml.replaceAll("<IdxOperations>0,0;</IdxOperations>", "<IdxOperations>0,0</IdxOperations>"));
+  });
+
+  it("rejects positions outside the library and virtual signals", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    const refs = { internal: { filters: [], operations: [] }, external: { filters: [{ index: 0, inverted: false }], operations: [] } };
+    expect(() => knx.applyPatches(doc, [{ type: "restoreSignalConversions", id: 1, refs }])).toThrow(
+      expect.objectContaining({ status: 422, message: expect.stringMatching(/not in the project/) }),
+    );
+    const knxObject = doc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: "1" }])!;
+    const virtualEl = knxObject.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual")!;
+    setAttr(virtualEl, "Status", "True");
+    const empty = { internal: { filters: [], operations: [] }, external: { filters: [], operations: [] } };
+    expect(() => knx.applyPatches(doc, [{ type: "restoreSignalConversions", id: 1, refs: empty }])).toThrow(
+      /virtual signals cannot have conversions/,
+    );
+  });
+});
+
 describe("ME–MBS batch patches", () => {
   it("rejects conversion library edits, which MAPS does not offer for this family", () => {
     for (const patch of [
+      { type: "restoreSignalConversions", id: 0, refs: { internal: { filters: [], operations: [] }, external: { filters: [], operations: [] } } },
       { type: "addConversion", conversionType: 0 },
       { type: "updateConversion", list: "operations", index: 0, patch: { description: "x" } },
       { type: "removeConversion", list: "operations", index: 0 },

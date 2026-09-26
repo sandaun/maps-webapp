@@ -15,6 +15,7 @@ import {
   type MbmConfig,
 } from "@/protocols/modbus/master";
 import { conversionCode } from "@/core/signals/conversion-code";
+import { conversionChain, type ConversionChain } from "./conversion-chain";
 import type { SignalPatchInput } from "@/lib/project-types";
 import { projectColumns } from "./columns-project";
 import type { GridColumn } from "./types";
@@ -86,6 +87,7 @@ export interface KnxSignalRow {
   deviceLabel: string;
   slaveLabel: string;
   conversionCode: string;
+  conversionChain: ConversionChain;
   searchText: string;
 }
 
@@ -113,7 +115,11 @@ export function knxSlaveLabel(mbm: MbmConfig, signal: KnxMbmSignal): string {
   return device ? String(device.slave) : "—";
 }
 
-export function toKnxRow(mbm: MbmConfig, signal: KnxMbmSignal): KnxSignalRow {
+export function toKnxRow(
+  mbm: MbmConfig,
+  signal: KnxMbmSignal,
+  conversions: KnxMbmProject["conversions"] = [],
+): KnxSignalRow {
   const groupAddress = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
   const dpt = formatDpt(signal.knx.dpt);
   const node = knxNodeLabel(mbm, signal.modbus.port);
@@ -127,6 +133,7 @@ export function toKnxRow(mbm: MbmConfig, signal: KnxMbmSignal): KnxSignalRow {
     deviceLabel: device,
     slaveLabel: slave,
     conversionCode: conversionCode(signal.conversions),
+    conversionChain: conversionChain(signal, conversions),
     searchText: [signal.id, signal.description, groupAddress, dpt, node, device, signal.modbus.address]
       .join(" ")
       .toLowerCase(),
@@ -275,6 +282,20 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       mono: true,
       getText: (row) => knxDirection(row.signal).arrow,
       getTitle: (row) => knxDirection(row.signal).title,
+    },
+    {
+      // Visible by default, unlike MAPS: the grid is where conversions are assigned.
+      id: "conversionChain",
+      group: "gateway",
+      header: "Conversions",
+      headerShort: "Conv",
+      headerHint: "Filters and operations between KNX and Modbus · click to assign",
+      width: 220,
+      minWidth: 110,
+      maxWidth: 420,
+      kind: "none",
+      getText: (row) => row.conversionChain.text,
+      getTitle: (row) => row.conversionChain.title,
     },
     {
       id: "conversions",

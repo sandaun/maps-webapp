@@ -252,3 +252,13 @@ export function conversionInverseExplanation(values: ConversionValues): string {
       return "The gateway uses the inverse table in the other direction.";
   }
 }
+
+/**
+ * Whether the gateway can run this operation on the other flow of a read +
+ * write signal: an arithmetic operation with B · 10^A = 0 and a scale with
+ * equal output ends divide by zero there.
+ */
+export function conversionHasInverse(values: ConversionValues): boolean {
+  if (values.type !== CONVERSION_TYPE.SCALE && values.type !== CONVERSION_TYPE.ARITH) return true;
+  return applyConversion(values, 0, true).kind !== "undefined";
+}

@@ -174,6 +174,13 @@ Pendents (abans de disseny):
   comptadors d'errors. És el blocant grosso de mig V11.
 - **DNS/NTP/Security**: decisió de producte única (parsejar `TimeConfiguration`,
   `SecurityConfiguration`, `DNS`/`DNS2` al model compartit IBOX).
+- **Configuration en pantalles estretes** [falta, branca pròpia; detectat
+  2026-09-26]: amb finestra estreta o zoom, el menú lateral de seccions
+  (236 px) i les files de camp (`FieldRow`, etiqueta fixa de 210 px) retallen
+  els camps. Proposta: selector de secció a dalt en lloc del menú lateral i
+  etiquetes damunt dels camps quan no hi ha amplada, mantenint el disseny en
+  pantalles amples. Conversions ja s'adapta (branca de l'editor de
+  conversions); la resta de seccions, no.
 - **Banner d'issues amb accions** (V11): generalitzar `ScreenIssues` amb
   navegació al camp/secció afectada.
 - **Pre-comandes de pujada sense prefix** [fet i validat en viu 2026-09-25: re-pujada del mateix blob, pre-comandes en 0,03 s, projecte idèntic]: `SEND_PRE_COMMANDS` envia

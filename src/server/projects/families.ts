@@ -1,6 +1,6 @@
 import "server-only";
 import type { XmlDocument } from "@/core/project-format";
-import type { ConversionSelection } from "@/core/signals/conversion-refs";
+import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import {
   addDevice as knxAddDevice,
@@ -24,6 +24,7 @@ import {
   updateTcpNode as knxUpdateTcpNode,
   validateProject as validateKnxMbmProject,
   knxSelectionRefs,
+  knxRestoredRefs,
   addConversion as knxAddConversion,
   updateConversion as knxUpdateConversion,
   removeConversion as knxRemoveConversion,
@@ -136,9 +137,16 @@ type ConversionLibraryPatch =
       values?: { description: string; params: [number, number, number, number] };
     }
   | ({ type: "updateConversion"; patch: ConversionPatch } & ConversionLocator)
-  | ({ type: "removeConversion" } & ConversionLocator);
+  | ({ type: "removeConversion" } & ConversionLocator)
+  /** Undo of an assignment: both halves back to the refs they had, even if MAPS would not write them. */
+  | { type: "restoreSignalConversions"; id: number; refs: SignalConversionRefs };
 
-const CONVERSION_LIBRARY_TYPES = new Set(["addConversion", "updateConversion", "removeConversion"]);
+const CONVERSION_LIBRARY_TYPES = new Set([
+  "addConversion",
+  "updateConversion",
+  "removeConversion",
+  "restoreSignalConversions",
+]);
 
 /** `updateSignal` payload of the API: conversions come as a selection, never as raw refs. */
 type KnxMbmSignalPatchInput = Omit<KnxMbmSignalPatch, "conversionRefs"> & { conversions?: ConversionSelection };
@@ -341,6 +349,12 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
     case "removeDevice":
       knxRemoveDevice(doc, { ...patch.locator, deviceIndex: patch.deviceIndex }, patch.signals);
       break;
+    case "restoreSignalConversions": {
+      const result = knxRestoredRefs(doc, patch.id, patch.refs);
+      if ("error" in result) throw new ProjectServiceError(422, result.error);
+      knxUpdateSignal(doc, patch.id, { conversionRefs: result.refs });
+      break;
+    }
     case "addConversion":
     case "updateConversion":
     case "removeConversion":
@@ -426,6 +440,7 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
     case "addConversion":
     case "updateConversion":
     case "removeConversion":
+    case "restoreSignalConversions":
       throw new ProjectServiceError(409, ME_FIXED_CONVERSIONS_MESSAGE);
   }
 }

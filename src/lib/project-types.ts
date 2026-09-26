@@ -1,6 +1,6 @@
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
-import type { ConversionSelection } from "@/core/signals/conversion-refs";
+import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import type { MbsConfig } from "@/protocols/modbus/slave";
@@ -129,6 +129,8 @@ export type ProjectPatchInput =
     }
   | { type: "updateConversion"; list: ConversionListInput; index: number; patch: ConversionPatchInput }
   | { type: "removeConversion"; list: ConversionListInput; index: number }
+  /** KNX–MBM undo of an assignment: both halves exactly as they were. */
+  | { type: "restoreSignalConversions"; id: number; refs: SignalConversionRefs }
   | { type: "updateMbsConfig"; patch: MbsConfigPatchInput }
   | { type: "updateRtuConfig"; patch: Partial<MbsConfig["rtu"]> }
   | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }

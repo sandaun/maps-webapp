@@ -12,14 +12,14 @@ import { PropertyDraftProvider } from "@/lib/property-drafts";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { ConfigurationScreen } from "./configuration-screen";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), push: vi.fn() }));
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
   getProjectView: mocks.get,
   patchProject: mocks.patch,
 }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mocks.push }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -86,6 +86,12 @@ describe("Configuration → Conversions", () => {
     expect(row("Below 50").textContent).toContain("unused");
     expect(row("x0.1").textContent).toContain("y = x · 0.1");
     expect(row("Chiller mode").textContent).toContain("system");
+  });
+
+  it("links the use count to the signals that use the entry", async () => {
+    await openConversions();
+    fireEvent.click(screen.getByRole("button", { name: "Used by 1 signal →" }));
+    expect(mocks.push).toHaveBeenCalledWith("/signals?conversion=f0");
   });
 
   it("edits the Param4 threshold of a Less than filter, as MAPS does", async () => {

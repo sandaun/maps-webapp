@@ -90,6 +90,14 @@ const conversionPatchSchema = z
   .partial()
   .strict();
 
+// Stored refs of one half; the family checks the positions against the project.
+const conversionRefListSchema = z
+  .array(z.object({ index: conversionIndexSchema, inverted: z.boolean() }).strict())
+  .max(8);
+const halfConversionRefsSchema = z
+  .object({ filters: conversionRefListSchema, operations: conversionRefListSchema })
+  .strict();
+
 const mePatchSchema = z
   .object({
     g50Index: z.number().int().min(0).max(1),
@@ -315,6 +323,11 @@ const patchSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("updateConversion"), ...conversionLocatorShape, patch: conversionPatchSchema }),
   z.object({ type: z.literal("removeConversion"), ...conversionLocatorShape }),
+  z.object({
+    type: z.literal("restoreSignalConversions"),
+    id: z.number().int().min(0),
+    refs: z.object({ internal: halfConversionRefsSchema, external: halfConversionRefsSchema }).strict(),
+  }),
   z.object({ type: z.literal("updateMbsConfig"), patch: mbsConfigPatchSchema }),
   z.object({ type: z.literal("updateRtuConfig"), patch: mbsRtuConfigPatchSchema }),
   z.object({ type: z.literal("updateTcpConfig"), patch: mbsTcpConfigPatchSchema }),

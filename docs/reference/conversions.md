@@ -75,9 +75,11 @@ continuen preservant i arriben a l'XBL tal com són.
   (`defaultHidden`), p.ex. `DIRECTION[>/<]:INDEXES[-;0;1;-]`. A ME-MBS no hi és
   (§1.1b).
 - Configuration → Conversions i el comptador d'Overview: només KNX-MBM (§1.1b).
-- **Cap pantalla escriu encara assignacions per senyal.** Les vies
-  d'escriptura són l'import XLSX (§2, §5) i l'API de patch (`conversions`,
-  §4.1). L'assignació és la fase 2 de l'editor (§4.1).
+- Signals (2026-09-26): columna **"Conversions"** a la banda GATEWAY, visible
+  per defecte (a MAPS és amagada), amb la cadena en l'ordre del flux definit i
+  els dos fluxos al tooltip; obre l'editor d'assignació (§4.1). Als senyals
+  virtuals la cel·la és inert, com a MAPS. "Used by N signals →" de la
+  biblioteca obre el mapa filtrat (`/signals?conversion=f0`).
 
 ### 1.3 XBL (això sí que està complet i verificat)
 
@@ -172,10 +174,41 @@ MAPS (§5).
   `refsFromSelection` (port de `SaveObjectsConfiguration`) i la direcció dels
   flags KNX (`knxConversionRwMode`). Rebutja conversions inexistents i senyals
   virtuals (MAPS no deixa editar-los la cel·la). Ja no accepta refs en text cru.
-- UI: pendent de disseny. El prompt per a Claude design és local a
-  `temp/prompt-claude-design-conversions.md` (biblioteca a Configuration →
-  Conversions, assignació per senyal amb modal des d'una columna del grid,
-  assignació massiva i issues de validació).
+- [fet 2026-09-26] UI per senyal (`conversion-assign-dialog.tsx`, disseny
+  V15): quatre posicions entre KNX i Modbus, un carril per flux actiu i
+  "Define for" (el `master`) als senyals de lectura i escriptura.
+  `src/core/conversions/assignment.ts`:
+  - `slotsFromRefs` és el port de `SelectValues` / `GetFilterIndex` /
+    `GetConversionIndex` (`frmSelectConversion.cs:275-355`) i del flux negre
+    d'`ApplyOperationsRestrictions` (`:356-379`): una sola operació de la
+    meitat externa va a la posició del costat Modbus.
+  - Cada carril segueix la cadena que el gateway construeix per a la seva
+    meitat (`CreateConversionList`, `IntesisConversion.cs:222-290`):
+    escriptura = meitat interna (filtre KNX, op1, op2, filtre Modbus),
+    lectura = meitat externa (filtre Modbus, op2, op1, filtre KNX); les
+    operacions van invertides al flux gris. Un test compara els passos amb
+    `refsFromSelection` per a totes les combinacions.
+  - LUT i LOGICAL es poden fer servir en lectura i escriptura (MAPS no ho
+    impedeix); no se simulen.
+  - **Divergència**: en lectura i escriptura es bloqueja una SCALE o ARITH
+    sense inversa (B·10^A = 0, sortida mín = màx), que MAPS deixa desar però
+    divideix per zero al flux gris.
+  - Refs que no són el format de MAPS (p.ex. la mateixa op a les dues meitats
+    sense invertir): l'editor avisa que desar reescriu les dues meitats i
+    ensenya el que hi ha desat. Refs fora de la biblioteca: error i Apply
+    bloquejat.
+  - "+ New…" del selector crea l'entrada a la biblioteca en aplicar, en el
+    mateix lot que l'assignació; un formulari amb valors escrits compta com a
+    canvi pendent (tancar o canviar de posició demana confirmació).
+  - **Desfer** fa servir `restoreSignalConversions`: torna les dues meitats a
+    les refs que tenien, encara que MAPS no les escriuria, amb les mateixes
+    comprovacions que una selecció (cap senyal virtual, posicions dins de la
+    biblioteca), i després treu les entrades noves. És l'única via que escriu
+    refs en brut, i només per restaurar.
+  - La cel·la i el tooltip del grid llegeixen les refs desades de cada meitat
+    en l'ordre de `CreateConversionList` (no la reconstrucció de l'editor), i
+    marquen "non-standard" les que MAPS no escriuria.
+- Pendent (fase 3): assignació massiva i issues de validació.
 
 ### 4.2 Gestió de la llista (config) — [fet 2026-09-26]
 
@@ -225,8 +258,6 @@ MAPS (§5).
   sentit invers (`IntesisConversion.CreateConversion`, `:136-179`): el
   gateway rep les mateixes màscares; el `~mask` de `frmSelectConversion` és
   només visual. LUT i LOGICAL no es simulen.
-- Pendent (fase 2): enllaç "Used by N signals →" al grid, quan hi hagi la
-  columna de conversions.
 
 ### 4.3 RemapLUTs
 
@@ -269,5 +300,5 @@ conversions no són editables (§1.1b).
    interna i l'externa es deriva invertida.
 4. **[fet] Patch.** Escriu cada meitat com `SaveObjectsConfiguration` (§4.1).
    A ME-MBS l'API rebutja editar conversions.
-5. **Editor**: biblioteca [fet 2026-09-26] (§4.2); assignació per senyal i
-   massiva [falta] (§4.1).
+5. **Editor**: biblioteca i assignació per senyal [fet 2026-09-26] (§4.1,
+   §4.2); assignació massiva [falta].

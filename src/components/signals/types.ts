@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { KnxFlags } from "@/protocols/knx";
 import type { SignalPatchInput } from "@/lib/project-types";
 
@@ -47,6 +48,11 @@ export interface GridColumn<R> {
   inverseFromSwitch?: (row: R) => SignalPatchInput;
   inverseFromText?: (row: R) => SignalPatchInput;
   inverseFromFlags?: (row: R) => SignalPatchInput;
+  /** Opens an editor dialog for the row (click, Enter or F2). `canOpen` false leaves the cell inert. */
+  onOpen?: (row: R) => void;
+  canOpen?: (row: R) => boolean;
+  /** Rich cell content; `getText` still feeds search, compact widths and fitting. */
+  renderContent?: (row: R) => ReactNode;
 }
 
 export const BAND_STYLE: Record<BandId, { bg: string; color: string; border: string }> = {

@@ -24,7 +24,9 @@ import {
   type ConversionValues,
 } from "@/core/conversions/rules";
 import { signalsUsingConversion } from "@/core/conversions/usage";
+import { useRouter } from "next/navigation";
 import type { ProjectView } from "@/lib/project-types";
+import { signalsHref } from "@/lib/signals-tabs";
 import {
   conversionFieldId,
   conversionParamLabels,
@@ -39,7 +41,7 @@ import { DraftInput } from "@/components/properties/draft-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { FieldRow, SectionHeader } from "./configuration-blocks";
+import { SectionHeader } from "./configuration-blocks";
 
 type KnxMbmView = Extract<ProjectView, { family: "knx-mbm" }>;
 type Conversion = KnxMbmView["project"]["conversions"][number];
@@ -174,8 +176,9 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
           {error}
         </p>
       )}
-      <div className="flex items-start gap-[14px]">
-        <div className="w-[260px] shrink-0 overflow-hidden rounded-lg border border-border bg-white">
+      <div className="@container">
+      <div className="flex flex-col gap-[14px] @min-[680px]:flex-row @min-[680px]:items-start">
+        <div className="w-full shrink-0 rounded-lg border border-border bg-white @min-[680px]:w-[260px]">
           {entries.length > 8 && (
             <div className="border-b border-border p-[10px]">
               <Input
@@ -194,7 +197,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
               if (!group.action && group.items.length === 0) return null;
               return (
                 <div key={group.label}>
-                  <div className="flex items-center gap-2 px-[14px] pb-[5px] pt-3 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-fg-subtle">
+                  <div className="flex flex-wrap items-center gap-2 px-[14px] pb-[5px] pt-3 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-fg-subtle">
                     <span className="flex-1">{group.label}</span>
                     <span>{shown.length}</span>
                     {group.action}
@@ -236,6 +239,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
             />
           )}
         </div>
+      </div>
       </div>
       {deleting && (
         <DeleteConversionModal
@@ -408,7 +412,7 @@ function EmptyLibrary({ busy, onAdd }: { busy: boolean; onAdd: (type: 0 | 1 | 2)
         A filter decides what happens to a value that does not meet a condition. An operation transforms the value:
         a scale maps one range onto another and an arithmetic operation calculates y = x · B · 10^A + C.
       </p>
-      <div className="flex justify-center gap-[9px]">
+      <div className="flex flex-wrap justify-center gap-[9px]">
         <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAdd(0)}>
           New filter
         </Button>
@@ -436,25 +440,50 @@ function DetailCard({
   children: React.ReactNode;
   foot: React.ReactNode;
 }) {
+  const router = useRouter();
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-white">
-      <header className="flex items-center gap-[10px] border-b border-border bg-[#FCFCFD] px-[18px] py-[13px]">
+      <header className="flex flex-wrap items-center gap-[10px] border-b border-border bg-[#FCFCFD] px-[18px] py-[13px]">
         <TypeTag type={values.type} system={!entry.editable} />
         <h3
           className={cn(
-            "min-w-0 flex-1 truncate text-[14px] font-bold text-hms-blue",
+            "min-w-[min(120px,100%)] flex-1 truncate text-[14px] font-bold text-hms-blue",
             !values.description && "italic text-fg-subtle",
           )}
         >
           {entryName(values)}
         </h3>
-        <span className="whitespace-nowrap text-[12px] text-fg-muted">
-          {used ? `Used by ${used} ${used === 1 ? "signal" : "signals"}` : "Not used by any signal"}
-        </span>
+        {used ? (
+          <button
+            type="button"
+            onClick={() => router.push(signalsHref("map", undefined, { list: entry.list, index: entry.index }))}
+            className="cursor-pointer text-left text-[12px] font-bold text-hms-accent hover:text-hms-accent-hover"
+          >
+            {`Used by ${used} ${used === 1 ? "signal" : "signals"} →`}
+          </button>
+        ) : (
+          <span className="text-[12px] text-fg-muted">Not used by any signal</span>
+        )}
       </header>
       {children}
-      <footer className="flex items-center gap-[9px] border-t border-border bg-[#FCFCFD] px-[18px] py-3">{foot}</footer>
+      <footer className="flex flex-wrap items-center gap-[9px] border-t border-border bg-[#FCFCFD] px-[18px] py-3">{foot}</footer>
     </section>
+  );
+}
+
+/**
+ * Field row of the V15 conversions editor: the label keeps 170px beside the
+ * control and moves above it when the card is too narrow for both.
+ */
+function ConversionRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="pending-field flex flex-wrap items-start gap-x-4 gap-y-2 border-b border-[#F2F3F4] py-[11px]">
+      <div className="min-w-0 flex-[0_1_170px] pt-[5px]">
+        <div className="pending-label text-[12.5px] font-bold text-text-body">{label}</div>
+        {hint && <div className="mt-[2px] text-[11px] leading-[1.45] text-fg-subtle">{hint}</div>}
+      </div>
+      <div className="min-w-0 flex-[1_1_240px]">{children}</div>
+    </div>
   );
 }
 
@@ -497,7 +526,7 @@ function DraftChips({
                 onChoose?.(Number(option));
               }}
               className={cn(
-                "cursor-pointer whitespace-nowrap rounded-[4px] border px-[10px] py-[5px] text-[12px] disabled:cursor-default",
+                "max-w-full cursor-pointer rounded-[4px] border px-[10px] py-[5px] text-left text-[12px] disabled:cursor-default",
                 on
                   ? "border-[#C9DEF0] bg-[#EAF3FB] font-bold text-hms-blue"
                   : "border-border bg-white text-fg-muted hover:border-hms-accent",
@@ -526,8 +555,8 @@ function LiveError({ id, message }: { id: string; message?: string }) {
 
 function NumberField({ id, label, error }: { id: string; label: string; error?: string }) {
   return (
-    <div className="w-[120px]">
-      <DraftInput id={id} type="number" aria-label={label} className="font-mono" style={{ width: 120 }} />
+    <div className="w-[min(120px,100%)]">
+      <DraftInput id={id} type="number" aria-label={label} className="font-mono" style={{ width: "100%" }} />
       <LiveError id={id} message={error} />
     </div>
   );
@@ -596,60 +625,60 @@ function EntryEditor({
       }
     >
       <div className="px-[18px] pb-[6px] pt-[2px]">
-        <FieldRow label="Description" hint={filter ? undefined : `Up to ${OPERATION_DESCRIPTION_MAX} characters`}>
+        <ConversionRow label="Description" hint={filter ? undefined : `Up to ${OPERATION_DESCRIPTION_MAX} characters`}>
           <DraftInput
             id={id("description")}
             aria-label="Description"
             maxLength={filter ? FILTER_DESCRIPTION_MAX : OPERATION_DESCRIPTION_MAX}
             placeholder={filter ? "Untitled filter" : "Untitled operation"}
-            style={{ width: 340 }}
+            style={{ width: "100%", maxWidth: 340 }}
           />
           <LiveError id={id("description")} message={errors.description} />
-        </FieldRow>
+        </ConversionRow>
         {filter ? (
           <>
-            <FieldRow label="Filter type" hint={FILTER_TYPE_HINTS[Number(values.params[0])]}>
+            <ConversionRow label="Filter type" hint={FILTER_TYPE_HINTS[Number(values.params[0])]}>
               <DraftChips id={id("param1")} labels={FILTER_TYPE_LABELS} />
-            </FieldRow>
-            <FieldRow label="Condition">
+            </ConversionRow>
+            <ConversionRow label="Condition">
               <DraftChips
                 id={id("param2")}
                 labels={FILTER_CONDITION_LABELS}
                 onChoose={(comparison) => dropHiddenInvalid(values.type, comparison)}
               />
               <LiveError id={id("param2")} message={errors.param2} />
-            </FieldRow>
+            </ConversionRow>
             <FilterValues entry={entry} values={values} errors={errors} />
           </>
         ) : (
           <>
-            <FieldRow label="Type">
+            <ConversionRow label="Type">
               <DraftChips
                 id={id("type")}
                 labels={OPERATION_TYPE_LABELS}
                 onChoose={(type) => dropHiddenInvalid(type, Number(values.params[1]))}
               />
-            </FieldRow>
+            </ConversionRow>
             {values.type === CONVERSION_TYPE.SCALE ? (
               <>
-                <FieldRow label="Input range" hint="Values outside it are limited to it first">
+                <ConversionRow label="Input range" hint="Values outside it are limited to it first">
                   <RangeInputs entry={entry} keys={["param1", "param2"]} labels={labels} errors={errors} />
-                </FieldRow>
-                <FieldRow label="Output range">
+                </ConversionRow>
+                <ConversionRow label="Output range">
                   <RangeInputs entry={entry} keys={["param3", "param4"]} labels={labels} errors={errors} />
-                </FieldRow>
+                </ConversionRow>
               </>
             ) : (
-              <FieldRow label="Formula" hint="y = x · B · 10^A + C">
+              <ConversionRow label="Formula" hint="y = x · B · 10^A + C">
                 <div className="flex flex-wrap items-start gap-3">
                   {(["param1", "param2", "param3"] as const).map((key, i) => (
-                    <label key={key} className="flex items-start gap-[6px]">
+                    <label key={key} className="flex min-w-0 max-w-full items-start gap-[6px]">
                       <span className="pt-[6px] font-mono text-[12px] text-fg-muted">{["A", "B", "C"][i]}</span>
                       <NumberField id={id(key)} label={labels[i]} error={errors[key]} />
                     </label>
                   ))}
                 </div>
-              </FieldRow>
+              </ConversionRow>
             )}
           </>
         )}
@@ -699,15 +728,15 @@ function FilterValues({ entry, values, errors }: { entry: Entry; values: Convers
   const hint = "Compared with the value on the side of the signal where the filter sits · −100000 to 100000";
   if (used.length === 2)
     return (
-      <FieldRow label={comparison === 4 ? "Range (Low ≤ x ≤ High)" : "Range (x < Low or x > High)"} hint={hint}>
+      <ConversionRow label={comparison === 4 ? "Range (Low ≤ x ≤ High)" : "Range (x < Low or x > High)"} hint={hint}>
         <RangeInputs entry={entry} keys={["param3", "param4"]} labels={labels} errors={errors} />
-      </FieldRow>
+      </ConversionRow>
     );
   const key = used[0];
   return (
-    <FieldRow label="Value" hint={hint}>
+    <ConversionRow label="Value" hint={hint}>
       <NumberField id={conversionFieldId(entry.list, entry.index, key)} label="Value" error={errors[key]} />
-    </FieldRow>
+    </ConversionRow>
   );
 }
 
@@ -733,7 +762,7 @@ function TryIt({ values, blocked }: { values: ConversionValues; blocked: boolean
     <div className="mx-[18px] mb-4 mt-3 flex flex-wrap items-center gap-[10px] rounded-[6px] border border-border px-[13px] py-[10px]">
       <div className="w-[48px] font-mono text-[10px] font-semibold tracking-[.08em] text-fg-subtle">TRY IT</div>
       {!filter && (
-        <div role="radiogroup" aria-label="Direction" className="flex gap-1">
+        <div role="radiogroup" aria-label="Direction" className="flex min-w-0 flex-wrap gap-1">
           {(
             [
               [false, "Forward"],
@@ -747,7 +776,7 @@ function TryIt({ values, blocked }: { values: ConversionValues; blocked: boolean
               aria-checked={inverted === value}
               onClick={() => setInverted(value)}
               className={cn(
-                "cursor-pointer rounded-[4px] border px-[9px] py-1 text-[12px]",
+                "max-w-full cursor-pointer rounded-[4px] border px-[9px] py-1 text-left text-[12px]",
                 inverted === value
                   ? "border-[#C9DEF0] bg-[#EAF3FB] font-bold text-hms-blue"
                   : "border-border bg-white text-fg-muted",
@@ -764,7 +793,7 @@ function TryIt({ values, blocked }: { values: ConversionValues; blocked: boolean
         placeholder="e.g. 215"
         value={input}
         onChange={(e) => setInput(e.target.value)}
-        style={{ width: 110 }}
+        style={{ width: "min(110px, 100%)" }}
       />
       <span className="text-fg-subtle" aria-hidden>
         →
@@ -818,9 +847,9 @@ function SystemEntry({ entry, used }: { entry: Entry; used: number }) {
     >
       <div className="px-[18px] pb-[6px] pt-[2px]">
         {rows.map(([label, value]) => (
-          <FieldRow key={label} label={label}>
+          <ConversionRow key={label} label={label}>
             <div className="py-[6px] font-mono text-[12.5px] text-hms-blue">{value}</div>
-          </FieldRow>
+          </ConversionRow>
         ))}
       </div>
       <div className="mx-[18px] mb-4 mt-2 rounded-[6px] bg-[#F7F9FA] px-[13px] py-[11px] text-[12.5px] leading-[1.55] text-fg-muted">
