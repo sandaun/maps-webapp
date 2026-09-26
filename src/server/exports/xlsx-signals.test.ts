@@ -8,6 +8,7 @@ import { applySignalsXlsx } from "@/server/imports/xlsx-signals";
 import { buildKnxEsf } from "@/server/exports/esf-knx";
 import { parseSignalsXlsx, buildSignalsXlsx } from "@/server/exports/xlsx-signals";
 import { buildPollPlanXlsx } from "@/server/exports/xlsx-poll-plan";
+import { conversionSheetRows } from "@/server/exports/maps-grid-values";
 import { cellText, loadWorkbook } from "@/server/exports/xlsx-workbook";
 
 const NOW = new Date(2026, 0, 1);
@@ -31,6 +32,38 @@ describe("signals XLSX", () => {
     expect(projectFromXml(doc).signals).toHaveLength(4);
   });
 
+  it("exports knx-mbm conversions like MAPS: Conv. Id + Conversions columns and a Conversions sheet", async () => {
+    const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
+    const buf = await buildSignalsXlsx("knx-mbm", project, { now: NOW });
+    const parsed = await parseSignalsXlsx(new Uint8Array(buf));
+    expect(parsed.headers.slice(-2)).toEqual(["Conv. Id", "Conversions"]);
+    expect(parsed.rows[0]?.slice(-2)).toEqual(["-", "-"]);
+    expect(parsed.rows[1]?.slice(-2)).toEqual(["DIRECTION[>/<]:INDEXES[-;0;-;-]", "Enabled"]);
+
+    const sheet = (await loadWorkbook(new Uint8Array(buf))).getWorksheet("Conversions");
+    const row = sheet!.getRow(2);
+    expect([1, 2, 3, 4, 5, 6, 7].map((c) => cellText(row.getCell(c).value))).toEqual([
+      "0",
+      "x0.1 to degC",
+      "SCALE",
+      "0",
+      "1000",
+      "0",
+      "100",
+    ]);
+  });
+
+  it("numbers the Conversions sheet by position in the filters and operations lists", () => {
+    const conv = (id: number, type: number) => ({ id, description: `c${id}`, type, params: ["0", "0", "0", "0"] as [string, string, string, string] });
+    const rows = conversionSheetRows([conv(0, 2), conv(0, 0), conv(7, 1), conv(3, 0)]);
+    expect(rows.map((r) => [r[0], r[1], r[2]])).toEqual([
+      ["0", "c0", "FILTER"],
+      ["1", "c3", "FILTER"],
+      ["0", "c0", "ARITH"],
+      ["1", "c7", "SCALE"],
+    ]);
+  });
+
   it("exports me-mbs rows with InternalMbs-style columns", async () => {
     const project = meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML));
     const buf = await buildSignalsXlsx("me-mbs", project, { now: NOW });
@@ -38,6 +71,8 @@ describe("signals XLSX", () => {
     expect(parsed.internalProtocol).toBe("Modbus Slave");
     expect(parsed.headers[0]).toBe("#");
     expect(parsed.rows.length).toBe(project.signals.length);
+    // ME–MBS disables conversions, so MAPS writes no Conversions sheet.
+    expect((await loadWorkbook(new Uint8Array(buf))).getWorksheet("Conversions")).toBeUndefined();
   });
 });
 

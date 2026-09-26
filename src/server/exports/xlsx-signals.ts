@@ -3,7 +3,7 @@ import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
 import {
   CONVERSION_HEADERS,
-  conversionTypeCell,
+  conversionSheetRows,
   knxSignalRow,
   KNX_SIGNAL_HEADERS,
   meSignalRow,
@@ -49,20 +49,14 @@ export async function buildSignalsXlsx(
       : (project as MeMbsProject).signals.map((s) => meSignalRow(project as MeMbsProject, s));
   rows.forEach((row, i) => writeTextRow(signals, 8 + i, row));
 
-  const conversions = workbook.addWorksheet("Conversions");
-  writeTextRow(conversions, 1, [...CONVERSION_HEADERS]);
-  styleHeaderRow(conversions.getRow(1), CONVERSION_HEADERS.length);
-  project.conversions.forEach((conv, i) => {
-    writeTextRow(conversions, 2 + i, [
-      String(conv.id),
-      conv.description,
-      conversionTypeCell(conv.type),
-      conv.params[0],
-      conv.params[1],
-      conv.params[2],
-      conv.params[3],
-    ]);
-  });
+  // MAPS only writes this sheet when the project enables conversions
+  // (`IntesisExcel.CreateExcelConversions`); ME–MBS does not.
+  if (family === "knx-mbm") {
+    const conversions = workbook.addWorksheet("Conversions");
+    writeTextRow(conversions, 1, [...CONVERSION_HEADERS]);
+    styleHeaderRow(conversions.getRow(1), CONVERSION_HEADERS.length);
+    conversionSheetRows(project.conversions).forEach((row, i) => writeTextRow(conversions, 2 + i, row));
+  }
 
   return workbookToBuffer(workbook);
 }
