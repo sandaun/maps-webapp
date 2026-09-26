@@ -58,6 +58,15 @@ Before writing any code, secure these:
    Note its IP, AppId (from discovery) and password. All contact is
    **read-only** (discovery/connect/INFO?/RECVCMPLT) until the owner
    explicitly authorizes a deploy test.
+5. **Conversions: does the family have them?** Open the concrete project
+   class (and its `_RT` variant) and look for `override bool
+   ConversionsEnabled()`. The base default is `true`
+   (`IntesisProject.cs:1780`); only the classes that override it return
+   `false`. Decide per concrete class, never by brand or protocol name:
+   `grep -rln "override bool ConversionsEnabled" temp/maps-cloud/maps-poc/decompiled/IntesisMAPS`.
+   Also look for conversions the template **creates** (e.g. the KNX–MBM ATW,
+   DAIKIN and NIBE variants add a LUT remap "Invert Binary" that swaps 0 and
+   1, `IntesisProjectKnxMbmATW_RT.cs:78-81`). See §4, "Conversions".
 
 Record what you found (and what's missing) in `docs/` before proceeding.
 
@@ -161,6 +170,62 @@ the phase in `docs/plans/knx-mbm-mvp.md` (or a family doc) — decisions, unknow
    drawer, mono for addresses — do NOT auto-center content).
 4. Gate: same checks + a smoke test with the real fixture through the API
    (open → view → patch → re-fetch).
+
+### Conversions (every family, unless MAPS disables them)
+
+Filters and operations between the two sides of each signal (library +
+per-signal assignment). They are part of the family, not an extra: skip them
+only when §1 step 5 says the concrete class disables them. Full reference:
+`docs/reference/conversions.md`; KNX–MBM is the family that has them all.
+
+With conversions enabled in MAPS (checked 2026-09-26, `ConversionsEnabled()`
+not overridden): BACnet ↔ KNX and KNX ↔ BACnet (`IntesisProjectBacNetKnx`,
+`IntesisProjectKnxBacnet`), Modbus Slave ↔ KNX (`IntesisProjectMBSKNX`),
+Modbus Slave ↔ BACnet, BACnet ↔ Modbus Master, ASCII ↔ KNX / BACnet, the
+M-Bus and LON combinations, and KNX ↔ Modbus Master (done). Disabled (examples,
+always confirm the concrete class): the AC-brand families (ME, LG, Daikin,
+Fujitsu, Panasonic, Samsung, Hitachi… over KNX, BACnet, Modbus, MQTT, WMP),
+DALI, and the BACnet / Modbus routers. `_RT` and template variants can differ
+from their base class.
+
+**Reusable as is** (`src/core/conversions/`): library rules and MAPS
+defaults (`rules.ts`), simulator and texts (`formulas.ts`, port of
+`IntesisMath`), slots / flows / `slotsFromRefs` (`assignment.ts`, port of
+`frmSelectConversion`), usage (`usage.ts`), and the half refs
+(`src/core/signals/conversion-refs.ts`: `refsFromSelection`,
+`formatConversionIds`). The XBL chain (`src/core/xbl/conversions.ts`) is
+shared already.
+
+**Per family** (mirror `src/gateway-families/knx-mbm/`):
+
+- Model: `signal.conversions = { internal, external }` read from the
+  `IdxFilters` / `IdxOperations` of both protocol objects, and the library
+  (`<IBOX><Conversions>`).
+- xml-ops: `setConversions`, `addConversion`, `updateConversion`,
+  `removeConversion` (renumbers refs on both halves), `conversionRefs` on
+  `updateSignal`; API ops with zod, `restoreSignalConversions` for undo.
+- **Direction rule** — from the `ConversionObject` constructor of each
+  protocol side (`ConversionObject.cs`), never assumed: KNX = flags (`R|T` +
+  `U|W`), BACnet server = object type, Modbus Slave = `ReadWrite`, Modbus
+  Master = always `READWRITE`, MQTT = always `READWRITE`, ME / DALI / others =
+  their own read/write field. The rule applies to the internal object
+  (`frmSelectConversion` looks only at it).
+- UI: the Configuration section, the signals column, the assignment dialog
+  (single and bulk) and the validation issues are written for KNX–MBM
+  (`configuration-conversions.tsx`, `conversion-assign-dialog.tsx`,
+  `conversion-chain.tsx`, `validate.ts`). Reusing them means **adapting them
+  to the family**: side names and end nodes (KNX / Modbus today), the
+  direction rule, the signal context line, the grid band and the issue
+  codes.
+- Fixed conversions created by the template (LUT remaps, logical ops): keep
+  them read-only ("system"), as MAPS does, and cover them with a test.
+- Tests: the same batteries as KNX–MBM (rules, flows vs. the refs written,
+  xml-ops renumbering, API 409/422, UI).
+
+**If the class disables them**: no Conversions section, no grid column, and
+the API answers 409 to every conversion op (see ME–MBS,
+`ME_FIXED_CONVERSIONS_MESSAGE` in `src/server/projects/families.ts`). The refs
+in the XML are still preserved and reach the XBL as they are.
 
 ---
 
@@ -288,6 +353,10 @@ time):
        synthetic fixture, index
 [ ] 1. Tests: synthetic + real-fixture (skip-if-absent) + XML round-trip
 [ ] 2. Registry entry + patch zod + client types + screens (signals editable)
+[ ] 2. Conversions: ConversionsEnabled() of the concrete class checked
+       → enabled: library + assignment (single + bulk) + issues, direction
+         rule from ConversionObject, template's fixed conversions read-only
+       → disabled: no UI, API 409 (like ME–MBS)
 [ ] 3. xbl/ writers + generate<Family>Xbl (appId param! swVersion!)
 [ ] 4. pnpm verify:xbl --family <id> → MATCH → capability written
 [ ] 5. Deploy descriptor + gates + UI card

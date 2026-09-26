@@ -28,8 +28,9 @@ Dues categories, en carpetes separades:
 - `adding-a-gateway-family.md` — recepta pas a pas per afegir una nova família
   de passarel·la, contrastada dues vegades amb hardware real.
 - `conversions.md` — sistema de conversions (filtres, operacions, RemapLUTs):
-  què tenim, com ho fa el desktop (manager + assignació per senyal amb refs
-  invertides) i per què falla la bidireccionalitat avui.
+  com ho fa el desktop (manager + assignació per senyal amb refs invertides),
+  l'editor de KNX–MBM i les divergències volgudes amb MAPS. Per a famílies
+  noves, vegeu l'apartat "Conversions" de `adding-a-gateway-family.md`.
 - `com-analitzar-un-producte.md` — procés genèric per inventariar les
   característiques d'un producte des del descompilat i implementar-les
   (cadena model → xml-ops → zod → UI → XBL → tests).
