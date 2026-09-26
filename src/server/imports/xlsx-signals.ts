@@ -105,7 +105,7 @@ function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResul
         bit: dashToNumber(row.Bit),
         numOfBits: dashToNumber(row["Bit length"]),
       },
-      ...(conversions ? { conversions: conversions.refs[i] } : {}),
+      ...(conversions ? { conversionRefs: conversions.refs[i] } : {}),
     };
 
     if (virtual) {

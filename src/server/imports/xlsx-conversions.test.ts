@@ -43,7 +43,7 @@ describe("signals XLSX import · conversions", () => {
 
   it("replaces the project's list when no signal uses conversions yet", async () => {
     const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
-    updateSignal(doc, 1, { conversions: NO_REFS });
+    updateSignal(doc, 1, { conversionRefs: NO_REFS });
     setConversions(doc, [{ ...SCALE_0_1000, params: ["0", "10", "0", "1"] }]);
     await applySignalsXlsx(doc, "knx-mbm", await exportedTable());
     expect(projectFromXml(doc).conversions).toEqual([SCALE_0_1000]);

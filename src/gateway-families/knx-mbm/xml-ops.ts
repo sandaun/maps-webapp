@@ -148,10 +148,8 @@ export interface SignalPatch {
   description?: string;
   knx?: Partial<KnxMbmSignal["knx"]>;
   modbus?: Partial<KnxMbmSignal["modbus"]>;
-  idxOperations?: string;
-  idxFilters?: string;
-  /** Refs of each half (KNX object = internal, Modbus signal = external). */
-  conversions?: SignalConversionRefs;
+  /** Refs of each half (KNX object = internal, Modbus signal = external), written as given. */
+  conversionRefs?: SignalConversionRefs;
 }
 
 /** Apply a partial edit to a signal, patching both protocol nodes. */
@@ -168,16 +166,8 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
 
   if (patch.active !== undefined) setText(childEl(knx, "Active"), boolText(patch.active));
   if (patch.description !== undefined) setText(childEl(knx, "Description"), patch.description);
-  if (patch.idxOperations !== undefined) {
-    setText(childEl(knx, "IdxOperations"), patch.idxOperations);
-    setText(childEl(mbm, "IdxOperations"), patch.idxOperations);
-  }
-  if (patch.idxFilters !== undefined) {
-    setText(childEl(knx, "IdxFilters"), patch.idxFilters);
-    setText(childEl(mbm, "IdxFilters"), patch.idxFilters);
-  }
-  if (patch.conversions !== undefined) {
-    const { internal, external } = patch.conversions;
+  if (patch.conversionRefs !== undefined) {
+    const { internal, external } = patch.conversionRefs;
     setText(childEl(knx, "IdxOperations"), formatConversionIds(internal.operations));
     setText(childEl(knx, "IdxFilters"), formatConversionIds(internal.filters));
     setText(childEl(mbm, "IdxOperations"), formatConversionIds(external.operations));

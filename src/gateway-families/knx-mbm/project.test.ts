@@ -99,7 +99,7 @@ describe("projectFromXml", () => {
   it("writes each half's conversion refs without a trailing separator", () => {
     const doc = parseFixture();
     updateSignal(doc, 1, {
-      conversions: {
+      conversionRefs: {
         internal: { filters: [{ index: 0, inverted: false }], operations: [{ index: 0, inverted: false }] },
         external: { filters: [{ index: 0, inverted: true }], operations: [{ index: 0, inverted: true }] },
       },

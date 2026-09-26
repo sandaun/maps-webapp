@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAttr, getText, setAttr, XmlDocument, type XmlElement } from "@/core/project-format";
+import { getAttr, getText, setAttr, setText, XmlDocument, type XmlElement } from "@/core/project-format";
 import { childByTag, decodeElements } from "@/core/xbl";
 import { projectFromXml } from "@/gateway-families/knx-mbm";
 import { projectFromXml as meProjectFromXml } from "@/gateway-families/me-mbs";
@@ -145,7 +145,63 @@ describe("KNX–MBM batch patches (MAPS ReorderIdxConfigs)", () => {
 });
 
 /** [ID, idxConfig, idxExternal] of both ME–MBS sides, in document order. */
+describe("KNX–MBM conversion patches (frmSelectConversion)", () => {
+  const selection = { internalFilter: null, operations: [0], externalFilter: null, master: "internal" as const };
+  const ref = (index: number, inverted = false) => ({ index, inverted });
+
+  it("saves both halves from the KNX flags: signal 1 only reads, signal 0 only writes", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    knx.applyPatches(doc, [
+      { type: "updateSignal", id: 0, patch: { conversions: selection } },
+      { type: "updateSignal", id: 1, patch: { conversions: selection } },
+    ]);
+    const [write, read] = projectFromXml(doc).signals;
+    expect(write.conversions).toEqual({
+      internal: { filters: [], operations: [ref(0)] },
+      external: { filters: [], operations: [] },
+    });
+    expect(read.conversions).toEqual({
+      internal: { filters: [], operations: [] },
+      external: { filters: [], operations: [ref(0)] },
+    });
+  });
+
+  it("uses the flags of the same edit and inverts the other flow for read + write signals", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    const flags = { u: true, t: true, ri: false, w: true, r: true };
+    knx.applyPatches(doc, [{ type: "updateSignal", id: 1, patch: { knx: { flags }, conversions: selection } }]);
+    expect(projectFromXml(doc).signals[1].conversions).toEqual({
+      internal: { filters: [], operations: [ref(0)] },
+      external: { filters: [], operations: [ref(0, true)] },
+    });
+  });
+
+  it("rejects conversions that are not in the project and virtual signals", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    const missing: ProjectPatch = { type: "updateSignal", id: 1, patch: { conversions: { ...selection, operations: [1] } } };
+    expect(() => knx.applyPatches(doc, [missing])).toThrow(/not in the project/);
+    const virtualDoc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    const knxObject = virtualDoc.find(["InternalProtocol", { tag: "KNXObject", attr: "ID", value: "1" }])!;
+    const virtualEl = knxObject.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual")!;
+    setAttr(virtualEl, "Status", "True");
+    expect(() =>
+      knx.applyPatches(virtualDoc, [{ type: "updateSignal", id: 1, patch: { conversions: selection } }]),
+    ).toThrow(/virtual signals cannot have conversions/);
+  });
+});
+
 describe("ME–MBS batch patches", () => {
+  it("rejects conversion edits, which MAPS disables for this family", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
+    const patch = {
+      type: "updateSignal",
+      id: 0,
+      patch: { conversions: { internalFilter: null, operations: [0], externalFilter: null, master: "internal" } },
+    } as unknown as ProjectPatch;
+    expect(() => me.applyPatches(doc, [patch])).toThrow(/conversions are fixed/);
+    expect(doc.serialize()).toBe(SYNTHETIC_ME_MBS_XML);
+  });
+
   it("rejects adding or removing signals, which derive from the controllers and groups", () => {
     for (const patch of [{ type: "addSignal" }, { type: "removeSignal", id: 0 }] as ProjectPatch[]) {
       const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
@@ -181,14 +237,12 @@ describe("ME–MBS batch patches", () => {
     );
     me.applyPatches(doc, [{ type: "updateGroup", controllerIndex: 0, groupIndex: 1, patch: { enabled: false } }]);
     // The synthetic project declares no conversions; they play no part in configIds.
-    me.applyPatches(
-      doc,
-      meProjectFromXml(doc).signals.map((signal): ProjectPatch => ({
-        type: "updateSignal",
-        id: signal.id,
-        patch: { idxOperations: "" },
-      })),
-    );
+    for (const side of ["InternalProtocol", "ExternalProtocol"]) {
+      for (const signal of doc.findAll([side, "Signals", "Signal"])) {
+        const refs = signal.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "IdxOperations");
+        if (refs) setText(refs, "");
+      }
+    }
     const xml = doc.serialize();
     const xbl = generateMeMbsXbl(xml, { now: new Date(2026, 0, 1) });
     const items = childByTag(childByTag(decodeElements(xbl)[2], 6), 1).items ?? [];
