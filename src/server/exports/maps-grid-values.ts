@@ -4,6 +4,8 @@
  * in the desktop vocabulary, not the V9 grid labels.
  */
 
+import { conversionCode } from "@/core/signals/conversion-code";
+import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
 import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
@@ -37,8 +39,10 @@ export const KNX_SIGNAL_HEADERS = [
   "Bit",
   "Bit length",
   "Deadband",
-  "Filters",
-  "Operations",
+  // IntesisConversion.GetColumnHeaders: the grid's two conversion columns,
+  // which MAPS writes to the Excel like every other grid column.
+  "Conv. Id",
+  "Conversions",
 ] as const;
 
 export const ME_SIGNAL_HEADERS = [
@@ -164,6 +168,31 @@ export function priorityCell(priority: number): string {
   return PRIORITY[priority] ?? "3: Low";
 }
 
+/**
+ * Text of the "Conversions" button cell: `text_enabled` ("Enabled") when any
+ * half has refs, "-" otherwise (`IntesisProjectKnxMbm_RT.PopulateExtraParameters`).
+ */
+export function conversionsButtonCell({ internal, external }: SignalConversionRefs): string {
+  const lists = [internal.filters, internal.operations, external.filters, external.operations];
+  return lists.some((refs) => refs.length > 0) ? "Enabled" : "-";
+}
+
+/**
+ * Rows of the "Conversions" sheet (`IntesisExcel.CreateExcelWorksheet`): all
+ * filters, then all operations, each numbered by its position in its own list
+ * — the index signal refs use — not by the XML `Id` attribute.
+ */
+export function conversionSheetRows(conversions: KnxMbmProject["conversions"]): string[][] {
+  const filters = conversions.filter((conv) => conv.type === 0);
+  const operations = conversions.filter((conv) => conv.type !== 0);
+  return [...filters, ...operations].map((conv) => [
+    String(conv.type === 0 ? filters.indexOf(conv) : operations.indexOf(conv)),
+    conv.description,
+    conversionTypeCell(conv.type),
+    ...conv.params,
+  ]);
+}
+
 export function conversionTypeCell(type: number): string {
   return CONVERSION_TYPES[type] ?? String(type);
 }
@@ -275,8 +304,8 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
     dashNumber(modbus.bit),
     dashNumber(modbus.numOfBits),
     signal.virtual ? "-" : String(project.mbm.deadband),
-    signal.idxFilters,
-    signal.idxOperations,
+    conversionCode(signal.conversions),
+    conversionsButtonCell(signal.conversions),
   ];
 }
 

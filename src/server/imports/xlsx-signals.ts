@@ -3,6 +3,7 @@ import { XmlDocument } from "@/core/project-format";
 import {
   addSignal as knxAddSignal,
   projectFromXml as knxFromXml,
+  setConversions as setKnxConversions,
   updateSignal as knxUpdateSignal,
 } from "@/gateway-families/knx-mbm";
 import {
@@ -16,7 +17,9 @@ import {
   expectedProtocols,
   parseSignalsXlsx,
   rowMap,
+  type ParsedSignalsSheet,
 } from "../exports/xlsx-signals";
+import { importedConversions } from "./xlsx-conversions";
 import {
   indexFromString,
   parseBoolCell,
@@ -54,14 +57,18 @@ export async function applySignalsXlsx(
       `This Excel file is ${parsed.internalProtocol} ↔ ${parsed.externalProtocol}, not a ${expected.internal} ↔ ${expected.external} table.`,
     );
   }
-  if (family === "knx-mbm") return applyKnx(doc, parsed.headers, parsed.rows);
+  if (family === "knx-mbm") return applyKnx(doc, parsed);
   return applyMe(doc, parsed.headers, parsed.rows);
 }
 
-function applyKnx(doc: XmlDocument, headers: string[], rows: string[][]): ImportXlsxResult {
+function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResult {
+  const { headers, rows } = parsed;
+  // Validated before touching the document, so a rejected import changes nothing.
+  const conversions = importedConversions(knxFromXml(doc), parsed);
+  if (conversions) setKnxConversions(doc, conversions.list);
   let appended = 0;
   let updated = 0;
-  for (const cells of rows) {
+  for (const [i, cells] of rows.entries()) {
     const row = rowMap(headers, cells);
     const dataLength = (row["Data length"] ?? "").trim();
     const virtual = dataLength === "-";
@@ -98,8 +105,7 @@ function applyKnx(doc: XmlDocument, headers: string[], rows: string[][]): Import
         bit: dashToNumber(row.Bit),
         numOfBits: dashToNumber(row["Bit length"]),
       },
-      idxFilters: row.Filters ?? "",
-      idxOperations: row.Operations ?? "",
+      ...(conversions ? { conversionRefs: conversions.refs[i] } : {}),
     };
 
     if (virtual) {

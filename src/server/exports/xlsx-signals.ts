@@ -3,7 +3,7 @@ import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
 import {
   CONVERSION_HEADERS,
-  conversionTypeCell,
+  conversionSheetRows,
   knxSignalRow,
   KNX_SIGNAL_HEADERS,
   meSignalRow,
@@ -49,20 +49,14 @@ export async function buildSignalsXlsx(
       : (project as MeMbsProject).signals.map((s) => meSignalRow(project as MeMbsProject, s));
   rows.forEach((row, i) => writeTextRow(signals, 8 + i, row));
 
-  const conversions = workbook.addWorksheet("Conversions");
-  writeTextRow(conversions, 1, [...CONVERSION_HEADERS]);
-  styleHeaderRow(conversions.getRow(1), CONVERSION_HEADERS.length);
-  project.conversions.forEach((conv, i) => {
-    writeTextRow(conversions, 2 + i, [
-      String(conv.id),
-      conv.description,
-      conversionTypeCell(conv.type),
-      conv.params[0],
-      conv.params[1],
-      conv.params[2],
-      conv.params[3],
-    ]);
-  });
+  // MAPS only writes this sheet when the project enables conversions
+  // (`IntesisExcel.CreateExcelConversions`); ME–MBS does not.
+  if (family === "knx-mbm") {
+    const conversions = workbook.addWorksheet("Conversions");
+    writeTextRow(conversions, 1, [...CONVERSION_HEADERS]);
+    styleHeaderRow(conversions.getRow(1), CONVERSION_HEADERS.length);
+    conversionSheetRows(project.conversions).forEach((row, i) => writeTextRow(conversions, 2 + i, row));
+  }
 
   return workbookToBuffer(workbook);
 }
@@ -72,6 +66,8 @@ export interface ParsedSignalsSheet {
   externalProtocol: string;
   headers: string[];
   rows: string[][];
+  /** Data rows of the "Conversions" sheet (7 cells each), or undefined when it is missing. */
+  conversionRows?: { row: number; cells: string[] }[];
 }
 
 export async function parseSignalsXlsx(data: Uint8Array): Promise<ParsedSignalsSheet> {
@@ -95,7 +91,23 @@ export async function parseSignalsXlsx(data: Uint8Array): Promise<ParsedSignalsS
     rows.push(cells);
     if (rows.length >= 5000) break;
   }
-  return { internalProtocol, externalProtocol, headers, rows };
+  return { internalProtocol, externalProtocol, headers, rows, conversionRows: readConversionRows(workbook) };
+}
+
+/** `ExcelParser.ExcelImportConversions`: every used row after the header, cells 1–7. */
+function readConversionRows(
+  workbook: Awaited<ReturnType<typeof loadWorkbook>>,
+): ParsedSignalsSheet["conversionRows"] {
+  const sheet = workbook.getWorksheet("Conversions");
+  if (!sheet) return undefined;
+  const rows: NonNullable<ParsedSignalsSheet["conversionRows"]> = [];
+  for (let r = 2; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
+    const cells = [1, 2, 3, 4, 5, 6, 7].map((c) => cellText(row.getCell(c).value));
+    if (cells.every((c) => c === "")) continue;
+    rows.push({ row: r, cells });
+  }
+  return rows;
 }
 
 export function rowMap(headers: string[], cells: string[]): Record<string, string> {

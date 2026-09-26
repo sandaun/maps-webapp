@@ -1,5 +1,6 @@
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
+import type { ConversionSelection } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import type { MbsConfig } from "@/protocols/modbus/slave";
@@ -56,8 +57,8 @@ export interface SignalPatchInput {
     | Partial<KnxMbmProject["signals"][number]["modbus"]>
     | Partial<MeMbsProject["signals"][number]["modbus"]>;
   me?: Partial<MeMbsProject["signals"][number]["me"]>;
-  idxOperations?: string;
-  idxFilters?: string;
+  /** KNX–MBM only: the conversion assignment, saved to both halves like MAPS. */
+  conversions?: ConversionSelection;
 }
 
 export type RtuNodePatchInput = Partial<Omit<MbmRtuNode, "devices">>;

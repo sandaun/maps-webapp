@@ -1,5 +1,6 @@
 import "server-only";
 import type { XmlDocument } from "@/core/project-format";
+import type { ConversionSelection } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import {
   addDevice as knxAddDevice,
@@ -22,6 +23,7 @@ import {
   updateSignal as knxUpdateSignal,
   updateTcpNode as knxUpdateTcpNode,
   validateProject as validateKnxMbmProject,
+  knxSelectionRefs,
   type KnxMbmProject,
   type RemovedDeviceSignals,
   type NodeLocator,
@@ -106,7 +108,7 @@ export type KnxMbmPatch =
     }
   | { type: "addSignal" }
   | { type: "removeSignal"; id: number }
-  | { type: "updateSignal"; id: number; patch: KnxMbmSignalPatch }
+  | { type: "updateSignal"; id: number; patch: KnxMbmSignalPatchInput }
   | { type: "addRtuNode" }
   | { type: "addTcpNode" }
   | { type: "removeNode"; locator: NodeLocator }
@@ -115,6 +117,9 @@ export type KnxMbmPatch =
   | { type: "addDevice"; locator: NodeLocator }
   | { type: "updateDevice"; locator: NodeLocator; deviceIndex: number; patch: DevicePatch }
   | { type: "removeDevice"; locator: NodeLocator; deviceIndex: number; signals: RemovedDeviceSignals };
+
+/** `updateSignal` payload of the API: conversions come as a selection, never as raw refs. */
+type KnxMbmSignalPatchInput = Omit<KnxMbmSignalPatch, "conversionRefs"> & { conversions?: ConversionSelection };
 
 /** Patch ops a Mitsubishi Electric AC ↔ Modbus Slave project accepts. */
 export type MeMbsPatch =
@@ -265,9 +270,17 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
     case "removeSignal":
       knxRemoveSignal(doc, patch.id);
       break;
-    case "updateSignal":
-      knxUpdateSignal(doc, patch.id, patch.patch);
+    case "updateSignal": {
+      const { conversions, ...rest } = patch.patch;
+      let conversionRefs: KnxMbmSignalPatch["conversionRefs"];
+      if (conversions) {
+        const result = knxSelectionRefs(doc, patch.id, conversions, rest.knx?.flags);
+        if ("error" in result) throw new ProjectServiceError(422, result.error);
+        conversionRefs = result.refs;
+      }
+      knxUpdateSignal(doc, patch.id, { ...rest, ...(conversionRefs ? { conversionRefs } : {}) });
       break;
+    }
     case "addRtuNode": {
       const count = doc.findAll(["ExternalProtocol", "RtuNodes", "RtuNode"]).length;
       if (count >= MAX_RTU_NODES) {
@@ -309,6 +322,10 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
  * ME-MBS signals derive from the model, as in MAPS (`IsRemovableRow` →
  * false): the API refuses to add or remove them.
  */
+// MAPS disables conversions for this family (`IntesisProjectMbsMe_RT.ConversionsEnabled`).
+const ME_FIXED_CONVERSIONS_MESSAGE =
+  "Mitsubishi Electric AC ↔ Modbus Slave conversions are fixed by the gateway template: they cannot be edited.";
+
 const ME_DERIVED_SIGNALS_MESSAGE =
   "Mitsubishi Electric AC ↔ Modbus Slave signals are generated from the controllers and groups: " +
   "they cannot be added or removed. Enable or disable the groups instead.";
@@ -344,6 +361,7 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
     case "removeSignal":
       throw new ProjectServiceError(409, ME_DERIVED_SIGNALS_MESSAGE);
     case "updateSignal":
+      if ("conversions" in patch.patch) throw new ProjectServiceError(409, ME_FIXED_CONVERSIONS_MESSAGE);
       updateSignalAndUserAddress(doc, patch.id, patch.patch);
       break;
     case "updateMbsConfig":

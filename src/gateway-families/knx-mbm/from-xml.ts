@@ -4,7 +4,7 @@ import {
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
-import { conversionCode } from "@/core/signals/conversion-code";
+import { readHalfConversionRefs } from "@/core/signals/conversion-refs";
 import { DEFAULT_FLAGS, type KnxFlags } from "@/protocols/knx";
 import {
   defaultMbmConfig,
@@ -155,12 +155,10 @@ function readSignals(doc: XmlDocument): KnxMbmSignal[] {
       description: (k ? textOf(k, "Description") : undefined) ?? "",
       knx: k ? readKnxEndpoint(k) : defaultKnxEndpoint(),
       modbus: m ? readMbmEndpoint(m) : defaultMbmEndpoint(),
-      idxOperations: (k ? textOf(k, "IdxOperations") : undefined) ?? (m ? textOf(m, "IdxOperations") : "") ?? "",
-      idxFilters: (k ? textOf(k, "IdxFilters") : undefined) ?? (m ? textOf(m, "IdxFilters") : "") ?? "",
-      conversionCode: conversionCode(
-        { filters: textOf(k, "IdxFilters"), operations: textOf(k, "IdxOperations") },
-        { filters: textOf(m, "IdxFilters"), operations: textOf(m, "IdxOperations") },
-      ),
+      conversions: {
+        internal: readHalfConversionRefs(textOf(k, "IdxFilters"), textOf(k, "IdxOperations")),
+        external: readHalfConversionRefs(textOf(m, "IdxFilters"), textOf(m, "IdxOperations")),
+      },
       virtual: parseBool(k ? attrOfChild(k, "Virtual", "Status") : undefined, false),
     };
   });

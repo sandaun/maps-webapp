@@ -60,6 +60,18 @@ const mbsPatchSchema = z
   .strict();
 
 // ME–MBS Mitsubishi Electric endpoint patch.
+const conversionIndexSchema = z.number().int().min(0).max(32767);
+
+/** `frmSelectConversion`: two filter slots, up to two operations and the defined flow. */
+const conversionSelectionSchema = z
+  .object({
+    internalFilter: conversionIndexSchema.nullable(),
+    operations: z.array(conversionIndexSchema).max(2),
+    externalFilter: conversionIndexSchema.nullable(),
+    master: z.enum(["internal", "external"]),
+  })
+  .strict();
+
 const mePatchSchema = z
   .object({
     g50Index: z.number().int().min(0).max(1),
@@ -242,8 +254,7 @@ const patchSchema = z.discriminatedUnion("type", [
         knx: knxPatchSchema.optional(),
         modbus: z.union([modbusPatchSchema, mbsPatchSchema]).optional(),
         me: mePatchSchema.optional(),
-        idxOperations: z.string().max(1024).optional(),
-        idxFilters: z.string().max(1024).optional(),
+        conversions: conversionSelectionSchema.optional(),
       })
       .strict(),
   }),

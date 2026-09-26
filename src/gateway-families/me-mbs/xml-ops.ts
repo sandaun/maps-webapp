@@ -228,8 +228,6 @@ export interface SignalPatch {
   description?: string;
   me?: Partial<MeMbsSignal["me"]>;
   modbus?: Partial<MeMbsSignal["modbus"]>;
-  idxOperations?: string;
-  idxFilters?: string;
 }
 
 /** Apply a partial edit to a signal, patching both protocol nodes. */
@@ -247,14 +245,6 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
 
   if (patch.active !== undefined) setText(childEl(mbs, "isEnabled"), boolText(patch.active));
   if (patch.description !== undefined) setText(childEl(mbs, "Description"), patch.description);
-  if (patch.idxOperations !== undefined) {
-    setText(childEl(mbs, "IdxOperations"), patch.idxOperations);
-    setText(childEl(me, "IdxOperations"), patch.idxOperations);
-  }
-  if (patch.idxFilters !== undefined) {
-    setText(childEl(mbs, "IdxFilters"), patch.idxFilters);
-    setText(childEl(me, "IdxFilters"), patch.idxFilters);
-  }
 
   const e = patch.me;
   if (e) {

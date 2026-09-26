@@ -247,7 +247,9 @@ export function OverviewScreen() {
           <div className="mt-[18px] grid grid-cols-2 gap-[14px] border-t border-border pt-4 sm:grid-cols-4">
             <MiniStat label="Gateway IP" value={project.gateway.ip || "—"} />
             <MiniStat label="Source" value={SOURCE_LABEL[meta.source]} />
-            <MiniStat label="Conversions" value={String(project.conversions.length)} />
+            {view.family === "knx-mbm" && (
+              <MiniStat label="Conversions" value={String(project.conversions.length)} />
+            )}
             <MiniStat label="Last updated" value={formatUpdatedAt(meta.updatedAt)} />
           </div>
         </Card>

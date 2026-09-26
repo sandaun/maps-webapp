@@ -4,7 +4,6 @@ import {
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
-import { conversionCode } from "@/core/signals/conversion-code";
 import {
   defaultMeController,
   type MeConfig,
@@ -195,14 +194,6 @@ function readSignals(doc: XmlDocument): MeMbsSignal[] {
       description: (m ? textOf(m, "Description") : undefined) ?? "",
       me: e ? readMeEndpoint(e) : defaultMeEndpoint(),
       modbus: m ? readMbsEndpoint(m) : defaultMbsEndpoint(),
-      idxOperations:
-        (m ? textOf(m, "IdxOperations") : undefined) ?? (e ? textOf(e, "IdxOperations") : "") ?? "",
-      idxFilters:
-        (m ? textOf(m, "IdxFilters") : undefined) ?? (e ? textOf(e, "IdxFilters") : "") ?? "",
-      conversionCode: conversionCode(
-        { filters: textOf(m, "IdxFilters"), operations: textOf(m, "IdxOperations") },
-        { filters: textOf(e, "IdxFilters"), operations: textOf(e, "IdxOperations") },
-      ),
       virtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
     };
   });

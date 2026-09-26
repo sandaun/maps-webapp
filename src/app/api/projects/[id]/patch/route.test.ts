@@ -69,3 +69,26 @@ describe("PATCH If-Match", () => {
     expect((await patch()).status).toBe(200);
   });
 });
+
+describe("PATCH signal conversions", () => {
+  function post(patches: unknown[]) {
+    return POST(
+      new Request("http://local/api/projects/demo/patch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patches }),
+      }),
+      { params: Promise.resolve({ id: "demo" }) },
+    );
+  }
+
+  it("no longer accepts raw refs, which wrote the same text to both halves", async () => {
+    const response = await post([{ type: "updateSignal", id: 0, patch: { idxOperations: "0,0" } }]);
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a selection with more than two operations", async () => {
+    const conversions = { internalFilter: null, operations: [0, 0, 0], externalFilter: null, master: "internal" };
+    expect((await post([{ type: "updateSignal", id: 0, patch: { conversions } }])).status).toBe(400);
+  });
+});

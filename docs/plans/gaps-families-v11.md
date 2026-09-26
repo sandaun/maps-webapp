@@ -75,8 +75,8 @@ Git).
 | Punt | Estat | Notes |
 |---|---|---|
 | Conversions per senyal bidireccionals | [apart] | vegeu `docs/reference/conversions.md` |
-| Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
-| Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [falta] | **important**: no és com MAPS. A la 770 Air, 12 senyals amb conversions a la meitat ME no surten a l'export (ME-MBS no exporta conversions). Detall a `docs/reference/conversions.md` §5. Branca pròpia |
+| Conversions a la UI (columna, secció de Configuration, Overview) | [fet 2026-09-26] | **no n'hi ha, com MAPS**: `ConversionsEnabled()` retorna `false` a ME-MBS (`IntesisProjectMbsMe_RT.cs:3010`). Les genera el codi en regenerar els senyals. Detall a `docs/reference/conversions.md` §1.1b |
+| L'API de patch accepta refs de conversió a ME-MBS | [fet 2026-09-26] | l'API rebutja editar conversions amb un 409, com MAPS, que no les deixa editar. `docs/reference/conversions.md` §5 |
 | Editor de registres en mode Custom | [falta] | el mode es pot triar; editar les adreces custom per senyal cal revisar-ho a la taula de senyals |
 | `addSignal` / `removeSignal` a l'API per a ME-MBS | [fet] | MAPS no permet afegir ni esborrar senyals ME-MBS (`IsRemovableRow` → false): es deriven del model. L'API els rebutja amb un 409 i un missatge clar |
 | XBL amb la funció de consum activada | [falta] | el generador el rebutja a propòsit (sense mostra de referència). Els senyals de consum ja es regeneren com MAPS (fitxer de referència `consum`); falta un XBL de MAPS per validar-ne la compilació. Branca pròpia |
@@ -159,9 +159,9 @@ Pendents (abans de disseny):
 | Edit poll records | [falta] | desktop: `frmPollRecords.cs`; els poll records es generen dels senyals, el desktop permet retoc manual. Decidir si hi donem suport o sempre es regeneren dels senyals |
 | **Projecte des de template real** (New project) | [falta] | avui: 2 entrades hardcoded i còpia de la fixture sintètica pre-poblada. V11: 26 templates, variants de capacitat/llicència, order code. Cal catàleg real i projecte net |
 | Auto-enumeració d'adreces de grup KNX | [falta] | documentada a `docs/plans/knx-mbm-mvp.md:144`; no és al V11 |
-| Edició de conversions + RemapLUTs | [apart] | vegeu `docs/reference/conversions.md` |
-| Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | com a ME-MBS |
-| Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [falta] | **important**: el model només llegeix la meitat KNX; l'export escriu "Filters"/"Operations" crus d'una meitat en lloc de "Conv. Id". Detall a `docs/reference/conversions.md` §5. Branca pròpia |
+| Edició de conversions + RemapLUTs | [apart] | pendent de disseny (prompt local a `temp/prompt-claude-design-conversions.md`); l'API d'assignació per senyal ja hi és. Vegeu `docs/reference/conversions.md` §4 |
+| Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
+| Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [fet 2026-09-26] | model amb les dues meitats; export i import amb "Conv. Id" i el full "Conversions" com MAPS (import més estricte en els casos perillosos); patch com `SaveObjectsConfiguration`. Detall a `docs/reference/conversions.md` §5 |
 | Import ESF (ETS) | [decidir] | export ESF [fet]; import no existeix ni al V11 |
 | Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML) |
 
