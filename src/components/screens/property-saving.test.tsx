@@ -159,7 +159,8 @@ describe("V12 property saving", () => {
     expect(
       await screen.findByRole("textbox", { name: "Project name" }),
     ).toHaveValue("Survives reload");
-    expect(screen.getByRole("status")).toHaveTextContent(
+    // The restored field can render before the recovery effect shows its notice.
+    expect(await screen.findByRole("status")).toHaveTextContent(
       "1 unsaved change recovered",
     );
     fireEvent.click(
