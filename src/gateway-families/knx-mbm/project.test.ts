@@ -4,15 +4,18 @@ import { SYNTHETIC_KNX_MBM_XML } from "./fixtures/synthetic-project";
 import { describeProjectFamily, isKnxMbmProject } from "./detect";
 import { projectFromXml } from "./from-xml";
 import {
+  addConversion,
   addDevice,
   addSignal,
   addTcpNode,
   removeDevice,
+  removeConversion,
   removeNode,
   removeSignal,
   setGatewayInfo,
   setConversions,
   setKnxExtendedAddresses,
+  updateConversion,
   updateDevice,
   updateSignal,
 } from "./xml-ops";
@@ -289,5 +292,103 @@ describe("topology removal (MAPS DeleteDevice / DeleteTCPNode)", () => {
     expect(refOf(doc, 4)).toBeUndefined();
     expect(refOf(doc, 5)).toMatchObject({ port: 0, device: 0 });
     expect(refOf(doc, 6)).toMatchObject({ port: 1, device: 0 });
+  });
+});
+
+describe("conversion library", () => {
+  /** Two filters, a LUT, two editable operations; signal 1 uses filter 1 and operation 2 (x0.01). */
+  function libraryDoc() {
+    const doc = parseFixture();
+    setConversions(doc, [
+      { id: 0, description: "Valid", type: 0, params: ["1", "4", "-50", "150"] },
+      { id: 1, description: "Positive", type: 0, params: ["1", "3", "0", "100"] },
+      { id: 0, description: "LUT", type: 4, params: ["0", "0", "0", "0"] },
+      { id: 0, description: "x0.1", type: 2, params: ["-1", "1", "0", "0"] },
+      { id: 1, description: "x0.01", type: 2, params: ["-2", "1", "0", "0"] },
+    ]);
+    updateSignal(doc, 1, {
+      conversionRefs: {
+        internal: { filters: [], operations: [] },
+        external: {
+          filters: [{ index: 1, inverted: false }, { index: 0, inverted: true }],
+          operations: [{ index: 2, inverted: false }, { index: 1, inverted: false }],
+        },
+      },
+    });
+    return doc;
+  }
+  const list = (doc: XmlDocument) => projectFromXml(doc).conversions.map((c) => [c.id, c.description, c.type, ...c.params]);
+
+  it("adds entries at the end of their list with the MAPS defaults and numbering", () => {
+    const doc = libraryDoc();
+    expect(addConversion(doc, 0)).toBe(2);
+    expect(addConversion(doc, 1)).toBe(3);
+    // The LUT is not counted: the manager does not list it (frmGateway.cs:579).
+    expect(list(doc).slice(2, 3)).toEqual([[2, "Filter_2", 0, "0", "3", "0", "100"]]);
+    expect(list(doc).at(-1)).toEqual([2, "Operation_2", 1, "0", "3", "0", "100"]);
+    expect(doc.serialize()).toContain(
+      '<Conversion Id="1" Description="Positive" Type="0" Param1="1" Param2="3" Param3="0" Param4="100" />\r\n      <Conversion Id="2" Description="Filter_2" Type="0"',
+    );
+  });
+
+  it("adds a copy with the given values and validates it", () => {
+    const doc = libraryDoc();
+    expect(addConversion(doc, 2, { description: "Kelvin", params: [0, 1, -273.15, 0] })).toBe(3);
+    expect(list(doc).at(-1)).toEqual([2, "Kelvin", 2, "0", "1", "-273.15", "0"]);
+    expect(() => addConversion(doc, 1, { description: "Bad", params: [10, 0, 0, 100] })).toThrow(
+      "Input min must not be greater than input max.",
+    );
+  });
+
+  it("adds the first filter before the operations and into an empty list", () => {
+    const doc = parseFixture();
+    addConversion(doc, 0);
+    expect(list(doc).map((c) => c[1])).toEqual(["Filter_0", "x0.1 to degC"]);
+    setConversions(doc, []);
+    addConversion(doc, 2);
+    expect(doc.serialize()).toContain(
+      '    <Conversions>\r\n      <Conversion Id="0" Description="Operation_0" Type="2" Param1="0" Param2="1" Param3="0" Param4="0" />\r\n    </Conversions>',
+    );
+  });
+
+  it("updates the edited fields and stores Param4 = 0 for arithmetic", () => {
+    const doc = libraryDoc();
+    updateConversion(doc, { list: "filters", index: 0 }, { param3: -40, description: "Valid temp" });
+    expect(list(doc)[0]).toEqual([0, "Valid temp", 0, "1", "4", "-40", "150"]);
+    updateConversion(doc, { list: "operations", index: 1 }, { type: 1, param2: 1000, param3: 0, param4: 100 });
+    expect(list(doc)[3]).toEqual([0, "x0.1", 1, "-1", "1000", "0", "100"]);
+    updateConversion(doc, { list: "operations", index: 1 }, { type: 2 });
+    expect(list(doc)[3]).toEqual([0, "x0.1", 2, "-1", "1000", "0", "0"]);
+  });
+
+  it("rejects invalid edits and system entries", () => {
+    const doc = libraryDoc();
+    expect(() => updateConversion(doc, { list: "filters", index: 0 }, { param3: 200 })).toThrow(
+      "Low must not be greater than High.",
+    );
+    expect(() => updateConversion(doc, { list: "operations", index: 0 }, { description: "x" })).toThrow(
+      "cannot be edited or removed",
+    );
+    expect(() => removeConversion(doc, { list: "operations", index: 0 })).toThrow("cannot be edited or removed");
+    expect(() => updateConversion(doc, { list: "filters", index: 5 }, { description: "x" })).toThrow("There is no filter 5.");
+  });
+
+  it("removes an entry, drops its refs and shifts the later ones on both halves", () => {
+    const doc = libraryDoc();
+    expect(removeConversion(doc, { list: "operations", index: 1 })).toEqual([1]);
+    expect(projectFromXml(doc).signals[1].conversions.external.operations).toEqual([{ index: 1, inverted: false }]);
+    // The KNX half of signal 1 was empty; signal 0 had no refs.
+    expect(projectFromXml(doc).signals[1].conversions.internal.operations).toEqual([]);
+    expect(removeConversion(doc, { list: "filters", index: 0 })).toEqual([1]);
+    expect(projectFromXml(doc).signals[1].conversions.external.filters).toEqual([{ index: 0, inverted: false }]);
+    expect(list(doc).map((c) => c[1])).toEqual(["Positive", "LUT", "x0.01"]);
+  });
+
+  it("writes an emptied list as <Conversions />", () => {
+    const doc = parseFixture();
+    removeConversion(doc, { list: "operations", index: 0 });
+    expect(doc.serialize()).toContain("  <IBOX");
+    expect(doc.serialize()).toContain("    <Conversions />\r\n  </IBOX>");
+    expect(projectFromXml(doc).signals[1].conversions.external.operations).toEqual([]);
   });
 });

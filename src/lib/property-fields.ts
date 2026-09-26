@@ -2,6 +2,16 @@ import {
   formatPhysicalAddress,
   parsePhysicalAddress,
 } from "@/protocols/knx/address";
+import {
+  CONVERSION_TYPE,
+  conversionErrors,
+  FILTER_DESCRIPTION_MAX,
+  formatConversionNumber,
+  isEditableConversionType,
+  OPERATION_DESCRIPTION_MAX,
+  parseConversionNumber,
+  type ConversionField,
+} from "@/core/conversions/rules";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
 import { OPTION_LABELS, type OptionLabels } from "./property-option-labels";
 
@@ -30,6 +40,17 @@ export interface PropertyField {
    * locator, so the draft store only trusts it while the revision is known.
    */
   positional?: boolean;
+  /**
+   * A number kept as text (conversion params): values compare by the text the
+   * server writes for them, so "5.00" and "5" are the same value.
+   */
+  numericText?: boolean;
+  /**
+   * Rule across the fields of the same group (e.g. Low ≤ High of a filter).
+   * `valueOf` reads a sibling's pending value (or its saved one) by key and
+   * `edited` holds the keys with pending values.
+   */
+  check?: (valueOf: (key: string) => PropertyValue, edited: ReadonlySet<string>) => string | undefined;
   patch: (value: PropertyValue) => ProjectPatchInput;
 }
 
@@ -457,13 +478,138 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       });
     });
   }
+  if (view.family === "knx-mbm") fields.push(...conversionFields(view.project.conversions));
   return fields;
+}
+
+export const FILTER_TYPE_LABELS: OptionLabels = { "0": "Comparison", "1": "No-limit filter", "2": "Limited filter" };
+export const FILTER_CONDITION_LABELS: OptionLabels = {
+  "0": "Equal",
+  "1": "Different",
+  "2": "Less than",
+  "3": "Greater than",
+  "4": "In range",
+  "5": "Out of range",
+};
+export const OPERATION_TYPE_LABELS: OptionLabels = { "1": "Scale", "2": "Arithmetic" };
+
+/** What Param1…Param4 hold for this type (and filter comparison), as the editor labels them. */
+export function conversionParamLabels(type: number, comparison: number): [string, string, string, string] {
+  if (type === CONVERSION_TYPE.FILTER)
+    return ["Filter type", "Condition", comparison === 4 || comparison === 5 ? "Low" : "Value", comparison === 2 ? "Value" : "High"];
+  if (type === CONVERSION_TYPE.SCALE) return ["Input min", "Input max", "Output min", "Output max"];
+  return ["A · exponent", "B · factor", "C · offset", "Param 4"];
+}
+
+/** Draft field id of a library entry: its list and position, as signals and the API address it. */
+export const conversionFieldId = (list: "filters" | "operations", index: number, key: ConversionField) =>
+  `cfg-conv-${list === "filters" ? "f" : "o"}-${index}-${key}`;
+
+const CONVERSION_KEYS = ["description", "type", "param1", "param2", "param3", "param4"] as const;
+
+/**
+ * KNX–MBM conversion library: one positional group per filter, scale and
+ * arithmetic operation (LUT remaps and logical operations are read-only).
+ * The MAPS rules (`conversionErrors`) run across the group's fields, only for
+ * the fields with pending values.
+ */
+function conversionFields(conversions: Extract<ProjectView, { family: "knx-mbm" }>["project"]["conversions"]): PropertyField[] {
+  const fields: PropertyField[] = [];
+  const positions = { filters: 0, operations: 0 };
+  for (const conv of conversions) {
+    const list = conv.type === CONVERSION_TYPE.FILTER ? "filters" : "operations";
+    const index = positions[list]++;
+    if (!isEditableConversionType(conv.type)) continue;
+    const group = `conv-${list === "filters" ? "f" : "o"}-${index}`;
+    const filter = list === "filters";
+    const name = conv.description || (filter ? "Untitled filter" : "Untitled operation");
+    const paramLabels = conversionParamLabels(conv.type, Number(conv.params[1]));
+    const base: Record<(typeof CONVERSION_KEYS)[number], PropertyValue> = {
+      description: conv.description,
+      type: conv.type,
+      param1: Number(conv.params[0]),
+      param2: Number(conv.params[1]),
+      param3: canonicalNumberText(conv.params[2]),
+      param4: canonicalNumberText(conv.params[3]),
+    };
+    if (!filter) {
+      base.param1 = canonicalNumberText(conv.params[0]);
+      base.param2 = canonicalNumberText(conv.params[1]);
+    }
+    const numericKeys = new Set<string>(filter ? ["param3", "param4"] : ["param1", "param2", "param3", "param4"]);
+    const check = (key: ConversionField) => (valueOf: (key: string) => PropertyValue, edited: ReadonlySet<string>) => {
+      const values = {
+        type: Number(valueOf("type")),
+        description: String(valueOf("description")),
+        params: [String(valueOf("param1")), String(valueOf("param2")), String(valueOf("param3")), String(valueOf("param4"))] as const,
+      };
+      const errors = conversionErrors(values, edited as ReadonlySet<ConversionField>);
+      // A pending param must be a number even where the type or condition does not use it:
+      // the patch carries it, and MAPS never stores anything else (its numeric boxes revert).
+      if (!errors[key] && numericKeys.has(key) && edited.has(key) && parseConversionNumber(String(valueOf(key))) === undefined)
+        return "Enter a number.";
+      if (errors[key] || (key !== "type" && key !== "param2")) return errors[key];
+      // A new type or comparison can break a value that has no pending edit: report it here.
+      const [other, message] = Object.entries(errors).find(([field]) => !edited.has(field)) ?? [];
+      if (!other) return undefined;
+      const label = conversionParamLabels(values.type, Number(values.params[1]))[Number(other.at(-1)) - 1];
+      return `${label ?? other}: ${message}`;
+    };
+    for (const key of CONVERSION_KEYS) {
+      if (key === "type" && filter) continue;
+      const rule: Rule =
+        key === "description"
+          ? text(filter ? FILTER_DESCRIPTION_MAX : OPERATION_DESCRIPTION_MAX)
+          : key === "type"
+            ? labelled(choices(1, 2), OPERATION_TYPE_LABELS)
+            : filter && key === "param1"
+              ? labelled(choices(0, 1, 2), FILTER_TYPE_LABELS)
+              : filter && key === "param2"
+                ? labelled(choices(0, 1, 2, 3, 4, 5), FILTER_CONDITION_LABELS)
+                : {};
+      const label = key === "description" ? "Description" : key === "type" ? "Operation type" : paramLabels[Number(key.at(-1)) - 1];
+      fields.push({
+        id: conversionFieldId(list, index, key),
+        group,
+        key,
+        label: `${filter ? "Filter" : "Operation"} “${name}” · ${label}`,
+        screen: "configuration",
+        section: "conv",
+        base: base[key],
+        positional: true,
+        numericText: numericKeys.has(key),
+        ...rule,
+        check: check(key),
+        patch: (value) => ({
+          type: "updateConversion",
+          list,
+          index,
+          patch: {
+            [key]:
+              key === "description"
+                ? String(value)
+                : typeof value === "number"
+                  ? value
+                  : (parseConversionNumber(String(value)) ?? Number.NaN),
+          },
+        }),
+      });
+    }
+  }
+  return fields;
+}
+
+/** The text the server writes for a conversion param, or the text itself when it is not a number. */
+function canonicalNumberText(value: string): string {
+  const number = parseConversionNumber(value);
+  return number === undefined ? value : formatConversionNumber(number);
 }
 
 export function fieldValue(
   field: PropertyField,
   raw: PropertyValue,
 ): PropertyValue {
+  if (field.numericText) return canonicalNumberText(String(raw));
   if (typeof field.base === "number")
     return String(raw).trim() === "" ? NaN : Number(raw);
   if (typeof field.base === "boolean")
@@ -486,7 +632,18 @@ export function formatFieldValue(field: PropertyField, raw: PropertyValue): stri
 export function validateField(
   field: PropertyField,
   raw: PropertyValue,
+  valueOf?: (key: string) => PropertyValue,
+  edited?: ReadonlySet<string>,
 ): string | undefined {
+  const own = validateOwnValue(field, raw);
+  if (own || !field.check) return own;
+  return field.check(
+    (key) => (key === field.key ? raw : (valueOf?.(key) ?? "")),
+    edited ?? new Set([field.key]),
+  );
+}
+
+function validateOwnValue(field: PropertyField, raw: PropertyValue): string | undefined {
   const value = fieldValue(field, raw);
   if (field.address && parsePhysicalAddress(String(value)) === undefined)
     return "Expected area.line.device, e.g. 15.15.255.";

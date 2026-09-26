@@ -190,7 +190,42 @@ describe("KNX–MBM conversion patches (frmSelectConversion)", () => {
   });
 });
 
+describe("KNX–MBM conversion library patches", () => {
+  it("adds, edits and removes library entries, answering the MAPS rules with 422", () => {
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    knx.applyPatches(doc, [
+      { type: "addConversion", conversionType: 0 },
+      { type: "updateConversion", list: "filters", index: 0, patch: { param1: 1, param2: 4, param3: -50, param4: 150 } },
+    ]);
+    expect(projectFromXml(doc).conversions.map((c) => [c.description, ...c.params])).toEqual([
+      ["Filter_0", "1", "4", "-50", "150"],
+      ["x0.1 to degC", "0", "1000", "0", "100"],
+    ]);
+    const invalid: ProjectPatch = { type: "updateConversion", list: "filters", index: 0, patch: { param3: 151 } };
+    expect(() => knx.applyPatches(doc, [invalid])).toThrow(
+      expect.objectContaining({ status: 422, message: "Low must not be greater than High." }),
+    );
+    knx.applyPatches(doc, [{ type: "removeConversion", list: "operations", index: 0 }]);
+    expect(projectFromXml(doc).signals[1].conversions.external.operations).toEqual([]);
+  });
+});
+
 describe("ME–MBS batch patches", () => {
+  it("rejects conversion library edits, which MAPS does not offer for this family", () => {
+    for (const patch of [
+      { type: "addConversion", conversionType: 0 },
+      { type: "updateConversion", list: "operations", index: 0, patch: { description: "x" } },
+      { type: "removeConversion", list: "operations", index: 0 },
+    ] as ProjectPatch[]) {
+      const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
+      expect(familyById("me-mbs").accepts(patch)).toBe(true);
+      expect(() => familyById("me-mbs").applyPatches(doc, [patch])).toThrow(
+        expect.objectContaining({ status: 409, message: expect.stringMatching(/conversions are fixed/) }),
+      );
+      expect(doc.serialize()).toBe(SYNTHETIC_ME_MBS_XML);
+    }
+  });
+
   it("rejects conversion edits, which MAPS disables for this family", () => {
     const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_XML);
     const patch = {

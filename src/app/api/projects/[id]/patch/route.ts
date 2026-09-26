@@ -72,6 +72,24 @@ const conversionSelectionSchema = z
   })
   .strict();
 
+// Conversion library: numbers are validated against the MAPS rules by the family (`conversionErrors`).
+const conversionParamSchema = z.number().finite();
+const conversionLocatorShape = {
+  list: z.enum(["filters", "operations"]),
+  index: z.number().int().min(0).max(32767),
+};
+const conversionPatchSchema = z
+  .object({
+    description: z.string().max(255),
+    type: z.union([z.literal(1), z.literal(2)]),
+    param1: conversionParamSchema,
+    param2: conversionParamSchema,
+    param3: conversionParamSchema,
+    param4: conversionParamSchema,
+  })
+  .partial()
+  .strict();
+
 const mePatchSchema = z
   .object({
     g50Index: z.number().int().min(0).max(1),
@@ -284,6 +302,19 @@ const patchSchema = z.discriminatedUnion("type", [
     deviceIndex: z.number().int().min(0),
     signals: z.enum(["delete", "unassign"]),
   }),
+  z.object({
+    type: z.literal("addConversion"),
+    conversionType: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+    values: z
+      .object({
+        description: z.string().max(255),
+        params: z.tuple([conversionParamSchema, conversionParamSchema, conversionParamSchema, conversionParamSchema]),
+      })
+      .strict()
+      .optional(),
+  }),
+  z.object({ type: z.literal("updateConversion"), ...conversionLocatorShape, patch: conversionPatchSchema }),
+  z.object({ type: z.literal("removeConversion"), ...conversionLocatorShape }),
   z.object({ type: z.literal("updateMbsConfig"), patch: mbsConfigPatchSchema }),
   z.object({ type: z.literal("updateRtuConfig"), patch: mbsRtuConfigPatchSchema }),
   z.object({ type: z.literal("updateTcpConfig"), patch: mbsTcpConfigPatchSchema }),

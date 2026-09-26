@@ -515,6 +515,92 @@ describe("property drafts", () => {
   });
 });
 
+describe("conversion library drafts", () => {
+  /** Filters Valid (In range −50…150) and Positive; operations x0.1 to degC (scale) and x0.1 (arith). */
+  function library() {
+    const f = fixture();
+    const a = f.patch([
+      { type: "addConversion", conversionType: 0 },
+      { type: "updateConversion", list: "filters", index: 0, patch: { description: "Valid", param1: 1, param2: 4, param3: -50, param4: 150 } },
+      { type: "addConversion", conversionType: 0 },
+      { type: "addConversion", conversionType: 2 },
+    ]);
+    return { f, a };
+  }
+
+  it("checks the MAPS rules across the fields of one entry before saving", () => {
+    const { a } = library();
+    const draft = store();
+    draft.stage(a, field(a, "cfg-conv-f-0-param3"), "200");
+    expect(draft.prepare(a, "configuration").invalid).toEqual({
+      "cfg-conv-f-0-param3": "Low must not be greater than High.",
+    });
+    draft.stage(a, field(a, "cfg-conv-f-0-param4"), "250");
+    const { invalid, patches } = draft.prepare(a, "configuration");
+    expect(invalid).toEqual({});
+    expect(patches).toEqual([
+      { type: "updateConversion", list: "filters", index: 0, patch: { param3: 200, param4: 250 } },
+    ]);
+  });
+
+  it("validates the values a new operation type puts to use", () => {
+    const { a } = library();
+    const draft = store();
+    // x0.1 (arith): switching to scale keeps the params 0, 1, 0, 0 → output 0…0.
+    draft.stage(a, field(a, "cfg-conv-o-1-type"), 1);
+    expect(draft.prepare(a, "configuration").invalid).toEqual({
+      "cfg-conv-o-1-type": "Output max: Output min and max must be different.",
+    });
+  });
+
+  it("remaps drafts by position after a known removal and drops the removed entry's", () => {
+    const { f, a } = library();
+    const draft = store();
+    draft.stage(a, field(a, "cfg-conv-f-0-description"), "Removed with its filter");
+    draft.stage(a, field(a, "cfg-conv-f-1-description"), "Follows its filter");
+    draft.stage(a, field(a, "cfg-conv-o-1-description"), "Other list");
+    const patches: ProjectPatchInput[] = [{ type: "removeConversion", list: "filters", index: 0 }];
+    const next = f.patch(patches);
+    draft.afterMutation(a, next, patches);
+    expect(draft.prepare(next, "configuration").patches).toEqual([
+      { type: "updateConversion", list: "filters", index: 0, patch: { description: "Follows its filter" } },
+      { type: "updateConversion", list: "operations", index: 1, patch: { description: "Other list" } },
+    ]);
+  });
+
+  it("confirms a value typed with trailing zeros once saved, without a conflict", () => {
+    const { f, a } = library();
+    const draft = store();
+    draft.stage(a, field(a, "cfg-conv-f-0-param3"), "5.00");
+    const prepared = draft.prepare(a, "configuration");
+    expect(prepared.patches).toEqual([
+      { type: "updateConversion", list: "filters", index: 0, patch: { param3: 5 } },
+    ]);
+    const next = f.patch(prepared.patches);
+    draft.complete(a.meta.id, "configuration", prepared.edits, next);
+    expect(draft.editsFor(a.meta.id, "configuration")).toEqual([]);
+    // Typing the saved value in another form is no change at all.
+    draft.stage(next, field(next, "cfg-conv-f-0-param4"), "150.0");
+    expect(draft.editsFor(a.meta.id, "configuration")).toEqual([]);
+  });
+
+  it("never sends a value that is not a number, even when the condition hides it", () => {
+    const { a } = library();
+    const draft = store();
+    draft.stage(a, field(a, "cfg-conv-f-0-param3"), "");
+    // Less than only uses Param4: the emptied Param3 is hidden but still pending.
+    draft.stage(a, field(a, "cfg-conv-f-0-param2"), 2);
+    const { invalid, patches } = draft.prepare(a, "configuration");
+    expect(invalid).toEqual({ "cfg-conv-f-0-param3": "Enter a number." });
+    expect(patches).toEqual([]);
+  });
+
+  it("has no fields for ME–MBS, whose conversions MAPS does not let edit", () => {
+    const me = fixture("me-mbs").view();
+    expect(propertyFields(me).some((f) => f.id.startsWith("cfg-conv-"))).toBe(false);
+  });
+});
+
 describe("formatFieldValue", () => {
   it("shows values as the form shows them", () => {
     const knx = fixture().view(),

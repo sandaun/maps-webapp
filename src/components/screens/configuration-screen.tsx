@@ -15,6 +15,8 @@ import { DraftInput as Input, DraftSelect as Select, ImmediatePropertyError, Pro
 import { StickySaveBar } from "@/components/properties/sticky-save-bar";
 import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/property-drafts";
 import { cn } from "@/lib/utils";
+import { FieldRow, GroupCard, ReadOnly, SectionHeader } from "./configuration-blocks";
+import { ConversionsSection } from "./configuration-conversions";
 
 type SectionKey = "general" | "network" | "bms" | "device" | "conv";
 
@@ -50,7 +52,13 @@ export function ConfigurationScreen() {
 function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   const sections = sectionsFor(view.family);
   const [section, setSection] = React.useState<SectionKey>("general");
-  useRevealProperty(React.useCallback((next: string) => setSection(next as SectionKey), []));
+  const [reveal, setReveal] = React.useState<{ id: string; seq: number }>();
+  useRevealProperty(
+    React.useCallback((next: string, id: string) => {
+      setSection(next as SectionKey);
+      setReveal((previous) => ({ id, seq: (previous?.seq ?? 0) + 1 }));
+    }, []),
+  );
   const [query, setQuery] = React.useState("");
   const shown = sections.filter((s) => s.label.toLowerCase().includes(query.trim().toLowerCase()));
 
@@ -100,7 +108,7 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
             ) : (
               <DeviceMeSection view={view} />
             ))}
-          {section === "conv" && view.family === "knx-mbm" && <ConversionsSection view={view} />}
+          {section === "conv" && view.family === "knx-mbm" && <ConversionsSection view={view} reveal={reveal} />}
           </div>
           <StickySaveBar screen="configuration" />
         </div>
@@ -112,71 +120,6 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
 /* ---------------------------------------------------------------------------
  * V10 building blocks: section header, group card, field rows and controls.
  * ------------------------------------------------------------------------- */
-
-function SectionHeader({ title, desc }: { title: string; desc: string }) {
-  return (
-    <>
-      <h2 className="mb-1 font-display text-[22px] font-light text-hms-blue">{title}</h2>
-      <p className="mb-[22px] max-w-[600px] text-[13px] leading-[1.55] text-fg-muted">{desc}</p>
-    </>
-  );
-}
-
-function GroupCard({
-  label,
-  tag,
-  tagTone = "warning",
-  action,
-  children,
-}: {
-  label: string;
-  tag?: string;
-  tagTone?: "warning" | "info";
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="mb-4 overflow-hidden rounded-lg border border-border bg-white">
-      <header className="flex items-center gap-[9px] border-b border-border bg-[#FCFCFD] px-4 py-3">
-        <h3 className="text-[13px] font-bold text-hms-blue">{label}</h3>
-        {tag && (
-          <span
-            className={cn(
-              "inline-flex items-center whitespace-nowrap rounded-full border px-[7px] py-[2px] text-[11px] font-bold",
-              tagTone === "warning"
-                ? "border-warning-border bg-warning-bg text-warning-text"
-                : "border-[#C9DEF0] bg-[#EAF3FB] text-hms-accent",
-            )}
-          >
-            {tag}
-          </span>
-        )}
-        {action && <div className="ml-auto">{action}</div>}
-      </header>
-      <div className="px-4 pb-[14px] pt-[6px]">{children}</div>
-    </section>
-  );
-}
-
-function FieldRow({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="pending-field flex items-start gap-4 border-b border-[#F2F3F4] py-[11px]">
-      <div className="w-[210px] shrink-0 pt-[5px]">
-        <div className="pending-label text-[12.5px] font-bold text-text-body">{label}</div>
-        {hint && <div className="mt-[2px] text-[11px] leading-[1.45] text-fg-subtle">{hint}</div>}
-      </div>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
 
 function TextControl({
   id,
@@ -254,10 +197,6 @@ function ToggleControl({
       <ImmediatePropertyError id={id} />
     </div>
   );
-}
-
-function ReadOnly({ value }: { value: string }) {
-  return <div className="py-[6px] font-mono text-[12.5px] text-hms-blue">{value}</div>;
 }
 
 /* ---------------------------------------------------------------------------
@@ -849,148 +788,3 @@ function DeviceMeSection({ view }: { view: Extract<ProjectView, { family: "me-mb
 }
 
 
-const CONVERSION_TYPE_LABELS: Record<number, string> = {
-  0: "Filter",
-  1: "Scale",
-  2: "Arithmetic",
-  3: "Logical",
-  4: "LUT remap",
-};
-
-/** Behaviour of each filter type as MAPS simulates it (`IntesisMath.ApplyFilter`). */
-const FILTER_TYPE_LABELS: Record<string, string> = {
-  "0": "Comparison — returns 0/1",
-  "1": "No-limit — passes the value or invalidates it",
-  "2": "Limited — clamps the value to the range",
-};
-
-const FILTER_COMPARISON_LABELS: Record<string, string> = {
-  "0": "Equal",
-  "1": "Different",
-  "2": "Less than",
-  "3": "Greater than",
-  "4": "In range",
-  "5": "Out of range",
-};
-
-type ConversionEntry = ProjectView["project"]["conversions"][number];
-
-/** Human-readable parameter rows for a conversion, mirroring the desktop Conversions Manager. */
-function conversionDetail(c: ConversionEntry): { label: string; value: string }[] {
-  const [p1, p2, p3, p4] = c.params;
-  switch (c.type) {
-    case 0: {
-      // "Less than" compares against Param4 only; the ranges use Param3…Param4
-      // (`IntesisMath.ApplyFilter`, `frmConversions.cs:397-434`).
-      const rows = [
-        { label: "Filter type", value: FILTER_TYPE_LABELS[p1] ?? p1 },
-        { label: "Comparison", value: FILTER_COMPARISON_LABELS[p2] ?? p2 },
-        { label: "Value", value: p2 === "2" ? p4 : p3 },
-      ];
-      if (["4", "5"].includes(p2)) rows.push({ label: "Upper value", value: p4 });
-      return rows;
-    }
-    case 1:
-      return [
-        { label: "Input range", value: `${p1} – ${p2}` },
-        { label: "Output range", value: `${p3} – ${p4}` },
-        { label: "Behaviour", value: `Clamps the input to ${p1}–${p2}, then linear interpolation` },
-      ];
-    case 2:
-      return [
-        { label: "A · exponent", value: p1 },
-        { label: "B · factor", value: p2 },
-        { label: "C · offset", value: p3 },
-        { label: "Formula", value: `y = x · ${p2} · (10^${p1}) + ${p3}` },
-      ];
-    case 3:
-      return [
-        { label: "OR mask", value: p1 },
-        { label: "AND mask", value: p2 },
-        { label: "XOR mask", value: p3 },
-        { label: "Behaviour", value: "Applied in order: OR → AND → XOR" },
-      ];
-    case 4:
-      return [
-        { label: "Remap table", value: p1 },
-        { label: "Inverse table", value: Number(p2) & 0x8 ? "Yes" : "No" },
-      ];
-    default:
-      return [{ label: "Parameters", value: c.params.filter(Boolean).join(" · ") || "—" }];
-  }
-}
-
-/** Master-detail: Filters / Operations lists on the left, selected conversion detail on the right. */
-function ConversionsSection({ view }: { view: ProjectView }) {
-  const conversions = view.project.conversions;
-  const filters = conversions.filter((c) => c.type === 0);
-  const operations = conversions.filter((c) => c.type !== 0);
-  const [selected, setSelected] = React.useState<number | null>(conversions[0]?.id ?? null);
-  const current = conversions.find((c) => c.id === selected) ?? null;
-
-  const listButton = (c: ConversionEntry) => (
-    <button
-      key={c.id}
-      type="button"
-      onClick={() => setSelected(c.id)}
-      className={cn(
-        "mb-[2px] flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-[10px] py-2 text-left text-[12.5px]",
-        selected === c.id ? "bg-[#EAF3FB] font-bold text-hms-blue" : "font-normal text-fg-muted",
-      )}
-    >
-      <span className="flex-1 truncate">{c.description || `Conversion ${c.id}`}</span>
-    </button>
-  );
-
-  return (
-    <>
-      <SectionHeader
-        title="Conversions"
-        desc="Filters and operations applied between the raw register value and the BMS datapoint. Assigned per signal in the signal table."
-      />
-      {conversions.length === 0 ? (
-        <GroupCard label="Value operations">
-          <FieldRow label="No conversions defined">
-            <ReadOnly value="—" />
-          </FieldRow>
-        </GroupCard>
-      ) : (
-        <div className="flex items-start gap-4">
-          <div className="w-[230px] shrink-0 rounded-lg border border-border bg-white p-3">
-            {filters.length > 0 && (
-              <>
-                <div className="mb-2 px-[10px] font-mono text-[10.5px] font-medium uppercase tracking-wider text-fg-muted">
-                  Filters
-                </div>
-                {filters.map(listButton)}
-              </>
-            )}
-            {operations.length > 0 && (
-              <>
-                <div className="mb-2 mt-3 px-[10px] font-mono text-[10.5px] font-medium uppercase tracking-wider text-fg-muted">
-                  Operations
-                </div>
-                {operations.map(listButton)}
-              </>
-            )}
-          </div>
-          {current && (
-            <div className="min-w-0 flex-1">
-              <GroupCard
-                label={current.description || `Conversion ${current.id}`}
-                tag={CONVERSION_TYPE_LABELS[current.type] ?? `Type ${current.type}`}
-                tagTone="info"
-              >
-                {conversionDetail(current).map((row) => (
-                  <FieldRow key={row.label} label={row.label}>
-                    <ReadOnly value={row.value} />
-                  </FieldRow>
-                ))}
-              </GroupCard>
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
