@@ -66,6 +66,8 @@ export interface ParsedSignalsSheet {
   externalProtocol: string;
   headers: string[];
   rows: string[][];
+  /** Data rows of the "Conversions" sheet (7 cells each), or undefined when it is missing. */
+  conversionRows?: { row: number; cells: string[] }[];
 }
 
 export async function parseSignalsXlsx(data: Uint8Array): Promise<ParsedSignalsSheet> {
@@ -89,7 +91,23 @@ export async function parseSignalsXlsx(data: Uint8Array): Promise<ParsedSignalsS
     rows.push(cells);
     if (rows.length >= 5000) break;
   }
-  return { internalProtocol, externalProtocol, headers, rows };
+  return { internalProtocol, externalProtocol, headers, rows, conversionRows: readConversionRows(workbook) };
+}
+
+/** `ExcelParser.ExcelImportConversions`: every used row after the header, cells 1–7. */
+function readConversionRows(
+  workbook: Awaited<ReturnType<typeof loadWorkbook>>,
+): ParsedSignalsSheet["conversionRows"] {
+  const sheet = workbook.getWorksheet("Conversions");
+  if (!sheet) return undefined;
+  const rows: NonNullable<ParsedSignalsSheet["conversionRows"]> = [];
+  for (let r = 2; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
+    const cells = [1, 2, 3, 4, 5, 6, 7].map((c) => cellText(row.getCell(c).value));
+    if (cells.every((c) => c === "")) continue;
+    rows.push({ row: r, cells });
+  }
+  return rows;
 }
 
 export function rowMap(headers: string[], cells: string[]): Record<string, string> {

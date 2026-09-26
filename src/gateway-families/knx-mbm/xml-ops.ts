@@ -21,8 +21,9 @@ import {
   type MbmRtuNode,
   type MbmTcpNode,
 } from "@/protocols/modbus/master";
+import { formatConversionIds, type SignalConversionRefs } from "@/core/signals/conversion-refs";
 import { parseBool } from "./from-xml";
-import type { GatewayInfo, KnxMbmSignal } from "./model";
+import type { Conversion, GatewayInfo, KnxMbmSignal } from "./model";
 
 /**
  * Patch operations on the preserved .ibmaps XmlDocument. Every edit keeps
@@ -149,6 +150,8 @@ export interface SignalPatch {
   modbus?: Partial<KnxMbmSignal["modbus"]>;
   idxOperations?: string;
   idxFilters?: string;
+  /** Refs of each half (KNX object = internal, Modbus signal = external). */
+  conversions?: SignalConversionRefs;
 }
 
 /** Apply a partial edit to a signal, patching both protocol nodes. */
@@ -172,6 +175,13 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
   if (patch.idxFilters !== undefined) {
     setText(childEl(knx, "IdxFilters"), patch.idxFilters);
     setText(childEl(mbm, "IdxFilters"), patch.idxFilters);
+  }
+  if (patch.conversions !== undefined) {
+    const { internal, external } = patch.conversions;
+    setText(childEl(knx, "IdxOperations"), formatConversionIds(internal.operations));
+    setText(childEl(knx, "IdxFilters"), formatConversionIds(internal.filters));
+    setText(childEl(mbm, "IdxOperations"), formatConversionIds(external.operations));
+    setText(childEl(mbm, "IdxFilters"), formatConversionIds(external.filters));
   }
 
   const k = patch.knx;
@@ -218,6 +228,43 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
     setNumberText(mbm, "Bit", m.bit);
     setNumberText(mbm, "NumOfBits", m.numOfBits);
     setNumberText(mbm, "Address", m.address);
+  }
+}
+
+// --- conversions -----------------------------------------------------------
+
+/**
+ * Replace the project's conversion list like `IntesisXML.GetConversionsNode`:
+ * all filters, then all operations, each as `<Conversion Id Description Type
+ * Param1..4 />` (`CreateConversionXMLNode`, IntesisXML.cs:496-507).
+ */
+export function setConversions(doc: XmlDocument, conversions: Conversion[]): void {
+  const ibox = mustFind(doc, ["IBOX"]);
+  let container = doc.find(["IBOX", "Conversions"]);
+  if (!container) {
+    container = element("Conversions");
+    appendChildIndented(ibox, container, 2);
+  }
+  container.children = [];
+  container.emptyForm = "self";
+  const ordered = [
+    ...conversions.filter((conv) => conv.type === 0),
+    ...conversions.filter((conv) => conv.type !== 0),
+  ];
+  for (const conv of ordered) {
+    appendChildIndented(
+      container,
+      element("Conversion", [
+        ["Id", String(conv.id)],
+        ["Description", conv.description],
+        ["Type", String(conv.type)],
+        ["Param1", conv.params[0]],
+        ["Param2", conv.params[1]],
+        ["Param3", conv.params[2]],
+        ["Param4", conv.params[3]],
+      ]),
+      3,
+    );
   }
 }
 

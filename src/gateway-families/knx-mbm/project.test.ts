@@ -11,6 +11,7 @@ import {
   removeNode,
   removeSignal,
   setGatewayInfo,
+  setConversions,
   setKnxExtendedAddresses,
   updateDevice,
   updateSignal,
@@ -76,6 +77,36 @@ describe("projectFromXml", () => {
       internal: { filters: [], operations: [] },
       external: { filters: [], operations: [{ index: 0, inverted: false }] },
     });
+  });
+
+  it("writes the conversion list like MAPS: filters first, then operations", () => {
+    const doc = parseFixture();
+    setConversions(doc, [
+      { id: 0, description: "x0.1", type: 2, params: ["-1", "1", "0", "0"] },
+      { id: 0, description: "Positive", type: 0, params: ["1", "3", "0", "100"] },
+    ]);
+    expect(projectFromXml(doc).conversions.map((c) => [c.description, c.type])).toEqual([
+      ["Positive", 0],
+      ["x0.1", 2],
+    ]);
+    expect(doc.serialize()).toContain(
+      '    <Conversions>\r\n      <Conversion Id="0" Description="Positive" Type="0" Param1="1" Param2="3" Param3="0" Param4="100" />\r\n      <Conversion Id="0" Description="x0.1" Type="2" Param1="-1" Param2="1" Param3="0" Param4="0" />\r\n    </Conversions>',
+    );
+    setConversions(doc, []);
+    expect(doc.serialize()).toContain("    <Conversions />");
+  });
+
+  it("writes each half's conversion refs without a trailing separator", () => {
+    const doc = parseFixture();
+    updateSignal(doc, 1, {
+      conversions: {
+        internal: { filters: [{ index: 0, inverted: false }], operations: [{ index: 0, inverted: false }] },
+        external: { filters: [{ index: 0, inverted: true }], operations: [{ index: 0, inverted: true }] },
+      },
+    });
+    const xml = doc.serialize();
+    expect(xml).toContain("      <IdxOperations>0,0</IdxOperations>\r\n      <IdxFilters>0,0</IdxFilters>");
+    expect(xml).toContain("        <IdxOperations>0,1</IdxOperations>\r\n        <IdxFilters>0,1</IdxFilters>");
   });
 
   it("does not expose the gateway password in the model", () => {
