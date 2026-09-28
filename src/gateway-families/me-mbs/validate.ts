@@ -212,7 +212,9 @@ function validateSignal(
     const expected = getSignalAddress(project.mbs.addressMode, {
       g50Index: signal.me.g50Index,
       groupIndex: signal.me.groupIndex,
-      unitIndex: signal.me.unitId,
+      // Alarm codes: the ME UnitId is 0–99, the Modbus unit MAPS addresses
+      // is 1–100 (CreateErrorSignalsWithParams, IntesisProjectMbsMe_RT.cs:2247).
+      unitIndex: signal.me.unitId === -1 ? -1 : signal.me.unitId + 1,
       signalSpecIndex: spec,
       slaveIndex: signal.modbus.slaveIndex,
     });

@@ -126,6 +126,29 @@ describe("validateProject", () => {
     });
   });
 
+  describe("ME-SPEC-ADDRESS on the alarm codes", () => {
+    function withErrorSignals(): MeMbsProject {
+      const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_EMPTY_XML);
+      updateGroupAndSignals(doc, 0, 0, { enabled: true });
+      updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+      return projectFromXml(doc);
+    }
+
+    it("accepts the addresses MAPS gives them (unit 1–100)", () => {
+      const project = withErrorSignals();
+      expect(project.signals.filter((s) => s.me.unitId !== -1)).toHaveLength(100);
+      expect(codes(project)).not.toContain("ME-SPEC-ADDRESS");
+    });
+
+    it("still reports a wrong alarm-code address", () => {
+      const project = withErrorSignals();
+      const alarm = project.signals.find((s) => s.me.unitId === 0)!;
+      expect(alarm.modbus.address).toBe(21001);
+      alarm.modbus.address = 21000;
+      expect(codes(project)).toContain("ME-SPEC-ADDRESS");
+    });
+  });
+
   it("ME-CONTROLLER-LIMIT: more than 2 controllers", () => {
     const project = baseProject();
     project.me.controllers.push(project.me.controllers[0], project.me.controllers[0]);

@@ -71,7 +71,7 @@ Git).
 | `ME-CTRL-DISABLED`, `ME-CONTROLLER-LIMIT`, `ME-GROUP-LIMIT` apunten a `devices` | [fet] | |
 | Banner d'issues amb acció "anar al camp" (estil V11) | [falta] | `ScreenIssues` pinta llista simple; el V11 té targetes amb botó d'acció que navega |
 | Issues del V11 sense suport al model: "meter assignment", "custom addresses", "no description" | [falta] | generar-los a `validate.ts` quan el model ho suporti |
-| `ME-SPEC-ADDRESS` fals als senyals d'error | [falta] | trobat 2026-09-28, ja hi era a `staging`: l'adreça esperada usa l'`UnitId` ME (0–99), però MAPS numera les unitats Modbus 1–100 (`CreateErrorSignalsWithParams`, `P:2247`), i surt 1 menys. Qualsevol projecte amb «Individual error signals» mostra 100 errors falsos (`ctrl-2`, `multi-errors`). Branca pròpia |
+| `ME-SPEC-ADDRESS` fals als senyals d'error | [fet 2026-09-28] | l'adreça esperada usava l'`UnitId` ME (0–99), però MAPS numera les unitats Modbus 1–100 (`CreateErrorSignalsWithParams`, `P:2247`), i sortia 1 menys: 100 errors falsos en qualsevol projecte amb «Individual error signals». Ara es compara amb `UnitId + 1`; els fitxers de MAPS `ctrl-errors`, `ctrl-2`, `consum`, `multi-errors` i `multi-ctrl-2` validen sense errors |
 
 ### 1.4 Signals
 
