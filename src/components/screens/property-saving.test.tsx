@@ -694,27 +694,21 @@ describe("V12 property saving", () => {
       expect(screen.queryByText(/could not be read/)).toBeNull();
     });
 
-    it("mentions pending edits only when removing a slave would discard them", async () => {
+    it("shows the derived slave list read-only in multiple-slave mode", async () => {
       setup("me-mbs");
-      // A project already in multiple-slave mode (switching to it regenerates
-      // the signals, which is not supported yet).
-      updateMbsConfig(xml, {
-        slaveAddressMode: 1,
-        slaves: [{ address: 1, description: "A" }, { address: 2, description: "B" }],
-      });
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      updateMbsConfig(xml, { slaveAddressMode: 1 });
       render(<Workspace />);
       await screen.findByRole("textbox", { name: "Project name" });
       fireEvent.click(screen.getByRole("button", { name: "BMS · Modbus server" }));
-      fireEvent.change(screen.getByRole("textbox", { name: "Slave 1 description" }), { target: { value: "Edited" } });
-      const removes = screen.getAllByRole("button", { name: "Remove" });
-      fireEvent.click(removes[0]);
-      fireEvent.click(removes[1]);
-      expect(confirm.mock.calls.map(([text]) => text)).toEqual([
-        "Remove slave 1? Its 1 unsaved edit will be discarded.",
-        "Remove slave 2?",
+      const list = screen.getByRole("table", { name: "Slave list" });
+      expect(within(list).getAllByRole("row").map((row) => row.textContent)).toEqual([
+        "AddressDescription",
+        "3General Controller 1",
+        "4C1G1",
       ]);
-      confirm.mockRestore();
+      expect(within(list).queryByRole("textbox")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Add slave" })).toBeNull();
+      expect(screen.getByText("Slave starting address")).toBeInTheDocument();
     });
   });
 

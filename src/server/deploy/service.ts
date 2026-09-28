@@ -2,10 +2,10 @@ import "server-only";
 import { buildCompleteBlob, buildProjectZip, parseCompleteBlob } from "@/core/project-format";
 import { decodeElements, DEFAULT_SW_VERSION } from "@/core/xbl";
 import { APP_ID_KNX_MBM, generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
-import { APP_ID_ME_AC_XXX, generateMeMbsXbl } from "@/gateway-families/me-mbs";
+import { APP_ID_ME_AC_XXX, generateMeMbsXbl, validateSlaveIndices } from "@/gateway-families/me-mbs";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
-import { getProjectView, snapshotDeploy } from "../projects/service";
+import { getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 
 /**
@@ -21,13 +21,15 @@ import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
  * 3. `session-appid` — the live session's gateway INFO must report the
  *    family's unit AppId (4 for KNX–MBM, 64 for ME–MBS on the 770 Air), so a
  *    project can never be pushed to a gateway of a different family.
+ * 4. `project` — families with deploy blockers (me-mbs: signals left on the
+ *    wrong Modbus slave, `validateSlaveIndices`) must have none.
  *
  * The XBL is REGENERATED from the current project XML (never the original
  * blob's XBL) so user edits take effect; the firmware only runs config from
  * the XBL (PROTOCOL.md §10, SENDPROJ experiment).
  */
 
-export type DeployGateId = "family" | "capability" | "session-appid";
+export type DeployGateId = "family" | "capability" | "session-appid" | "project";
 
 /** Gate failure carrying an HTTP status, rendered by projects/http.ts. */
 export class DeployGateError extends Error {
@@ -93,6 +95,8 @@ export interface DeployFamilyDescriptor {
   unitLabel: string;
   /** Byte-exact verified XBL generator for this family. */
   generateXbl: XblGenerator;
+  /** Why the project must not reach the gateway, if anything. */
+  deployBlocker?: (view: ProjectView) => string | undefined;
 }
 
 /**
@@ -117,6 +121,8 @@ export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = 
     expectedAppId: APP_ID_ME_AC_XXX, // 64 — ME_AC_XXX on the 770 Air
     unitLabel: "ME unit",
     generateXbl: generateMeMbsXbl,
+    deployBlocker: (view) =>
+      view.family === "me-mbs" ? validateSlaveIndices(view.project)[0]?.message : undefined,
   },
 };
 
@@ -193,6 +199,11 @@ async function runGates(
     sessionDetail = "Gateway session not found";
   }
   checks.push({ id: "session-appid", ok: sessionOk, detail: sessionDetail });
+
+  if (descriptor?.deployBlocker) {
+    const blocker = descriptor.deployBlocker(view);
+    checks.push({ id: "project", ok: blocker === undefined, detail: blocker ?? "No project issue blocks the deploy" });
+  }
 
   return { checks, appId, descriptor };
 }

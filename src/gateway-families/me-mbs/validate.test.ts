@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { READ_WRITE } from "@/protocols/modbus/slave";
+import { SYNTHETIC_ME_MBS_EMPTY_XML } from "./fixtures/synthetic-empty-project";
 import { SYNTHETIC_ME_MBS_XML } from "./fixtures/synthetic-project";
 import { projectFromXml } from "./from-xml";
+import { updateControllerAndSignals, updateGroupAndSignals, updateMbsConfigAndSignals } from "./regeneration";
 import { validateProject } from "./validate";
 import type { MeMbsProject } from "./model";
 
@@ -52,10 +54,67 @@ describe("validateProject", () => {
     expect(codes(project)).toContain("MBS-COMMERR-RANGE");
   });
 
-  it("MBS-SLAVE-DUP: duplicate virtual slave addresses", () => {
+  it("MBS-SLAVE-ADDRESS-RANGE: a slave past address 255 (CheckParams)", () => {
     const project = baseProject();
-    project.mbs.slaves.push({ address: 4, description: "C1G2" });
-    expect(codes(project)).toContain("MBS-SLAVE-DUP");
+    project.mbs.slaves.push({ address: 256, description: "C1G9" });
+    expect(codes(project)).toContain("MBS-SLAVE-ADDRESS-RANGE");
+  });
+
+  describe("MBS-SLAVE-INDEX: signals on the wrong slave (MULTIPLE)", () => {
+    function multiple(apply: (doc: XmlDocument) => void): MeMbsProject {
+      const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_EMPTY_XML);
+      updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+      apply(doc);
+      return projectFromXml(doc);
+    }
+
+    it("accepts the signals as MAPS creates them", () => {
+      const project = multiple((doc) => {
+        updateGroupAndSignals(doc, 0, 0, { enabled: true });
+        updateGroupAndSignals(doc, 0, 1, { enabled: true });
+        updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+        updateGroupAndSignals(doc, 1, 0, { enabled: true });
+      });
+      expect(codes(project)).not.toContain("MBS-SLAVE-INDEX");
+    });
+
+    it.each([
+      [
+        "alarm codes shifted by a later group",
+        (doc: XmlDocument) => {
+          updateGroupAndSignals(doc, 0, 0, { enabled: true });
+          updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+          updateGroupAndSignals(doc, 0, 1, { enabled: true });
+        },
+      ],
+      [
+        "the other controller after ModifyController",
+        (doc: XmlDocument) => {
+          updateGroupAndSignals(doc, 0, 0, { enabled: true });
+          updateGroupAndSignals(doc, 1, 0, { enabled: true });
+          updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+        },
+      ],
+    ])("reports %s", (_, apply) => {
+      expect(codes(multiple(apply))).toContain("MBS-SLAVE-INDEX");
+    });
+
+    it("reports a slave list that does not match the groups", () => {
+      const project = multiple((doc) => updateGroupAndSignals(doc, 0, 0, { enabled: true }));
+      project.mbs.slaves[1] = { ...project.mbs.slaves[1], address: 9 };
+      expect(codes(project)).toContain("MBS-SLAVE-INDEX");
+    });
+
+    it("is rebuilt by switching to a single slave and back", () => {
+      const project = multiple((doc) => {
+        updateGroupAndSignals(doc, 0, 0, { enabled: true });
+        updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+        updateGroupAndSignals(doc, 0, 1, { enabled: true });
+        updateMbsConfigAndSignals(doc, { slaveAddressMode: 0 });
+        updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+      });
+      expect(codes(project)).not.toContain("MBS-SLAVE-INDEX");
+    });
   });
 
   it("ME-CONTROLLER-LIMIT: more than 2 controllers", () => {

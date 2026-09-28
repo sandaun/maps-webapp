@@ -278,7 +278,7 @@ export async function setGatewayMonitor(
 
 /** Mirror of `DeployGateCheck` in `src/server/deploy/service.ts`. */
 export interface DeployGateCheck {
-  id: "family" | "capability" | "session-appid";
+  id: "family" | "capability" | "session-appid" | "project";
   ok: boolean;
   detail: string;
 }

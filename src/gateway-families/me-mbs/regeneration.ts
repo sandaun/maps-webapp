@@ -7,7 +7,7 @@ import {
   type MeControllerInfo,
   type MeGroupInfo,
 } from "@/protocols/me";
-import { ADDRESS_MODES } from "@/protocols/modbus/slave";
+import { ADDRESS_MODES, type MbsConfig } from "@/protocols/modbus/slave";
 import { readMbsConfig, readMeConfig } from "./from-xml";
 import { MeMbsSignalEngine } from "./signals-engine";
 import {
@@ -15,6 +15,7 @@ import {
   updateGroup,
   updateMbsConfig,
   updateMeScalars,
+  updateRtuConfig,
   updateSignal,
   type SignalPatch,
 } from "./xml-ops";
@@ -157,6 +158,22 @@ export function updateMbsConfigAndSignals(doc: XmlDocument, patch: MbsConfigPatc
   if (after.slaveAddressMode !== before.slaveAddressMode) {
     regenerateSignals(doc, (e) => e.slaveAddressModeChanged());
   }
+}
+
+/**
+ * `updateRtuConfig`; a new slave number goes through
+ * `SlaveNumberChangedCallback` without regenerating (frmInternalMBS.cs:445 →
+ * P:1058 → `UpdateMBArrayNewSlaveNum`, P:1076): the slave list keeps its
+ * entries and moves its addresses by the difference.
+ */
+export function updateRtuConfigAndSlaves(doc: XmlDocument, patch: Partial<MbsConfig["rtu"]>): void {
+  const before = readMbsConfig(doc).rtu.slaveNumber;
+  updateRtuConfig(doc, patch);
+  const shift = readMbsConfig(doc).rtu.slaveNumber - before;
+  if (shift === 0) return;
+  const engine = MeMbsSignalEngine.fromXml(doc);
+  engine.slaves = engine.slaves.map((x) => ({ ...x, address: x.address + shift }));
+  engine.writeSlavesTo(doc);
 }
 
 /**

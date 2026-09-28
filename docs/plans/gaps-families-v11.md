@@ -16,7 +16,7 @@ Llegenda: **[fet]** · **[falta]** · **[blocat]** (depèn d'API de gateway en v
 
 ## 1. Mitsubishi Electric AC ↔ Modbus Slave (770 Air, `me-mbs`)
 
-### 1.0 Regeneració de senyals a partir del model — [fet] (FIXED + un sol esclau)
+### 1.0 Regeneració de senyals a partir del model — [fet] (FIXED, un o diversos esclaus)
 
 Els patches de model regeneren els senyals ME-MBS com MAPS (habilitar un
 grup, canviar-ne el tipus, activar els senyals d'error, la unitat de
@@ -28,8 +28,9 @@ Git).
 
 | Pendent | Estat | Notes |
 |---|---|---|
-| Modes V4_COMP, CUSTOM i MULTIPLE | [falta] | avui es rebutgen amb un 422 els canvis que regeneren senyals; cal portar-los amb fitxers de referència propis |
-| Llista d'esclaus derivada dels grups (`InitializeMbSlaves`) | [falta] | a la webapp continua sent editable |
+| Mode d'esclaus MULTIPLE | [fet 2026-09-28] | validat amb els fitxers `multi-*`; els índexs d'esclau que MAPS deixa desactualitzats es reprodueixen però bloquegen el desplegament (`MBS-SLAVE-INDEX`). XBL verificat byte a byte amb el de MAPS (`multi-ctrl-2`). Pendent: confirmar aquests dos casos amb fitxers de MAPS (`me-mbs-regeneracio-senyals.md` §6) |
+| Llista d'esclaus derivada dels grups (`InitializeMbSlaves`) | [fet 2026-09-28] | de només lectura a la UI i rebutjada a l'API (409); es desplaça amb el número d'esclau; `MBS-SLAVE-ADDRESS-RANGE` si passa de 255 |
+| Modes V4_COMP i CUSTOM | [falta] | avui es rebutgen amb un 422 els canvis que regeneren senyals; cal portar-los amb fitxers de referència propis (V4: `v4-grup-on`, `v4-setpoint-x1`; CUSTOM va amb l'editor de registres, 1.4) |
 | Assignació de comptadors en habilitar grups amb consum | [falta] | MAPS crida `GenerateAssignmentsList`; va amb l'assignació de meters (1.1) |
 | Port 80/443 automàtic en desar un controlador | [fet 2026-09-28] | `SaveThisController`: en canviar el model, un port per defecte (80, o 443 a l'AE-C400E) passa al del model nou; un port propi es conserva. Servidor + esborrany de la UI. No afecta els senyals |
 | «Scan groups» → un sol `ModifyController` | [blocat] | la webapp enviaria un patch per grup; el botó està bloquejat (1.2) |
@@ -42,7 +43,7 @@ Git).
 | Global parameters ME (temperature units, polling, timeouts, consumption, write burst) | [fet] | V11: targeta única + "Manage controllers →" |
 | BMS · Modbus server: media, byte order, COV, commErrorTout, register base | [fet] | |
 | BMS: address mode Fixed/Custom | [fet] | `updateMbsConfig` estès; falta l'editor de registres Custom (vegeu 1.4). En mode Custom, els canvis que regeneren senyals es rebutgen fins que es porti aquest mode (1.0) |
-| BMS: slave addressing Single/Multiple + llista de slaves editable | [fet] | backend + UI + test de servei. Passar a Multiple regenera senyals a MAPS i ara es rebutja fins que es porti aquest mode (1.0) |
+| BMS: slave addressing Single/Multiple + llista de slaves | [fet] | backend + UI + test de servei. Passar a Multiple regenera els senyals com MAPS (1.0); la llista es deriva dels grups i es mostra de només lectura, amb «Slave starting address» com a MAPS |
 | BMS: RTU connection type | [fet] | read-only ("una sola EIA-485") |
 | DNS / NTP / timezone (`<TimeConfiguration>`, atributs `DNS`/`DNS2`) | [decidir] | ni es parseja al model; pendent de decisió de producte |
 | Security (password, certs) | [decidir] | `Pwd` exclòs del model a propòsit; V11 hi té secció |

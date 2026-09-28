@@ -220,6 +220,10 @@ function readMbsEndpoint(el: XmlElement): MeMbsSignal["modbus"] {
     readWrite: parseNumber(textOf(el, "ReadWrite"), 2) as MeMbsSignal["modbus"]["readWrite"],
     stringLength: parseNumber(textOf(el, "StringLength"), -1),
     slaveIndex: parseNumber(textOf(el, "SlaveIndex"), -1),
+    operations: (textOf(el, "IdxOperations") ?? "")
+      .split(";")
+      .filter((entry) => entry.trim() !== "")
+      .map((entry) => parseNumber(entry.split(",")[0], -1)),
   };
 }
 
@@ -252,7 +256,7 @@ function defaultMeEndpoint(): MeMbsSignal["me"] {
 }
 
 function defaultMbsEndpoint(): MeMbsSignal["modbus"] {
-  return { address: 0, bit: 255, lenBits: 16, format: 0, readWrite: 2, stringLength: -1, slaveIndex: -1 };
+  return { address: 0, bit: 255, lenBits: 16, format: 0, readWrite: 2, stringLength: -1, slaveIndex: -1, operations: [] };
 }
 
 // --- helpers ---------------------------------------------------------------

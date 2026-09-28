@@ -4,15 +4,21 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCompleteBlob, buildProjectZip, parseCompleteBlob } from "@/core/project-format";
+import { buildCompleteBlob, buildProjectZip, parseCompleteBlob, XmlDocument } from "@/core/project-format";
 import { decodeElements } from "@/core/xbl";
 import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
-import { generateMeMbsXbl } from "@/gateway-families/me-mbs";
+import {
+  generateMeMbsXbl,
+  updateControllerAndSignals,
+  updateGroupAndSignals,
+  updateMbsConfigAndSignals,
+} from "@/gateway-families/me-mbs";
+import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import type { GatewaySessions, GatewaySessionStatus } from "../intesis-transport";
 import { resetProjectStoreForTests } from "../persistence";
-import { loadDemoProject, openCompleteBlob, openIbmaps } from "../projects/service";
+import { applyPatches, getProjectView, loadDemoProject, openCompleteBlob, openIbmaps } from "../projects/service";
 import { DEPLOY_FAMILIES, deployProject, DeployGateError, getDeployStatus } from "./service";
 
 /**
@@ -259,12 +265,93 @@ describe("getDeployStatus", () => {
 
     const ok = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
     expect(ok.deployable).toBe(true);
-    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid"]);
+    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid", "project"]);
 
     await rm(capabilitiesPath);
     const blocked = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
     expect(blocked.deployable).toBe(false);
     expect(blocked.checks.find((c) => c.id === "capability")?.ok).toBe(false);
+  });
+
+  it("blocks a me-mbs project with signals on the wrong Modbus slave (422)", async () => {
+    // MULTIPLE slaves, alarm codes on, then another group: MAPS shifts the
+    // alarm codes' SlaveIndex too, and the XBL would carry it as it is.
+    const doc = XmlDocument.parse(SYNTHETIC_ME_MBS_EMPTY_XML);
+    updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+    updateGroupAndSignals(doc, 0, 0, { enabled: true });
+    updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+    updateGroupAndSignals(doc, 0, 1, { enabled: true });
+    await openIbmaps(doc.serialize(), { id: "p3", name: "ME project" });
+    await writeGenuineCapability();
+    const { sessions, uploads } = fakeSessions({ appId: 64 });
+
+    const status = await getDeployStatus("p3", "sess-1", { sessions, capabilitiesPath });
+    expect(status.deployable).toBe(false);
+    expect(status.checks.find((c) => c.id === "project")?.detail).toMatch(/wrong slave/);
+    const error = await deployProject("p3", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeployGateError);
+    expect((error as DeployGateError).gate).toBe("project");
+    expect((error as DeployGateError).status).toBe(422);
+    expect(uploads).toHaveLength(0);
+    expect(() => generateMeMbsXbl(doc.serialize())).toThrow(/wrong slave/);
+  });
+
+  it.each([
+    [
+      "alarm codes shifted by a later group",
+      (doc: XmlDocument) => {
+        updateGroupAndSignals(doc, 0, 0, { enabled: true });
+        updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+        updateGroupAndSignals(doc, 0, 1, { enabled: true });
+      },
+    ],
+    [
+      "the other controller after ModifyController",
+      (doc: XmlDocument) => {
+        updateGroupAndSignals(doc, 0, 0, { enabled: true });
+        updateGroupAndSignals(doc, 1, 0, { enabled: true });
+        updateControllerAndSignals(doc, 0, { addErrorSignals: true });
+      },
+    ],
+  ])("unblocks the deploy once Single → Multiple rebuilds the slaves (%s)", async (_, stale) => {
+    // Two controllers, with the conversions the XBL needs at the end.
+    const doc = XmlDocument.parse(
+      SYNTHETIC_ME_MBS_EMPTY_XML.replace(
+        /(  <IBOX [^\r\n]*?) \/>/,
+        `$1>\r\n    <Conversions>\r\n${CONVERSIONS}\r\n    </Conversions>\r\n${REMAP_LUTS}\r\n  </IBOX>`,
+      ),
+    );
+    updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+    stale(doc);
+    await openIbmaps(doc.serialize(), { id: "p4", name: "ME project" });
+    await writeGenuineCapability();
+    const { sessions, uploads } = fakeSessions({ appId: 64 });
+    expect((await getDeployStatus("p4", "sess-1", { sessions, capabilitiesPath })).deployable).toBe(false);
+
+    await applyPatches("p4", [{ type: "updateMbsConfig", patch: { slaveAddressMode: 0 } }]);
+    await applyPatches("p4", [{ type: "updateMbsConfig", patch: { slaveAddressMode: 1 } }]);
+
+    const view = await getProjectView("p4");
+    if (view.family !== "me-mbs") throw new Error("unreachable");
+    expect(view.issues.map((i) => i.code)).not.toContain("MBS-SLAVE-INDEX");
+    // Every Modbus signal sits on its own slave again; alarm codes keep the
+    // MAPS format (SlaveIndex -1, the slave as the operation).
+    const slaveOf = (description: string) => view.project.mbs.slaves.findIndex((x) => x.description === description);
+    for (const signal of view.project.signals) {
+      const c = signal.me.g50Index + 1;
+      if (signal.me.unitId !== -1) {
+        expect(signal.modbus.slaveIndex).toBe(-1);
+        expect(signal.modbus.operations).toEqual([slaveOf(`Error Signals Controller ${c}`)]);
+      } else {
+        const own = signal.me.groupIndex === -1 ? `General Controller ${c}` : `C${c}G${signal.me.groupIndex + 1}`;
+        expect(signal.modbus.slaveIndex).toBe(slaveOf(own));
+      }
+    }
+    const status = await getDeployStatus("p4", "sess-1", { sessions, capabilitiesPath });
+    expect(status.checks.find((c) => c.id === "project")?.ok).toBe(true);
+    expect(status.deployable).toBe(true);
+    await deployProject("p4", "sess-1", { sessions, capabilitiesPath });
+    expect(uploads).toHaveLength(1);
   });
 
   it("resolves the knx-mbm descriptor (capability key and AppId 4)", async () => {

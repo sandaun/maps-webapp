@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { extractIbmaps, parseCompleteBlob } from "@/core/project-format";
+import { extractIbmaps, parseCompleteBlob, XmlDocument } from "@/core/project-format";
 import { childByTag, decodeElements, type DecodedElement } from "@/core/xbl";
 import { SYNTHETIC_ME_MBS_XML } from "../fixtures/synthetic-project";
+import { updateMbsConfigAndSignals } from "../regeneration";
 import { generateMeMbsXbl } from "./generate";
 
 /**
@@ -173,6 +174,17 @@ describe("generateMeMbsXbl", () => {
       expect(mbs.children?.some((c) => c.tag === 8)).toBe(false);
     });
 
+    it("leaves the RTU slave number out and adds the slaves node in MULTIPLE mode", () => {
+      const doc = XmlDocument.parse(ENRICHED_XML);
+      updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+      const xbl = generate(doc.serialize());
+      const mbs = decodeElements(xbl)[2];
+      // CreateRTUConfigNode: no tag 5 while UseMbSlavesArray.
+      expect(childByTag(mbs, 4).children?.map((c) => c.tag)).toEqual([1, 2, 3, 4, 6]);
+      const slaves = childByTag(childByTag(mbs, 8), 1).items ?? [];
+      expect(slaves.map((item) => itemContent(xbl, item, 1))).toEqual([[3], [4]]);
+    });
+
     it("emits signals sorted by address with relinked ME external IDs", () => {
       const xbl = generate();
       const signals = childByTag(childByTag(decodeElements(xbl)[2], 6), 1).items ?? [];
@@ -316,5 +328,34 @@ describe.skipIf(!hasRealFixture)("real 770 Air fixture (present only in the loca
     gen.fill(0, timestampOffset(gen), timestampOffset(gen) + 6);
     ref.fill(0, timestampOffset(ref), timestampOffset(ref) + 6);
     expect(gen).toEqual(ref);
+  });
+});
+
+/**
+ * Byte-exact gate for MULTIPLE slaves against the XBL the MAPS command line
+ * (`IntesisMAPS.exe -i … -o … -compID 64`) generates for `multi-ctrl-2`
+ * (.local-data, outside Git; skipped when absent). MAPS refuses a project
+ * without a gateway password, so the pair uses a copy with Pwd="test1234".
+ * The file MAPS writes is [4B length][XBL][4B CRC32]; tool version and
+ * timestamp come from it.
+ */
+const MULTI_XML = ".local-data/fixtures/me-mbs-maps-ref/multi-ctrl-2-pwd.ibmaps";
+const MULTI_XBL = ".local-data/fixtures/me-mbs-maps-ref/multi-ctrl-2.maps.xbl";
+
+describe.skipIf(!existsSync(MULTI_XBL))("MAPS XBL of multi-ctrl-2 (present only in the local checkout)", () => {
+  it("reproduces it byte for byte (timestamp masked)", () => {
+    const file = new Uint8Array(readFileSync(MULTI_XBL));
+    const length = new DataView(file.buffer, file.byteOffset).getUint32(0);
+    const reference = file.slice(4, 4 + length);
+    const header = decodeElements(reference)[0];
+    const version = childByTag(header, 2);
+    const swVersion = content(reference, version) as [number, number, number, number];
+    const generated = generateMeMbsXbl(readFileSync(MULTI_XML, "utf8"), { now: NOW, swVersion });
+    const stamp = (xbl: Uint8Array) => {
+      const ts = childByTag(decodeElements(xbl)[0], 4);
+      xbl.fill(0, ts.contentOffset, ts.contentOffset + ts.contentLength);
+      return xbl;
+    };
+    expect(stamp(new Uint8Array(generated))).toEqual(stamp(reference));
   });
 });

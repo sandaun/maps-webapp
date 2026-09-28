@@ -50,7 +50,7 @@ export function updateMbsConfig(
   patch: Partial<
     Pick<
       MbsConfig,
-      "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+      "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase"
     >
   >,
 ): void {
@@ -64,29 +64,6 @@ export function updateMbsConfig(
   }
   if (patch.commErrorTout !== undefined) setText(childEl(internal, "CommErrorTout"), String(patch.commErrorTout));
   if (patch.registerBase !== undefined) setText(childEl(internal, "RegisterBase"), String(patch.registerBase));
-  if (patch.slaves !== undefined) replaceMbsSlaves(internal, patch.slaves);
-}
-
-/** Rewrites `<MBSlavesArray>` (virtual-slave list, MULTIPLE addressing mode). */
-function replaceMbsSlaves(internal: XmlElement, slaves: MbsConfig["slaves"]): void {
-  const array = internal.children.find(
-    (c): c is XmlElement => c.kind === "element" && c.tag === "MBSlavesArray"
-  );
-  if (!array) throw new Error("<InternalProtocol> has no <MBSlavesArray> child");
-  // Drop existing <MBSlave> entries (and their whitespace) keeping the wrapper.
-  for (const child of [...array.children]) {
-    if (child.kind === "element") removeElement(child);
-  }
-  for (const slave of slaves) {
-    appendChildIndented(
-      array,
-      element("MBSlave", [
-        ["Address", String(slave.address)],
-        ["Description", slave.description],
-      ]),
-      3
-    );
-  }
 }
 
 export function updateRtuConfig(doc: XmlDocument, patch: Partial<MbsConfig["rtu"]>): void {
