@@ -192,8 +192,11 @@ Pendents (abans de disseny):
   sense indentació). Reproduït el 2026-09-28: `addSignal` en un KNX–MBM
   compacte passa de 2 senyals a 1 i perd `IndAddress`. Els fitxers de MAPS
   sempre van indentats, però un fitxer reformatat es malmetria. `mbs-knx` ja
-  en porta la correcció (afegeix sense indentació); cal portar-la a les
-  altres dues famílies, o millor, compartir el helper.
+  en porta la correcció (afegeix sense indentació), i també les operacions
+  de la biblioteca de conversions, que des del 2026-09-28 són a
+  `core/conversions/library-xml.ts` i les fan servir totes les famílies.
+  Falta a la resta d'operacions de KNX–MBM (senyals, nodes, devices) i de
+  ME–MBS. El millor seria compartir el helper.
 - **Pre-comandes de pujada sense prefix** [fet i validat en viu 2026-09-25: re-pujada del mateix blob, pre-comandes en 0,03 s, projecte idèntic]: `SEND_PRE_COMMANDS` envia
   `0:SPONS=0`…; el MAPS les envia amb prefix (`frmSendSingle.cs:303`,
   `0KX:SPONS=0`) i el firmware ignora la variant sense prefix en silenci

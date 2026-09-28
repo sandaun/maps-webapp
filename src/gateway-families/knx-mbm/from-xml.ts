@@ -237,7 +237,3 @@ export function parseNumber(value: string | undefined, fallback: number): number
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-
-function parseIntText(el: XmlElement | undefined, tag: string, fallback: number): number {
-  return parseNumber(el ? textOf(el, tag) : undefined, fallback);
-}
