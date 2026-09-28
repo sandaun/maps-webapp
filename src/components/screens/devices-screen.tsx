@@ -32,6 +32,11 @@ export function DevicesScreen() {
       {(view) =>
         view.family === "me-mbs" ? (
           <MeMbsDevicesView key={view.meta.id} view={view} />
+        ) : view.family === "mbs-knx" ? (
+          <p className="max-w-2xl rounded-lg border border-border bg-white px-4 py-3 text-sm text-fg-muted">
+            KNX ↔ Modbus Slave projects have no device list: the KNX side is set per signal (group
+            addresses, DPT and flags) in the signal table, and the gateway settings are in Configuration.
+          </p>
         ) : (
           <DevicesSections key={view.meta.id} view={view} />
         )

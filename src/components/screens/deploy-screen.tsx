@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Check, Download, Upload, X } from "lucide-react";
 import { exportProjectUrl } from "@/lib/api";
+import type { FamilyId } from "@/lib/project-types";
 import {
   deployGatewayProject,
   getDeployStatus,
@@ -37,7 +38,7 @@ function DeployContent({
   hasCompleteBlob,
 }: {
   meta: { id: string; name: string };
-  family: "knx-mbm" | "me-mbs";
+  family: FamilyId;
   hasCompleteBlob: boolean;
 }) {
   return (

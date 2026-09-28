@@ -7,6 +7,14 @@ import { BAUD_RATES, COMM_ERROR_TOUT_RANGE, SLAVE_ID_RANGE } from "@/protocols/m
 import { BYTE_ORDER_LABELS } from "@/protocols/modbus/master/types";
 import { FAMILY_LABELS, type FamilyId, type ProjectView } from "@/lib/project-types";
 import { MEDIA_OPTIONS } from "@/lib/property-option-labels";
+import {
+  MBS_CONNECTION_TYPE_LABELS,
+  MBS_DATA_TYPE_LABELS,
+  MBS_DATA_TYPES,
+  MBS_KNX_NOTIFICATION_LABELS,
+  mbsDataTypeIndex,
+} from "@/lib/property-fields";
+import { MBS_KNX_SLAVE_RANGE } from "@/gateway-families/mbs-knx/validate";
 import { useSave } from "@/lib/use-save";
 import { ScreenGate, ScreenIssues } from "@/components/screens/screen-gate";
 import { Button } from "@/components/ui/button";
@@ -33,11 +41,11 @@ function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
     { key: "general", label: SECTION_LABELS.general },
     { key: "network", label: SECTION_LABELS.network },
     { key: "bms", label: family === "knx-mbm" ? "BMS · KNX" : "BMS · Modbus server" },
-    { key: "device", label: family === "knx-mbm" ? "Modbus Master" : "Mitsubishi Electric" },
+    { key: "device", label: family === "knx-mbm" ? "Modbus Master" : family === "mbs-knx" ? "KNX" : "Mitsubishi Electric" },
   ];
   // MAPS hides the conversions panel when the project disables conversions
   // (`frmGateway.cs:283`); ME–MBS does (`IntesisProjectMbsMe_RT.ConversionsEnabled`).
-  if (family === "knx-mbm") sections.push({ key: "conv", label: SECTION_LABELS.conv });
+  if (family === "knx-mbm" || family === "mbs-knx") sections.push({ key: "conv", label: SECTION_LABELS.conv });
   return sections;
 }
 
@@ -56,7 +64,12 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   // "Open conversion" of a validation issue: /configuration?conversion=f0 selects that library entry.
   const conversionParam = useSearchParams().get("conversion");
   const [openedConversion, setOpenedConversion] = React.useState<string | null>(null);
-  if (view.family === "knx-mbm" && conversionParam && /^[fo]\d+$/.test(conversionParam) && conversionParam !== openedConversion) {
+  if (
+    (view.family === "knx-mbm" || view.family === "mbs-knx") &&
+    conversionParam &&
+    /^[fo]\d+$/.test(conversionParam) &&
+    conversionParam !== openedConversion
+  ) {
     setOpenedConversion(conversionParam);
     setSection("conv");
     setReveal((previous) => ({
@@ -109,17 +122,31 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
           {section === "network" && <NetworkSection view={view} />}
           {section === "bms" &&
             (view.family === "knx-mbm" ? (
-              <BmsKnxSection view={view} />
+              <KnxInterfaceSection
+                knx={view.project.knx}
+                title="BMS protocol · KNX"
+                desc="The KNX side of the gateway. Group addresses, DPTs and flags are assigned per signal in the signal table."
+              />
+            ) : view.family === "mbs-knx" ? (
+              <BmsMbsKnxSection view={view} />
             ) : (
               <BmsMbsSection view={view} />
             ))}
           {section === "device" &&
             (view.family === "knx-mbm" ? (
               <DeviceMbmSection view={view} />
+            ) : view.family === "mbs-knx" ? (
+              <KnxInterfaceSection
+                knx={view.project.knx}
+                title="Device protocol · KNX"
+                desc="The gateway acts as a KNX device. Group addresses, DPTs and flags are assigned per signal in the signal table."
+              />
             ) : (
               <DeviceMeSection view={view} />
             ))}
-          {section === "conv" && view.family === "knx-mbm" && <ConversionsSection view={view} reveal={reveal} />}
+          {section === "conv" && (view.family === "knx-mbm" || view.family === "mbs-knx") && (
+            <ConversionsSection view={view} reveal={reveal} />
+          )}
           </div>
           <StickySaveBar screen="configuration" />
         </div>
@@ -316,17 +343,22 @@ function NetworkSection({ view }: { view: ProjectView }) {
   );
 }
 
-function BmsKnxSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {
-  const knx = view.project.knx;
+/** KNX interface settings: the BMS side of KNX–MBM, the device side of MBS–KNX. */
+function KnxInterfaceSection({
+  knx,
+  title,
+  desc,
+}: {
+  knx: { physicalAddress: number; extendedAddresses: boolean };
+  title: string;
+  desc: string;
+}) {
   const { form, set } = useDraftForm("knx", { address: formatPhysicalAddress(knx.physicalAddress), extendedAddresses: knx.extendedAddresses });
   const address = form.address;
 
   return (
     <>
-      <SectionHeader
-        title="BMS protocol · KNX"
-        desc="The KNX side of the gateway. Group addresses, DPTs and flags are assigned per signal in the signal table."
-      />
+      <SectionHeader title={title} desc={desc} />
       <GroupCard label="KNX TP">
         <FieldRow
           label="Physical address"
@@ -354,6 +386,144 @@ function BmsKnxSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm
   );
 }
 
+
+/**
+ * MBS–KNX: the Modbus Slave (server) settings MAPS shows for this family
+ * (frmInternalMBS without the address mode, comm. timeout and slave
+ * addressing; IntesisProjectMBSKNX_RT.cs:670-676).
+ */
+function BmsMbsKnxSection({ view }: { view: Extract<ProjectView, { family: "mbs-knx" }> }) {
+  const { mbs } = view.project;
+  const { form, set } = useDraftForm("mbs", {
+    media: mbs.media as number,
+    byteOrder: mbs.byteOrder,
+    updateCOV: mbs.updateCOV,
+    registerBase: mbs.registerBase as number,
+    connectionType: mbs.rtu.connectionType,
+    baudrate: mbs.rtu.baudrate,
+    dataType: mbsDataTypeIndex(mbs.rtu),
+    slaveNumber: mbs.rtu.slaveNumber,
+    tcpPort: mbs.tcp.port,
+    keepAlive: mbs.tcp.keepAlive,
+  });
+  const dataTypeOptions = [
+    ...MBS_DATA_TYPES.map((type, i) => ({ value: String(i), label: type.label })),
+    ...(form.dataType === -1 ? [{ value: "-1", label: MBS_DATA_TYPE_LABELS["-1"] }] : []),
+  ];
+
+  return (
+    <>
+      <SectionHeader
+        title="BMS protocol · Modbus server"
+        desc="The gateway acts as a Modbus server. Registers, formats and read/write modes are assigned per signal in the signal table."
+      />
+      <GroupCard label="Modbus">
+        <FieldRow label="Type" hint="RTU, TCP or both simultaneously">
+          <SelectControl
+            id="cfg-mbs-media"
+            value={form.media}
+            onValueChange={(value) => set("media", Number(value))}
+            options={MEDIA_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
+          />
+        </FieldRow>
+        <FieldRow label="Byte order" hint="For 32-bit registers">
+          <SelectControl
+            id="cfg-mbs-byteorder"
+            value={form.byteOrder}
+            onValueChange={(value) => set("byteOrder", Number(value))}
+            options={Object.entries(BYTE_ORDER_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+        </FieldRow>
+        <FieldRow label="Notification on Modbus write" hint="When a Modbus write is passed to the KNX side">
+          <SelectControl
+            id="cfg-mbs-updateCOV"
+            value={form.updateCOV ? "1" : "0"}
+            onValueChange={(value) => set("updateCOV", value === "1")}
+            options={[
+              { value: "0", label: MBS_KNX_NOTIFICATION_LABELS["0"] },
+              { value: "1", label: MBS_KNX_NOTIFICATION_LABELS["1"] },
+            ]}
+          />
+        </FieldRow>
+        <FieldRow label="Register base">
+          <SelectControl
+            id="cfg-mbs-regbase"
+            value={form.registerBase}
+            onValueChange={(value) => set("registerBase", Number(value))}
+            options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
+          />
+        </FieldRow>
+      </GroupCard>
+
+      <GroupCard label="RTU" tag={form.media === 1 ? "not in use" : undefined} tagTone="info">
+        <FieldRow label="Connection type" hint="Port of the gateway the Modbus RTU bus is wired to">
+          <SelectControl
+            id="cfg-mbs-contype"
+            value={form.connectionType}
+            onValueChange={(value) => set("connectionType", Number(value))}
+            options={[
+              { value: "1", label: MBS_CONNECTION_TYPE_LABELS["1"] },
+              { value: "0", label: MBS_CONNECTION_TYPE_LABELS["0"] },
+            ]}
+          />
+        </FieldRow>
+        <FieldRow label="Baudrate">
+          <SelectControl
+            id="cfg-mbs-baud"
+            value={form.baudrate}
+            onValueChange={(value) => set("baudrate", Number(value))}
+            options={BAUD_RATES.map((rate) => ({ value: String(rate), label: String(rate) }))}
+          />
+        </FieldRow>
+        <FieldRow label="Data type" hint="Data bits / parity / stop bits">
+          <SelectControl
+            id="cfg-mbs-datatype"
+            value={form.dataType}
+            onValueChange={(value) => set("dataType", Number(value))}
+            options={dataTypeOptions}
+          />
+        </FieldRow>
+        <FieldRow label="Slave number" hint={`${MBS_KNX_SLAVE_RANGE.min}–${MBS_KNX_SLAVE_RANGE.max} · also the TCP unit id`}>
+          <TextControl
+            id="cfg-mbs-slave"
+            type="number"
+            value={form.slaveNumber}
+            min={MBS_KNX_SLAVE_RANGE.min}
+            max={MBS_KNX_SLAVE_RANGE.max}
+            width={90}
+            onChange={(e) => set("slaveNumber", Number(e.target.value))}
+          />
+        </FieldRow>
+      </GroupCard>
+
+      <GroupCard label="TCP" tag={form.media === 0 ? "not in use" : undefined} tagTone="info">
+        <FieldRow label="Port" hint="Default 502">
+          <TextControl
+            id="cfg-mbs-tcpport"
+            type="number"
+            value={form.tcpPort}
+            min={1}
+            max={65535}
+            width={110}
+            onChange={(e) => set("tcpPort", Number(e.target.value))}
+          />
+        </FieldRow>
+        <FieldRow label="Keep alive" hint="0–1440 · 0 disables the function">
+          <TextControl
+            id="cfg-mbs-keepalive"
+            type="number"
+            value={form.keepAlive}
+            min={0}
+            max={1440}
+            width={110}
+            unit="min"
+            onChange={(e) => set("keepAlive", Number(e.target.value))}
+          />
+        </FieldRow>
+      </GroupCard>
+    </>
+  );
+}
 
 /** KNX-MBM: global Modbus Master settings (per-node RTU/TCP settings live on the Devices screen). */
 function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-mbm" }> }) {

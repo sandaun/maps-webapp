@@ -5,6 +5,8 @@ import { projectFromXml as readKnx } from "@/gateway-families/knx-mbm";
 import { projectFromXml as readMe } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { projectFromXml as readMbsKnx } from "@/gateway-families/mbs-knx";
+import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { CurrentProjectProvider } from "@/lib/current-project";
 import { PropertyDraftProvider } from "@/lib/property-drafts";
 import { propertyFields } from "@/lib/property-fields";
@@ -26,11 +28,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 function viewOf(family: FamilyId): ProjectView {
-  const xml = XmlDocument.parse(family === "knx-mbm" ? SYNTHETIC_KNX_MBM_XML : SYNTHETIC_ME_MBS_XML);
   const meta = { id: "demo", family, name: "P", description: "", source: "demo" as const, updatedAt: "", revision: 1 };
-  return family === "knx-mbm"
-    ? { family, meta, project: readKnx(xml), issues: [], hasCompleteBlob: false }
-    : { family, meta, project: readMe(xml), issues: [], hasCompleteBlob: false };
+  if (family === "knx-mbm") {
+    return { family, meta, project: readKnx(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML)), issues: [], hasCompleteBlob: false };
+  }
+  if (family === "mbs-knx") {
+    return { family, meta, project: readMbsKnx(XmlDocument.parse(SYNTHETIC_MBS_KNX_XML)), issues: [], hasCompleteBlob: false };
+  }
+  return { family, meta, project: readMe(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)), issues: [], hasCompleteBlob: false };
 }
 
 /** Every option of every labelled property select must read as its shared label. */
@@ -63,7 +68,7 @@ beforeEach(() => {
 });
 
 describe("shared option labels match the rendered selects", () => {
-  it.each(["knx-mbm", "me-mbs"] as const)("%s", async (family) => {
+  it.each(["knx-mbm", "me-mbs", "mbs-knx"] as const)("%s", async (family) => {
     const view = viewOf(family);
     mocks.get.mockImplementation(async () => view);
     const seen = new Set<OptionLabels>();
@@ -78,20 +83,25 @@ describe("shared option labels match the rendered selects", () => {
     await screen.findByRole("textbox", { name: "Project name" });
     for (const section of family === "knx-mbm"
       ? ["BMS · KNX", "Modbus Master", "Conversions"]
-      : ["BMS · Modbus server", "Mitsubishi Electric"]) {
+      : family === "mbs-knx"
+        ? ["BMS · Modbus server", "KNX", "Conversions"]
+        : ["BMS · Modbus server", "Mitsubishi Electric"]) {
       fireEvent.click(screen.getByRole("button", { name: section }));
       checkRenderedSelects(view, seen);
     }
     config.unmount();
 
-    render(
+    // MBS–KNX has no device list.
+    if (family !== "mbs-knx") render(
       <CurrentProjectProvider>
         <PropertyDraftProvider>
           <DevicesScreen />
         </PropertyDraftProvider>
       </CurrentProjectProvider>,
     );
-    if (family === "knx-mbm") {
+    if (family === "mbs-knx") {
+      // Nothing on the devices screen.
+    } else if (family === "knx-mbm") {
       await screen.findByRole("combobox", { name: "RTU node 1 · Parity" });
       checkRenderedSelects(view, seen);
     } else {

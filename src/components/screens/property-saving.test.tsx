@@ -40,7 +40,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 let xml: XmlDocument;
-let family: FamilyId;
+/** The families these tests build views for. */
+type TestFamily = Extract<FamilyId, "knx-mbm" | "me-mbs">;
+let family: TestFamily;
 /** Mirrors the server write counter: bumped by every applied batch. */
 let revision: number;
 function currentView(id = "demo"): ProjectView {
@@ -69,7 +71,7 @@ function currentView(id = "demo"): ProjectView {
         hasCompleteBlob: false,
       };
 }
-function setup(nextFamily: FamilyId = "knx-mbm") {
+function setup(nextFamily: TestFamily = "knx-mbm") {
   family = nextFamily;
   xml = XmlDocument.parse(
     family === "knx-mbm" ? SYNTHETIC_KNX_MBM_XML : SYNTHETIC_ME_MBS_XML,

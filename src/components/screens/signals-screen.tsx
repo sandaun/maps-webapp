@@ -33,6 +33,11 @@ export function SignalsScreen() {
           <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="me-mbs">
             <MeMbsSignalsView view={view} />
           </SignalsPageChrome>
+        ) : view.family === "mbs-knx" ? (
+          // TEMPORARY (phase 3.4b, step b3): the MBS–KNX signal table.
+          <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="mbs-knx">
+            <MbsKnxSignalsPending />
+          </SignalsPageChrome>
         ) : (
           <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="knx-mbm">
             <SignalsView view={view} />
@@ -40,6 +45,18 @@ export function SignalsScreen() {
         )
       }
     </ScreenGate>
+  );
+}
+
+/**
+ * TEMPORARY (phase 3.4b, step b3). A component, not a bare element:
+ * `SignalsPageChrome` passes `onCheckTable` to its child.
+ */
+function MbsKnxSignalsPending(_: { onCheckTable?: () => void }) {
+  return (
+    <p className="m-6 max-w-2xl rounded-lg border border-border bg-white px-4 py-3 text-sm text-fg-muted">
+      The KNX ↔ Modbus Slave signal table is not available yet.
+    </p>
   );
 }
 

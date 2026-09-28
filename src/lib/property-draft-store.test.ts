@@ -17,7 +17,7 @@ import {
   DRAFT_STORAGE_PREFIX,
 } from "./property-draft-store";
 
-function fixture(family: FamilyId = "knx-mbm") {
+function fixture(family: Extract<FamilyId, "knx-mbm" | "me-mbs"> = "knx-mbm") {
   const doc = XmlDocument.parse(
     family === "knx-mbm" ? SYNTHETIC_KNX_MBM_XML : SYNTHETIC_ME_MBS_XML,
   );

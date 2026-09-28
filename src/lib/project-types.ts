@@ -1,5 +1,6 @@
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject } from "@/gateway-families/me-mbs/model";
+import type { MbsKnxProject } from "@/gateway-families/mbs-knx/model";
 import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
@@ -15,11 +16,12 @@ import type { MbmDevice, MbmRtuNode, MbmTcpNode } from "@/protocols/modbus/maste
 export type ProjectSource = "gateway" | "file" | "template" | "demo";
 
 /** Gateway families this build can open (mirror of `server/projects/families`). */
-export type FamilyId = "knx-mbm" | "me-mbs";
+export type FamilyId = "knx-mbm" | "me-mbs" | "mbs-knx";
 
 export const FAMILY_LABELS: Record<FamilyId, string> = {
   "knx-mbm": "KNX ↔ Modbus Master",
   "me-mbs": "Mitsubishi Electric AC ↔ Modbus Slave",
+  "mbs-knx": "KNX ↔ Modbus Slave",
 };
 
 export interface ProjectMeta {
@@ -45,7 +47,8 @@ interface ProjectViewBase {
 /** Family-discriminated project view: `family` selects the model type. */
 export type ProjectView =
   | (ProjectViewBase & { family: "knx-mbm"; project: KnxMbmProject })
-  | (ProjectViewBase & { family: "me-mbs"; project: MeMbsProject });
+  | (ProjectViewBase & { family: "me-mbs"; project: MeMbsProject })
+  | (ProjectViewBase & { family: "mbs-knx"; project: MbsKnxProject });
 
 export type NodeLocator = { kind: "rtu" | "tcp"; nodeIndex: number };
 
@@ -55,9 +58,10 @@ export interface SignalPatchInput {
   knx?: Partial<KnxMbmProject["signals"][number]["knx"]>;
   modbus?:
     | Partial<KnxMbmProject["signals"][number]["modbus"]>
-    | Partial<MeMbsProject["signals"][number]["modbus"]>;
+    | Partial<MeMbsProject["signals"][number]["modbus"]>
+    | Partial<MbsKnxProject["signals"][number]["modbus"]>;
   me?: Partial<MeMbsProject["signals"][number]["me"]>;
-  /** KNX–MBM only: the conversion assignment, saved to both halves like MAPS. */
+  /** KNX–MBM and MBS–KNX: the conversion assignment, saved to both halves like MAPS. */
   conversions?: ConversionSelection;
 }
 
