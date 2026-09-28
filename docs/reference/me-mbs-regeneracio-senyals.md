@@ -176,8 +176,14 @@ rebutja sencer amb un 422 i no es desa res.
 - **Assignació de comptadors:** en habilitar o deshabilitar un grup amb el
   consum activat, MAPS regenera l'assignació (`GenerateAssignmentsList`,
   `F:400`); la webapp no. Va amb el pendent d'assignació de comptadors.
-- **Port del controlador:** `SaveThisController` posa 80 (443 per a l'AE-C400E)
-  quan la IP no porta port; la webapp no ho fa. No afecta els senyals.
+- **Port del controlador:** MAPS té un sol camp `ip[:port]` que només mostra
+  el port quan no és el del model (80, o 443 a l'AE-C400E; `F:455`), i
+  `SaveThisController` posa el del model quan no n'hi ha. La webapp té IP i
+  port separats: en canviar el model, un port per defecte passa al del model
+  nou (servidor i esborrany de la UI) i un port propi es conserva. La UI
+  envia sempre el port que mostra junt amb un canvi de model, perquè es desi
+  el que veu l'usuari encara que coincideixi amb el desat. No afecta els
+  senyals.
 - **«Scan groups»:** MAPS fa un sol `ModifyController`; la webapp enviaria un
   patch per grup. Avui el botó està bloquejat.
 - **Controlador «Enabled»:** als fitxers de referència és `False` encara que

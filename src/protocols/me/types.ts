@@ -30,6 +30,11 @@ export const GROUP_TYPE_LABELS: Record<number, string> = {
 export const CONTROLLER_MODELS = { AG_150: 0, EB_50GU: 1, AE_200: 2, AE_C400E: 3 } as const;
 export type ControllerModel = (typeof CONTROLLER_MODELS)[keyof typeof CONTROLLER_MODELS];
 
+/** Port MAPS gives a controller whose IP has no `:port` (`SaveThisController`). */
+export function defaultControllerPort(model: number): number {
+  return model === CONTROLLER_MODELS.AE_C400E ? 443 : 80;
+}
+
 /** `G50Controller Compatibility` (CompatibilityMode). */
 export const COMPATIBILITY_MODES = { NEW_MODEL: 0, OLD_MODEL: 1 } as const;
 export type CompatibilityMode = (typeof COMPATIBILITY_MODES)[keyof typeof COMPATIBILITY_MODES];

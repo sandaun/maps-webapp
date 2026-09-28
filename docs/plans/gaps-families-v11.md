@@ -31,7 +31,7 @@ Git).
 | Modes V4_COMP, CUSTOM i MULTIPLE | [falta] | avui es rebutgen amb un 422 els canvis que regeneren senyals; cal portar-los amb fitxers de referència propis |
 | Llista d'esclaus derivada dels grups (`InitializeMbSlaves`) | [falta] | a la webapp continua sent editable |
 | Assignació de comptadors en habilitar grups amb consum | [falta] | MAPS crida `GenerateAssignmentsList`; va amb l'assignació de meters (1.1) |
-| Port 80/443 automàtic en desar un controlador | [falta] | `SaveThisController`; no afecta els senyals |
+| Port 80/443 automàtic en desar un controlador | [fet 2026-09-28] | `SaveThisController`: en canviar el model, un port per defecte (80, o 443 a l'AE-C400E) passa al del model nou; un port propi es conserva. Servidor + esborrany de la UI. No afecta els senyals |
 | «Scan groups» → un sol `ModifyController` | [blocat] | la webapp enviaria un patch per grup; el botó està bloquejat (1.2) |
 
 ### 1.1 Configuration
@@ -60,6 +60,7 @@ Git).
 | **Controller type** (Direct Connection / Expansion 1–3) | [falta] | al model és `type: number` (`src/protocols/me/model.ts:43`) sense enums ni edició; cal afegir-lo a xml-ops + zod + UI |
 | Live values / Read group / Read status | [blocat] | sense API en viu; targetes amb "—" |
 | Status (last response, errors 24h, groups in error) | [blocat] | idem |
+| HTTPS del controlador segons el model | [falta] | la fitxa decideix HTTPS/HTTP pel port (`port === 443`), però el port sol no determina el protocol. Cal verificar al descompilat la regla del model (AE-C400E) abans de corregir-ho |
 | Login data del controlador | [fet] | read-only per decisió (mai editable des de la web) |
 
 ### 1.3 Issues de validació

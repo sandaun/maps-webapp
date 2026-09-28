@@ -18,6 +18,7 @@ import {
   type PropertyValue,
 } from "./property-fields";
 import type { ProjectView } from "./project-types";
+import { defaultControllerPort } from "@/protocols/me/types";
 
 interface DraftContextValue {
   store: PropertyDraftStore;
@@ -114,19 +115,28 @@ export function PropertyDraftProvider({
     )
       return;
     if (!field.immediate) {
-      store.stage(view, field, value);
-      if (
-        field.group.startsWith("dev-cc-") &&
-        field.key === "model" &&
-        Number(value) === 0
-      ) {
-        const compatibility = fields.find(
-          (candidate) =>
-            candidate.group === field.group &&
-            candidate.key === "compatibility",
+      const isControllerModel =
+        field.group.startsWith("dev-cc-") && field.key === "model";
+      const sibling = (key: string) =>
+        fields.find(
+          (candidate) => candidate.group === field.group && candidate.key === key,
         );
+      const current = (candidate: PropertyField) => {
+        const entry = snapshot.projects[view.meta.id]?.edits[candidate.id];
+        return entry ? fieldValue(candidate, entry.value) : candidate.base;
+      };
+      // SaveThisController: a default port follows the new model.
+      const port = isControllerModel ? sibling("port") : undefined;
+      const followPort =
+        port &&
+        Number(current(port)) === defaultControllerPort(Number(current(field)));
+      store.stage(view, field, value);
+      if (isControllerModel && Number(value) === 0) {
+        const compatibility = sibling("compatibility");
         if (compatibility) store.stage(view, compatibility, 1);
       }
+      if (port && followPort)
+        store.stage(view, port, defaultControllerPort(Number(value)));
       return;
     }
     const key = `${view.meta.id}:${id}`;

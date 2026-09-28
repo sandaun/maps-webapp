@@ -372,6 +372,54 @@ describe("V12 property saving", () => {
     });
   });
 
+  it("moves a default ME controller port with the model, as MAPS", async () => {
+    setup("me-mbs");
+    familyById(family).applyPatches(xml, [
+      { type: "updateController", controllerIndex: 0, patch: { model: 2, port: 80 } },
+    ]);
+    render(<Workspace devices />);
+    chooseOption(
+      await screen.findByRole("combobox", { name: "Controller 1 · Model" }),
+      "AE-C400E, EW-C50",
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Controller 1 · Port" }),
+    ).toHaveValue("443");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
+    );
+    expect(mocks.patch.mock.calls[0][1]).toContainEqual({
+      type: "updateController",
+      controllerIndex: 0,
+      patch: expect.objectContaining({ model: 3, port: 443 }),
+    });
+  });
+
+  it("saves the port the form shows when it is set back by hand after a model change", async () => {
+    setup("me-mbs");
+    familyById(family).applyPatches(xml, [
+      { type: "updateController", controllerIndex: 0, patch: { model: 2, port: 80 } },
+    ]);
+    render(<Workspace devices />);
+    chooseOption(
+      await screen.findByRole("combobox", { name: "Controller 1 · Model" }),
+      "AE-C400E, EW-C50",
+    );
+    const port = screen.getByRole("textbox", { name: "Controller 1 · Port" });
+    expect(port).toHaveValue("443");
+    fireEvent.change(port, { target: { value: "80" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
+    );
+    expect(mocks.patch.mock.calls[0][1]).toContainEqual({
+      type: "updateController",
+      controllerIndex: 0,
+      patch: { model: 3, port: 80 },
+    });
+  });
+
   it("uses one Devices bar for KNX nodes and device rows, with no row Save buttons", async () => {
     render(<Workspace devices />);
     await screen.findByRole("combobox", { name: "RTU node 1 · Baudrate" });
