@@ -186,6 +186,12 @@ Pendents (abans de disseny):
   conversions); la resta de seccions, no.
 - **Banner d'issues amb accions** (V11): generalitzar `ScreenIssues` amb
   navegació al camp/secció afectada.
+- **Esborrar projectes** [falta, prioritari]: no es pot fer des de la webapp
+  (2026-09-28). El magatzem ja té `deleteProject`
+  (`src/server/persistence/local-store.ts`), però no hi ha ruta `DELETE` a
+  l'API ni botó a la llista de projectes. Cal la ruta, que ha de refusar un
+  projecte obert en una sessió o amb una pujada en curs, i un botó amb
+  confirmació. Branca pròpia.
 - **Afegir elements a un XML compacte esborra els germans** [falta]:
   `appendChildIndented` de `knx-mbm/xml-ops.ts` i `me-mbs/xml-ops.ts`
   substitueix tots els fills quan el pare no acaba en espai en blanc (XML
