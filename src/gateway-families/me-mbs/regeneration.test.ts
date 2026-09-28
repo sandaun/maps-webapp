@@ -144,6 +144,23 @@ describe("ME-MBS model patches → MAPS handlers", () => {
       expect(readMeConfig(doc).controllers[0].groups[0].dualSetPoint).toBe(false);
       expect(groupSignals(doc, 0, 0)).toHaveLength(26);
     });
+
+    it("moves a default port to the new model's default (SaveThisController)", () => {
+      const doc = emptyProject();
+      const port = () => readMeConfig(doc).controllers[0].port;
+      updateControllerAndSignals(doc, 0, { model: 3 });
+      expect(port()).toBe(443);
+      updateControllerAndSignals(doc, 0, { model: 2 });
+      expect(port()).toBe(80);
+      // A port other than the default is kept, as MAPS keeps "ip:port".
+      updateControllerAndSignals(doc, 0, { port: 8080 });
+      updateControllerAndSignals(doc, 0, { model: 3 });
+      expect(port()).toBe(8080);
+      // An explicit port in the same patch wins.
+      updateControllerAndSignals(doc, 0, { port: 443 });
+      updateControllerAndSignals(doc, 0, { model: 1, port: 443 });
+      expect(port()).toBe(443);
+    });
   });
 
   describe("global parameters", () => {

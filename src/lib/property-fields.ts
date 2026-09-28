@@ -702,6 +702,16 @@ export function buildPropertyPatches(
         previous ? ({ ...previous, ...patch } as ProjectPatchInput) : patch,
       );
   }
+  // A model change moves a default port on the server (SaveThisController);
+  // send the port the form shows so an unedited one is saved as seen.
+  for (const [key, patch] of merged) {
+    if (patch.type !== "updateController" || !("model" in patch.patch) || "port" in patch.patch)
+      continue;
+    const port = fields.find(
+      (field) => field.group === `dev-cc-${patch.controllerIndex}` && field.key === "port",
+    );
+    if (port) merged.set(key, { ...patch, patch: { ...patch.patch, port: port.base as number } });
+  }
   if (slaves) {
     const previous = merged.get(JSON.stringify({ type: "updateMbsConfig" }));
     merged.set(JSON.stringify({ type: "updateMbsConfig" }), {

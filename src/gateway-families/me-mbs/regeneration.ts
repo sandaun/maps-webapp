@@ -2,6 +2,7 @@ import { getAttr, type XmlDocument } from "@/core/project-format";
 import {
   COMPATIBILITY_MODES,
   CONTROLLER_MODELS,
+  defaultControllerPort,
   GROUP_TYPES,
   type MeControllerInfo,
   type MeGroupInfo,
@@ -105,6 +106,11 @@ export function updateControllerAndSignals(
       patch.model === CONTROLLER_MODELS.AG_150
         ? COMPATIBILITY_MODES.OLD_MODEL
         : (patch.compatibility ?? COMPATIBILITY_MODES.NEW_MODEL);
+    // SaveThisController (F:656): the IP box only shows the port when it is
+    // not the model default (F:455), so a default port follows the new model.
+    if (patch.port === undefined && before.port === defaultControllerPort(before.model)) {
+      effective.port = defaultControllerPort(patch.model);
+    }
   }
   updateController(doc, controllerIndex, effective);
   let after = controllerOf(doc, controllerIndex);
