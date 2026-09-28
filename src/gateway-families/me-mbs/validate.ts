@@ -9,6 +9,7 @@ import {
   findAddressCollisions,
   getSignalAddress,
   isValidSlaveId,
+  SLAVE_ADDRESS_MODES,
   type MbsConfig,
 } from "@/protocols/modbus/slave";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/core/signals/model";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { MeMbsProject, MeMbsSignal } from "./model";
+import { slaveIndexMismatches } from "./slaves";
 
 /**
  * ME–MBS project validation. Codes are stable and documented in
@@ -31,6 +33,7 @@ export function validateProject(project: MeMbsProject): ValidationIssue[] {
     validateSignal(project, signal, issues);
   }
   validateAddressCollisions(project, issues);
+  issues.push(...validateSlaveIndices(project));
   return issues;
 }
 
@@ -74,20 +77,51 @@ function validateMbsConfig(project: MeMbsProject, issues: ValidationIssue[]): vo
       ref: { ...ref, field: "commErrorTout" },
     });
   }
-  const seen = new Map<number, number>();
-  mbs.slaves.forEach((slave, i) => {
-    const first = seen.get(slave.address);
-    if (first !== undefined) {
-      issues.push({
-        code: "MBS-SLAVE-DUP",
-        severity: "error",
-        message: `Virtual slave address ${slave.address} is used by both entry ${first} and entry ${i}.`,
-        ref: { screen: "configuration", entity: "device", id: `slave:${i}`, field: "address" },
-      });
-    } else {
-      seen.set(slave.address, i);
-    }
-  });
+  // InternalMbs.CheckParams (InternalMbs.cs:1599), run by CheckProject: the
+  // derived list can go past 255 with a high slave number or many groups.
+  const outOfRange = mbs.slaves.find((slave) => slave.address > 255);
+  if (outOfRange) {
+    issues.push({
+      code: "MBS-SLAVE-ADDRESS-RANGE",
+      severity: "error",
+      message: `Modbus slave address range not valid (1..255): "${outOfRange.description}" gets address ${outOfRange.address}. Lower the slave id.`,
+      ref: { ...ref, field: "slaveNumber" },
+    });
+  }
+}
+
+/**
+ * MULTIPLE slaves: signals that MAPS left on the wrong slave (see
+ * `slaveIndexMismatches`). They would reach the gateway as they are, so
+ * this is an error and the deploy is blocked (`deployBlockers`).
+ */
+export function validateSlaveIndices(project: MeMbsProject): ValidationIssue[] {
+  if (project.mbs.slaveAddressMode !== SLAVE_ADDRESS_MODES.MULTIPLE) return [];
+  const { staleList, signals } = slaveIndexMismatches(
+    project.me.controllers,
+    project.mbs.rtu.slaveNumber,
+    project.mbs.slaves,
+    project.signals.map((s) => ({
+      g50Index: s.me.g50Index,
+      groupIndex: s.me.groupIndex,
+      unitId: s.me.unitId,
+      slaveIndex: s.modbus.slaveIndex,
+      operations: s.modbus.operations,
+    })),
+  );
+  if (!staleList && signals.length === 0) return [];
+  const count = signals.length;
+  const detail = staleList
+    ? "The slave list does not match the enabled groups"
+    : `${count} Modbus ${count === 1 ? "signal points" : "signals point"} to the wrong slave (first: #${project.signals[signals[0]].id})`;
+  return [
+    {
+      code: "MBS-SLAVE-INDEX",
+      severity: "error",
+      message: `${detail}. MAPS leaves the signals like this after some changes and the gateway would answer them on the wrong slave. Switch the slave addressing mode to Single and back to Multiple to rebuild them.`,
+      ref: { screen: "configuration", entity: "project", field: "slaveAddressMode" },
+    },
+  ];
 }
 
 function validateMeTopology(project: MeMbsProject, issues: ValidationIssue[]): void {
@@ -172,13 +206,17 @@ function validateSignal(
     }
   }
 
-  // --- spec/address consistency (FIXED / V4_COMP derivable maps only)
+  // --- spec/address consistency (FIXED / V4_COMP derivable maps only;
+  // relative to the signal's slave in MULTIPLE mode)
   if (known && project.mbs.addressMode !== 1 /* CUSTOM */) {
     const expected = getSignalAddress(project.mbs.addressMode, {
       g50Index: signal.me.g50Index,
       groupIndex: signal.me.groupIndex,
-      unitIndex: signal.me.unitId,
+      // Alarm codes: the ME UnitId is 0–99, the Modbus unit MAPS addresses
+      // is 1–100 (CreateErrorSignalsWithParams, IntesisProjectMbsMe_RT.cs:2247).
+      unitIndex: signal.me.unitId === -1 ? -1 : signal.me.unitId + 1,
       signalSpecIndex: spec,
+      slaveIndex: signal.modbus.slaveIndex,
     });
     if (expected !== null && expected !== signal.modbus.address) {
       issues.push({

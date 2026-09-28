@@ -123,40 +123,6 @@ describe("property drafts", () => {
     ]);
   });
 
-  it("merges multiple slave edits into the latest complete array", () => {
-    const f = fixture("me-mbs");
-    const a = f.patch([
-      {
-        type: "updateMbsConfig",
-        patch: {
-          slaves: [
-            { address: 1, description: "A" },
-            { address: 2, description: "B" },
-          ],
-        },
-      },
-    ]);
-    const patches = buildPropertyPatches(
-      propertyFields(a),
-      {
-        "cfg-mbs-slaves-0-address": "7",
-        "cfg-mbs-slaves-1-description": "Changed",
-      },
-      a,
-    );
-    expect(patches).toEqual([
-      {
-        type: "updateMbsConfig",
-        patch: {
-          slaves: [
-            { address: 7, description: "A" },
-            { address: 2, description: "Changed" },
-          ],
-        },
-      },
-    ]);
-  });
-
   it("retains empty and invalid numbers across recovery and validates hidden fields", () => {
     const a = fixture().view(),
       draft = store();
@@ -361,38 +327,6 @@ describe("property drafts", () => {
     expect(draft.editsFor(a.meta.id, "devices")[0].conflict).toBe("entity");
     draft.resolve(next, "rtu-0-baud", true);
     expect(draft.prepare(next, "devices").patches).toHaveLength(0);
-  });
-
-  it("removes only a deleted slave's edits and remaps surviving list entries", () => {
-    const f = fixture("me-mbs"),
-      draft = store();
-    const a = f.patch([
-      {
-        type: "updateMbsConfig",
-        patch: {
-          slaves: [
-            { address: 1, description: "A" },
-            { address: 2, description: "B" },
-          ],
-        },
-      },
-    ]);
-    draft.stage(a, field(a, "cfg-mbs-slaves-0-description"), "Removed edit");
-    draft.stage(a, field(a, "cfg-mbs-slaves-1-description"), "Keep edit");
-    const patches: ProjectPatchInput[] = [
-      {
-        type: "updateMbsConfig",
-        patch: { slaves: [{ address: 2, description: "B" }] },
-      },
-    ];
-    const next = f.patch(patches);
-    draft.afterMutation(a, next, patches);
-    expect(draft.editsFor(a.meta.id, "configuration")).toHaveLength(1);
-    expect(draft.editsFor(a.meta.id, "configuration")[0]).toMatchObject({
-      id: "cfg-mbs-slaves-0-description",
-      value: "Keep edit",
-      conflict: undefined,
-    });
   });
 
   it("keeps drafts when storage fails and reports recovery unavailability", () => {

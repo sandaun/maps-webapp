@@ -46,7 +46,7 @@ import {
   updateGroupAndSignals,
   updateMbsConfigAndSignals,
   updateMeScalarsAndSignals,
-  updateRtuConfig,
+  updateRtuConfigAndSlaves,
   updateSignalAndUserAddress,
   updateTcpConfig,
   validateProject as validateMeMbsProject,
@@ -83,7 +83,7 @@ export type DevicePatch = Partial<Omit<MbmDevice, "index">>;
 type MbsConfigPatch = Partial<
   Pick<
     MbsConfig,
-    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase"
   >
 >;
 type MeScalarsPatch = Partial<
@@ -378,6 +378,10 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
 const ME_FIXED_CONVERSIONS_MESSAGE =
   "Mitsubishi Electric AC ↔ Modbus Slave conversions are fixed by the gateway template: they cannot be edited.";
 
+const ME_DERIVED_SLAVES_MESSAGE =
+  "The Mitsubishi Electric AC ↔ Modbus Slave slave list is derived from the enabled groups, as in MAPS: " +
+  "it cannot be edited. Enable or disable the groups, or change the slave id.";
+
 const ME_DERIVED_SIGNALS_MESSAGE =
   "Mitsubishi Electric AC ↔ Modbus Slave signals are generated from the controllers and groups: " +
   "they cannot be added or removed. Enable or disable the groups instead.";
@@ -420,10 +424,11 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
       updateSignalAndUserAddress(doc, patch.id, patch.patch);
       break;
     case "updateMbsConfig":
+      if ("slaves" in patch.patch) throw new ProjectServiceError(409, ME_DERIVED_SLAVES_MESSAGE);
       updateMbsConfigAndSignals(doc, patch.patch);
       break;
     case "updateRtuConfig":
-      updateRtuConfig(doc, patch.patch);
+      updateRtuConfigAndSlaves(doc, patch.patch);
       break;
     case "updateTcpConfig":
       updateTcpConfig(doc, patch.patch);

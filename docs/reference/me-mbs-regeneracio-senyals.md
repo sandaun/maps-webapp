@@ -1,7 +1,8 @@
 # ME-MBS: regeneració de senyals a partir del model (anàlisi MAPS)
 
-**Estat:** implementat per a adreces FIXED i un sol esclau Modbus (branca
-`feature/me-mbs-signal-regeneration`). **Objectiu:** que la webapp generi,
+**Estat:** implementat per a adreces FIXED, amb un sol esclau Modbus o amb
+esclaus múltiples (branques `feature/me-mbs-signal-regeneration` i
+`feature/me-mbs-multiple-slaves`). **Objectiu:** que la webapp generi,
 esborri i renumeri els senyals ME-MBS exactament com MAPS, perquè un projecte
 desat des de la web sigui idèntic al que desaria MAPS.
 
@@ -41,6 +42,13 @@ mateix minut).
 | `ctrl-errors` | `grup-fans` | C1 G3: ventiladors 0 → 3; C1 amb «Individual error signals» | 1r `ModifyGroupUpdate`, 2n `ModifyController` | 213 (generals 30 + errors 100 al final del bloc) |
 | `ctrl-2` | `ctrl-errors` | C2 G1 habilitat | `EnableGroup` | 277 |
 | `consum` | `ctrl-2` | funció de consum activada | `UpdateConsumptionFunction` → `InitializeAndRestore` | 289 (+3 per grup) |
+| `multi-base` | `base` | mode d'esclaus MULTIPLE, cap grup | `SlaveNumberChangedCallback` | 0 |
+| `multi-grups` | `multi-base` | C1: G1 i G3 habilitats | `EnableGroup` ×2 | 98 (esclaus 1–3) |
+| `multi-grups-mig` | `multi-grups` | C1 G2 habilitat | `EnableGroup` (+1 als esclaus de G3) | 132 (esclaus 1–4) |
+| `multi-errors` | `multi-grups-mig` | C1 amb «Individual error signals» | `ModifyController` | 232 (esclau 5 per als errors) |
+| `multi-ctrl-2` | `multi-errors` | C2 G1 habilitat | `EnableGroup` | 296 (esclaus 6–7) |
+| `multi-stale-errors` | `multi-base` | C1 G1, errors de C1, C1 G2 | `EnableGroup`, `ModifyController`, `EnableGroup` | 198 (errors amb `SlaveIndex` 0, §6) |
+| `multi-stale-ctrl2` | `multi-base` | C1 G1, C2 G1, errors de C1 | `EnableGroup` ×2, `ModifyController` | 228 (C2 amb els índexs antics, §6) |
 
 - `grup-tipus` també es podria obtenir des de `grup-off` (tornar a habilitar
   G2 i canviar el tipus) amb el mateix resultat; les proves fan servir el
@@ -57,7 +65,7 @@ mateix minut).
 - **`idxExternal` depèn de l'historial** (§5.1): no n'hi ha prou amb
   «regenerar a partir del model»; cal **reproduir les operacions de MAPS**.
 - MAPS també reescriu `MBSlavesArray` a cada pas («General Controller 1»,
-  «C1G1»…); queda fora d'abast (§6).
+  «C1G1»…), **també amb un sol esclau** (§5.12).
 
 ## 3. Model de MAPS
 
@@ -80,7 +88,8 @@ Dues llistes paral·leles, `mInternal.MbsObjects` (Modbus) i
 | `RestoreUserConfig` | `P:3146` | després de regenerar, recupera `isEnabled` del primer senyal antic amb la mateixa identitat ME (unitat inclosa) |
 | `StoreUserAddress` | `P:721` | després de cada edició d'una fila: desa activat/adreça a `HvacAddresses` |
 | `GetActiveFromUnit` | `StoredHvacAddresses.cs` | en crear un senyal, n'agafa l'activació de `HvacAddresses` |
-| `InitializeMbSlaves` | `P:3102` | reconstrueix la llista d'esclaus Modbus — **no portat** (§6) |
+| `InitializeMbSlaves` | `P:3102` | reconstrueix la llista d'esclaus Modbus (§5.12), a `slaves.ts` |
+| `GetSlaveIndex` | `P:1652` | posició a la llista de l'esclau d'un grup, dels generals o dels errors d'un controlador (MULTIPLE), a `slaves.ts` |
 
 Cada senyal Modbus rep descripció (`GetSignalDescription`, `P:2287`), valors
 permesos (`GetAllowedValues`, `P:2502`) i adreça (`GetAddressFromSignal`,
@@ -104,8 +113,9 @@ regenera quan el valor canvia de debò (com `CheckGroupEqual` /
 | `updateMeScalars {consumptionEnabled}` | `F:891` → `UpdateConsumptionFunction` `P:1213` | `InitializeAndRestore` (`P:3086`), igual que l'anterior |
 | `updateMeScalars` polling, temps d'espera, ràfega | — | cap |
 | `updateMbsConfig {addressMode}` | `AddressModeChanged` `P:1034` | posa `RegisterBase` (1 per a V4, 0 si no); FIXED: buida `HvacAddresses` + `InitializeControllers` **sense** `RestoreUserConfig`; CUSTOM: cap |
-| `updateMbsConfig {slaveAddressMode}` | `frmInternalMBS.cs:452-471` → `SlaveNumberChangedCallback` `P:1058` | `InitializeControllers` + `RestoreUserConfig`, **sense** buidar abans les llistes |
-| `updateRtuConfig {slaveNumber}` | `SlaveNumberChangedCallback` (sense regenerar) | cap (només desplaça la llista d'esclaus, fora d'abast) |
+| `updateMbsConfig {slaveAddressMode}` | `frmInternalMBS.cs:452-471` → `SlaveNumberChangedCallback` `P:1058` | `InitializeControllers` + `RestoreUserConfig`, **sense** buidar abans les llistes; la webapp recalcula abans la llista d'esclaus (divergència, §6) |
+| `updateMbsConfig {slaves}` | (la taula de MAPS és de només lectura) | **rebutjat** amb un 409: la llista es deriva dels grups |
+| `updateRtuConfig {slaveNumber}` | `SlaveNumberChangedCallback` (sense regenerar) → `UpdateMBArrayNewSlaveNum` `P:1076` | cap als senyals; les adreces de la llista es desplacen la diferència |
 | `updateSignal` | `UpdateObjectsFromRowInfo` → `StoreUserAddress` `P:698-731` | l'edició, i desa l'entrada a `HvacAddresses` |
 | `addSignal`, `removeSignal` | (MAPS no ho permet) | **rebutjats** amb un 409 i un missatge clar |
 
@@ -162,15 +172,61 @@ rebutja sencer amb un 422 i no es desa res.
     siguin buits (`IntesisXML.SetAttributeWithDefault`).
 11. **MAPS regenera tot en obrir projectes antics** (`NeedRecreateSignals`,
     `P:3061`): no portat (la webapp no regenera en obrir).
+12. **Llista d'esclaus (`MBSlavesArray`):** `InitializeMbSlaves` la refà en
+    tots dos modes a `EnableGroup`, `ModifyController` (si té grups) i les
+    regeneracions completes (no a `ModifyGroupUpdate` ni en canviar el mode
+    d'adreces). Per controlador amb grups: «General Controller N», `CNG<g>`
+    per grup habilitat i «Error Signals Controller N» si té els senyals
+    d'error; adreça = posició + número d'esclau de l'RTU. Només s'escriu
+    mentre té entrades, entre `<SlaveAddressMode>` i `<Signals>`. MAPS
+    rebutja el projecte si alguna adreça passa de 255 (`CheckParams`,
+    `InternalMbs.cs:1599`): `MBS-SLAVE-ADDRESS-RANGE`.
+13. **MULTIPLE:** cada senyal Modbus porta `SlaveIndex = GetSlaveIndex` i
+    l'adreça és relativa a l'esclau (generals: el número de senyal; grups:
+    només el desplaçament). `EnableGroup` suma 1 i `DeleteGroupSignals` resta
+    1 al `SlaveIndex` dels senyals Modbus de darrere del grup (`P:1121`,
+    `P:1557`). Confirmat a `multi-grups-mig`.
+14. **Senyals d'error en MULTIPLE:** `CreateErrorSignalsWithParams` passa
+    l'índex de l'esclau a la sobrecàrrega per unitat de `CreateMEMBSObject`,
+    que en aquella posició espera la conversió (`P:2247`): els senyals queden
+    amb `SlaveIndex = -1` i `IdxOperations = "<esclau>,0"`. Confirmat a
+    `multi-errors` i `multi-ctrl-2` (`"4,0"`); es reprodueix tal qual.
+15. **L'XBL no corregeix els índexs:** `MbsObject.GenerateXblItem` copia el
+    `SlaveIndex` (`MbsObject.cs:272`) i `SetIndexFirstLast` hi busca els
+    senyals de cada esclau; fora de la creació, a ME-MBS només l'escriuen el
+    +1/−1 del punt 13.
 
 ## 6. Divergències i pendents
 
-- **Modes V4_COMP, CUSTOM i MULTIPLE:** no portats. Qualsevol canvi que
-  regeneri senyals en aquests modes (o que hi porti, com passar a V4 o a
-  esclaus múltiples) es rebutja amb un 422. Passar a CUSTOM s'accepta (MAPS
-  no regenera). Caldran fitxers de referència propis.
-- **Llista d'esclaus (`MBSlavesArray`):** a MAPS es deriva dels grups
-  (`InitializeMbSlaves`); a la webapp continua sent editable. Feina a part.
+- **Modes V4_COMP i CUSTOM:** no portats. Qualsevol canvi que regeneri
+  senyals en aquests modes (o que hi porti, com passar a V4) es rebutja amb
+  un 422. Passar a CUSTOM s'accepta (MAPS no regenera). Caldran fitxers de
+  referència propis.
+- **Recalcular la llista en canviar el mode d'esclaus (divergència volguda):**
+  MAPS reaprofita la llista que ja té; la webapp la torna a calcular abans,
+  perquè fins ara s'hi podia editar a mà i un projecte desat des de la web
+  pot no coincidir amb els grups. Amb una llista correcta el resultat és el
+  mateix.
+- **Índexs d'esclau desactualitzats (MULTIPLE), confirmats amb fitxers de
+  MAPS:** (1) el +1/−1 del §5.13 també toca els senyals d'error: habilitar un
+  grup del mateix controlador després d'activar-los els deixa amb
+  `SlaveIndex = 0`, i la conversió continua apuntant a l'esclau antic
+  (`multi-stale-errors`). (2) `ModifyController` no toca l'altre
+  controlador: activar els errors de C1 afegeix un esclau davant dels de C2,
+  però els senyals de C2 conserven l'índex antic (`multi-stale-ctrl2`). La
+  webapp desa tots dos fitxers igual que MAPS. L'XBL que genera MAPS per a
+  `multi-stale-errors` els copia tal qual: els 100 senyals d'error surten a
+  l'esclau 0 («General Controller 1») i l'esclau «Error Signals Controller 1»
+  queda buit, així que la passarel·la els contestaria a l'esclau equivocat. La webapp els reprodueix
+  com MAPS, però els detecta (`slaveIndexMismatches`, `slaves.ts`): error de
+  validació `MBS-SLAVE-INDEX`, porta `project` del desplegament tancada i
+  generador d'XBL que s'hi nega. Es refan canviant el mode d'esclaus a Single
+  i tornant a Multiple. La mateixa comprovació avisa si la llista no
+  coincideix amb els grups.
+- **XBL en MULTIPLE:** verificat byte a byte amb l'XBL que genera la línia
+  d'ordres de MAPS per a `multi-ctrl-2` (§8). La comparació va trobar que,
+  amb la llista d'esclaus, MAPS no escriu el número d'esclau al node RTU
+  (`CreateRTUConfigNode`, `InternalMbs.cs:737`); corregit al generador.
 - **XBL amb la funció de consum:** el generador el continua rebutjant; els
   senyals de consum ja es regeneren com MAPS. Branca pròpia.
 - **Assignació de comptadors:** en habilitar o deshabilitar un grup amb el
@@ -198,19 +254,32 @@ rebutja sencer amb un 422 i no es desa res.
   `<Signals>` en format MAPS.
 - `src/gateway-families/me-mbs/regeneration.ts`: cada patch de model →
   handler de MAPS, amb les regles dels formularis.
+- `src/gateway-families/me-mbs/slaves.ts`: `InitializeMbSlaves`,
+  `GetSlaveIndex` i la detecció d'índexs incoherents, compartits pel motor,
+  la validació, el desplegament i el generador d'XBL.
 - `src/server/projects/families.ts`: ordre dins del lot, rebuig
-  d'`addSignal`/`removeSignal` (409) i dels modes fora d'abast (422).
+  d'`addSignal`/`removeSignal` i de la llista d'esclaus (409) i dels modes
+  fora d'abast (422).
 
 ## 8. Validació
 
 **Validat amb fitxers desats amb MAPS** (`signals-engine.test.ts`,
 `regeneration.test.ts`; s'executen si hi ha `.local-data`):
 
-- Els set passos del §2, cadascun des del seu pare i la cadena sencera des de
-  `base`: senyals idèntics camp per camp (`idxExternal` inclòs) i XML sencer
-  idèntic, sense `MBSlavesArray` ni `ProjectName`. També a través dels
-  patches reals de l'API.
-- XBL idèntic byte a byte en tots els passos llevat de `consum`.
+- Els catorze passos del §2 (FIXED i MULTIPLE, els dos d'índexs
+  desactualitzats inclosos), cadascun des del seu pare i la
+  cadena sencera: senyals idèntics camp per camp (`idxExternal` i
+  `SlaveIndex` inclosos) i XML sencer idèntic llevat de `ProjectName`,
+  `MBSlavesArray` inclòs. També a través dels patches reals de l'API.
+- El nostre XBL de l'XML regenerat és idèntic byte a byte al que el nostre
+  generador fa de l'XML de MAPS, en tots els passos llevat de `consum` i dels
+  dos d'índexs desactualitzats, on el generador es nega en tots dos casos.
+- **XBL de MAPS en MULTIPLE:** `IntesisMAPS.exe -i <projecte> -o <sortida>
+  -compID 64` (`CmdUtils.cs`, `Program.cs:98`) genera l'XBL sense
+  passarel·la. Rebutja un projecte sense contrasenya de la passarel·la, així
+  que es fa amb una còpia de `multi-ctrl-2` amb `Pwd="test1234"`; el fitxer
+  que escriu és `[4 B longitud][XBL][4 B CRC32]`. El nostre XBL hi coincideix
+  byte a byte (marca de temps a banda): `xbl/generate.test.ts`.
 - Fixture real del 770 Air: reescriure-la i regenerar-la des del model la
   reprodueix byte a byte.
 
@@ -218,7 +287,10 @@ rebutja sencer amb un 422 i no es desa res.
 s'executen sempre):
 
 - Senyal 46 (§5.2), segon controlador (§5.3), `InitializeControllers` en
-  canviar de mode (§5.6), `HvacAddresses` (desar, recuperar, format XML),
+  canviar de mode (§5.6), −1 en deshabilitar un grup en MULTIPLE i la
+  reparació dels índexs desactualitzats amb Single → Multiple (§6),
+  desplaçament de la llista amb el
+  número d'esclau, `HvacAddresses` (desar, recuperar, format XML),
   senyals d'error (§5.8), regles dels formularis (§5.9) llevat de la de BU,
   que sí que surt a `grup-tipus`.
 - Tipus SYS_COMPONENT, URC, model AG-150 i compatibilitat antiga, unitats
@@ -227,5 +299,5 @@ s'executen sempre):
 **Portat del descompilat però sense cap prova:** tipus FU, WH i CEH; consum
 en kWh o per modes (fred/calor), que la webapp encara no deixa triar.
 
-**Ajornat, no validat:** XBL amb consum, modes V4/CUSTOM/MULTIPLE, llista
-d'esclaus derivada, assignació de comptadors, prova amb una passarel·la real.
+**Ajornat, no validat:** XBL amb consum, modes V4/CUSTOM, assignació de
+comptadors, prova amb una passarel·la real.

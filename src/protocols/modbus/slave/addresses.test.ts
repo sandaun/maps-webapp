@@ -49,6 +49,16 @@ describe("getSignalAddress FIXED", () => {
     const loc = { g50Index: 0, groupIndex: -1, unitIndex: 3, signalSpecIndex: 0 };
     expect(getSignalAddress(ADDRESS_MODES.FIXED, loc)).toBe(21003);
   });
+
+  it("FIXED with a slave (MULTIPLE): general and group addresses relative to it", () => {
+    expect(getSignalAddress(ADDRESS_MODES.FIXED, { ...general(1, 5), slaveIndex: 5 })).toBe(5);
+    expect(getSignalAddress(ADDRESS_MODES.FIXED, { ...group(1, 0, 46), slaveIndex: 6 })).toBe(37);
+    expect(getSignalAddress(ADDRESS_MODES.FIXED, { ...group(0, 0, 0), slaveIndex: -1 })).toBe(100);
+    // Alarm codes keep their absolute address.
+    expect(
+      getSignalAddress(ADDRESS_MODES.FIXED, { g50Index: 0, groupIndex: -1, unitIndex: 3, signalSpecIndex: 0, slaveIndex: 0 }),
+    ).toBe(21003);
+  });
 });
 
 describe("getSignalAddress V4_COMP", () => {

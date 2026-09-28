@@ -182,12 +182,6 @@ const mbsConfigPatchSchema = z
     slaveAddressMode: z.union([z.literal(0), z.literal(1)]),
     commErrorTout: z.number().int().min(0).max(3600),
     registerBase: z.union([z.literal(0), z.literal(1)]),
-    slaves: z.array(
-      z.object({
-        address: z.number().int().min(1).max(247),
-        description: z.string().max(128),
-      }),
-    ),
   })
   .partial()
   .strict();

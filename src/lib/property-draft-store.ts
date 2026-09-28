@@ -466,29 +466,6 @@ export function createPropertyDraftStore() {
               if (index === patch.index) removed = true;
               else if (index > patch.index) id = `cfg-conv-${match[1]}-${index - 1}${match[3]}`;
             }
-          } else if (
-            patch.type === "updateMbsConfig" &&
-            patch.patch.slaves &&
-            before.family === "me-mbs"
-          ) {
-            const oldSlaves = before.project.mbs.slaves,
-              newSlaves = patch.patch.slaves;
-            const match = id.match(
-              /^cfg-mbs-slaves-(\d+)-(address|description)$/,
-            );
-            if (match && newSlaves.length === oldSlaves.length - 1) {
-              const removedIndex = oldSlaves.findIndex(
-                (_, i) =>
-                  JSON.stringify(oldSlaves.filter((_, j) => i !== j)) ===
-                  JSON.stringify(newSlaves),
-              );
-              if (removedIndex >= 0) {
-                const index = Number(match[1]);
-                if (index === removedIndex) removed = true;
-                else if (index > removedIndex)
-                  id = `cfg-mbs-slaves-${index - 1}-${match[2]}`;
-              }
-            }
           }
         }
         if (removed) continue;

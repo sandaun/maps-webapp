@@ -26,6 +26,8 @@ import {
   type XblElementSpec,
 } from "@/core/xbl";
 import { isMeMbsProject } from "../detect";
+import { projectFromXml } from "../from-xml";
+import { validateSlaveIndices } from "../validate";
 import { buildMbsNode } from "./nodes-mbs";
 import { buildMeNode } from "./nodes-me";
 import { runMeMbsXblPipeline } from "./pipeline";
@@ -62,6 +64,9 @@ export function generateMeMbsXbl(
   if (!isMeMbsProject(doc)) {
     throw new Error("Not a Mitsubishi Electric AC ↔ Modbus Slave project");
   }
+  // Signals on the wrong Modbus slave would reach the gateway as they are.
+  const [slaveIssue] = validateSlaveIndices(projectFromXml(doc));
+  if (slaveIssue) throw new Error(slaveIssue.message);
   const pipeline = runMeMbsXblPipeline(doc);
   const elements: XblElementSpec[] = [
     buildHeaderNode(

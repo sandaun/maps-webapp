@@ -68,7 +68,7 @@ export type DevicePatchInput = Partial<Omit<MbmDevice, "index">>;
 export type MbsConfigPatchInput = Partial<
   Pick<
     MbsConfig,
-    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase" | "slaves"
+    "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase"
   >
 >;
 /** KNX-MBM global Modbus Master config (mirror of `MbmConfigPatch` in xml-ops). */

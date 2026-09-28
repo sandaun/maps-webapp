@@ -9,6 +9,7 @@ import {
   updateGroupAndSignals,
   updateMbsConfigAndSignals,
   updateMeScalarsAndSignals,
+  updateRtuConfigAndSlaves,
 } from "./regeneration";
 import { MeMbsSignalEngine, UnsupportedRegenerationError } from "./signals-engine";
 import { updateMbsConfig } from "./xml-ops";
@@ -224,12 +225,36 @@ describe("ME-MBS model patches → MAPS handlers", () => {
       expect(doc.serialize()).toBe(emptyProject().serialize());
     });
 
-    it("rejects V4 compatibility and multiple slaves, which regenerate the signals", () => {
-      for (const patch of [{ addressMode: 2 }, { slaveAddressMode: 1 }] as const) {
-        const doc = emptyProject();
-        updateGroupAndSignals(doc, 0, 0, { enabled: true });
-        expect(() => updateMbsConfigAndSignals(doc, patch)).toThrow(UnsupportedRegenerationError);
-      }
+    it("rejects V4 compatibility, which regenerates the signals", () => {
+      const doc = emptyProject();
+      updateGroupAndSignals(doc, 0, 0, { enabled: true });
+      expect(() => updateMbsConfigAndSignals(doc, { addressMode: 2 })).toThrow(UnsupportedRegenerationError);
+    });
+
+    it("derives the slave list again when switching to multiple slaves (deliberate divergence)", () => {
+      const doc = emptyProject();
+      updateGroupAndSignals(doc, 0, 0, { enabled: true });
+      // A list edited by hand before it became read-only.
+      const engine = MeMbsSignalEngine.fromXml(doc);
+      engine.slaves = [{ address: 9, description: "Edited" }];
+      engine.writeTo(doc);
+      updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
+      expect(readMbsConfig(doc).slaves).toEqual([
+        { address: 1, description: "General Controller 1" },
+        { address: 2, description: "C1G1" },
+      ]);
+      const e = engineOf(doc);
+      expect(new Set(e.mbs.map((x) => x.slaveIndex))).toEqual(new Set([0, 1]));
+    });
+
+    it("moves the slave addresses with the slave number, without regenerating", () => {
+      const doc = emptyProject();
+      updateMbsConfig(doc, { slaveAddressMode: 1 });
+      updateGroupAndSignals(doc, 0, 0, { enabled: true });
+      const before = engineOf(doc).mbs;
+      updateRtuConfigAndSlaves(doc, { slaveNumber: 10 });
+      expect(readMbsConfig(doc).slaves.map((x) => x.address)).toEqual([10, 11]);
+      expect(engineOf(doc).mbs).toEqual(before);
     });
 
     it("regenerates controller by controller when switching back to a single slave", () => {
@@ -248,7 +273,22 @@ describe("ME-MBS model patches → MAPS handlers", () => {
   });
 });
 
-type RefName = "base" | "grup-on" | "grup-off" | "grup-tipus" | "grup-fans" | "ctrl-errors" | "ctrl-2" | "consum";
+type RefName =
+  | "base"
+  | "grup-on"
+  | "grup-off"
+  | "grup-tipus"
+  | "grup-fans"
+  | "ctrl-errors"
+  | "ctrl-2"
+  | "consum"
+  | "multi-base"
+  | "multi-grups"
+  | "multi-grups-mig"
+  | "multi-errors"
+  | "multi-ctrl-2"
+  | "multi-stale-errors"
+  | "multi-stale-ctrl2";
 
 /** The reference derivation (signals-engine.test.ts), as the API patches send it. */
 const PATCH_STEPS: Array<{ name: RefName; parent: RefName; apply: (doc: XmlDocument) => void }> = [
@@ -267,12 +307,33 @@ const PATCH_STEPS: Array<{ name: RefName; parent: RefName; apply: (doc: XmlDocum
   },
   { name: "ctrl-2", parent: "ctrl-errors", apply: (d) => updateGroupAndSignals(d, 1, 0, { enabled: true }) },
   { name: "consum", parent: "ctrl-2", apply: (d) => updateMeScalarsAndSignals(d, { consumptionEnabled: true }) },
+  { name: "multi-base", parent: "base", apply: (d) => updateMbsConfigAndSignals(d, { slaveAddressMode: 1 }) },
+  { name: "multi-grups", parent: "multi-base", apply: (d) => [0, 2].forEach((g) => updateGroupAndSignals(d, 0, g, { enabled: true })) },
+  { name: "multi-grups-mig", parent: "multi-grups", apply: (d) => updateGroupAndSignals(d, 0, 1, { enabled: true }) },
+  { name: "multi-errors", parent: "multi-grups-mig", apply: (d) => updateControllerAndSignals(d, 0, { addErrorSignals: true }) },
+  { name: "multi-ctrl-2", parent: "multi-errors", apply: (d) => updateGroupAndSignals(d, 1, 0, { enabled: true }) },
+  {
+    name: "multi-stale-errors",
+    parent: "multi-base",
+    apply: (d) => {
+      updateGroupAndSignals(d, 0, 0, { enabled: true });
+      updateControllerAndSignals(d, 0, { addErrorSignals: true });
+      updateGroupAndSignals(d, 0, 1, { enabled: true });
+    },
+  },
+  {
+    name: "multi-stale-ctrl2",
+    parent: "multi-base",
+    apply: (d) => {
+      updateGroupAndSignals(d, 0, 0, { enabled: true });
+      updateGroupAndSignals(d, 1, 0, { enabled: true });
+      updateControllerAndSignals(d, 0, { addErrorSignals: true });
+    },
+  },
 ];
 
 function normalize(xml: string): string {
-  return xml
-    .replace(/\r\n *(<MBSlavesArray>[\s\S]*?<\/MBSlavesArray>|<MBSlavesArray \/>)/, "")
-    .replace(/ ProjectName="[^"]*"/, "");
+  return xml.replace(/ ProjectName="[^"]*"/, "");
 }
 
 describe.skipIf(!existsSync(`${REF_DIR}/base.ibmaps`))("ME-MBS model patches vs MAPS reference files", () => {

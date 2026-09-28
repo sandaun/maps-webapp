@@ -442,28 +442,13 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
 
 /** ME–MBS: Modbus Slave (server) configuration. */
 function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs" }> }) {
-  const { save, busy, error } = useSave();
-  const drafts = usePropertyDrafts();
   const { mbs } = view.project;
-  const pendingForSlave = (index: number) =>
-    (["address", "description"] as const).filter(
-      (key) => drafts.snapshot.projects[view.meta.id]?.edits[`cfg-mbs-slaves-${index}-${key}`],
-    ).length;
-  const confirmRemoveSlave = (index: number) => {
-    const pending = pendingForSlave(index);
-    return window.confirm(
-      pending
-        ? `Remove slave ${index + 1}? Its ${pending} unsaved ${pending === 1 ? "edit" : "edits"} will be discarded.`
-        : `Remove slave ${index + 1}?`,
-    );
-  };
-  const { form, set, dirtyKeys } = useDraftForm("mbs", {
+  const { form, set } = useDraftForm("mbs", {
     media: mbs.media as number,
     byteOrder: mbs.byteOrder,
     updateCOV: mbs.updateCOV,
     addressMode: mbs.addressMode as number,
     slaveAddressMode: mbs.slaveAddressMode as number,
-    slaves: mbs.slaves.map((s) => ({ ...s })),
     commErrorTout: mbs.commErrorTout,
     registerBase: mbs.registerBase as number,
     baudrate: mbs.rtu.baudrate,
@@ -474,13 +459,9 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
     tcpPort: mbs.tcp.port,
     keepAlive: mbs.tcp.keepAlive,
   });
-  const setSlave = (index: number, patch: Partial<{ address: number; description: string }>) => {
-    for (const [key, value] of Object.entries(patch)) set(`slaves.${index}.${key}`, value);
-  };
 
   return (
     <>
-      {error && <p role="alert" className="mb-3 text-sm text-error">{error}</p>}
       <SectionHeader
         title="BMS protocol · Modbus server"
         desc="The Modbus side of the gateway. Registers, formats and scaling are assigned per signal in the signal table."
@@ -585,7 +566,10 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
             options={[{ value: "1", label: "1" }, { value: "2", label: "2" }]}
           />
         </FieldRow>
-        <FieldRow label="Slave id" hint={`${SLAVE_ID_RANGE.min}–${SLAVE_ID_RANGE.max}`}>
+        <FieldRow
+          label={form.slaveAddressMode === 1 ? "Slave starting address" : "Slave id"}
+          hint={`${SLAVE_ID_RANGE.min}–${SLAVE_ID_RANGE.max}`}
+        >
           <TextControl
             id="cfg-mbs-slave"
             type="number"
@@ -607,61 +591,31 @@ function BmsMbsSection({ view }: { view: Extract<ProjectView, { family: "me-mbs"
             options={[{ value: "0", label: "Single Slave" }, { value: "1", label: "Multiple Slaves" }]}
           />
         </FieldRow>
-        {(form.slaveAddressMode === 1 || [...dirtyKeys].some((key) => key.startsWith("slaves."))) && (
+        {form.slaveAddressMode === 1 && (
           <FieldRow
             label="Slave list"
-            hint="Each AC group answers on its own server address with the same register block"
+            hint="Derived from the enabled groups, as in MAPS: one general slave per controller, one per group and one for the error signals"
           >
-            <div className="space-y-2">
-              {form.slaves.map((slave, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    id={`cfg-mbs-slaves-${i}-address`}
-                    type="number"
-                    aria-label={`Slave ${i + 1} address`}
-                    min={SLAVE_ID_RANGE.min}
-                    max={SLAVE_ID_RANGE.max}
-                    value={slave.address}
-                    onChange={(e) => setSlave(i, { address: Number(e.target.value) })}
-                    style={{ width: 90 }}
-                    className="font-mono"
-                  />
-                  <Input
-                    id={`cfg-mbs-slaves-${i}-description`}
-                    aria-label={`Slave ${i + 1} description`}
-                    value={slave.description}
-                    maxLength={128}
-                    placeholder="Description"
-                    onChange={(e) => setSlave(i, { description: e.target.value })}
-                    style={{ width: 240 }}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      confirmRemoveSlave(i) &&
-                      void save([{ type: "updateMbsConfig", patch: { slaves: mbs.slaves.filter((_, j) => j !== i) } }])
-                    }
-                    className="text-[12px] font-medium text-fg-subtle hover:text-error"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void save([{ type: "updateMbsConfig", patch: { slaves: [...mbs.slaves, { address: mbs.slaves.length + 1, description: "" }] } }])
-                  }
-                >
-                  Add slave
-                </Button>
-              </div>
-            </div>
+            {mbs.slaves.length === 0 ? (
+              <ReadOnly value="No slaves until a group is enabled" />
+            ) : (
+              <table aria-label="Slave list" className="text-[12.5px]">
+                <thead>
+                  <tr className="text-left text-fg-subtle">
+                    <th className="pr-4 font-medium">Address</th>
+                    <th className="font-medium">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mbs.slaves.map((slave) => (
+                    <tr key={slave.address}>
+                      <td className="pr-4 font-mono">{slave.address}</td>
+                      <td>{slave.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </FieldRow>
         )}
       </GroupCard>

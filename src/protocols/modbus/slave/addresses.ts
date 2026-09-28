@@ -18,6 +18,12 @@ export interface SignalLocator {
   /** -1 = group signal; >= 0 = per-unit (indoor/outdoor) signal. */
   unitIndex: number;
   signalSpecIndex: number;
+  /**
+   * The signal's Modbus slave (`SlaveIndex`, MULTIPLE mode); -1 or absent =
+   * single slave. With a slave, FIXED general and group addresses are
+   * relative to it (`GetAddressFromSignal`, IntesisProjectMbsMe_RT.cs:2733).
+   */
+  slaveIndex?: number;
 }
 
 /**
@@ -72,6 +78,8 @@ export function getSignalAddress(
   customAddress?: number,
 ): number | null {
   const { g50Index, groupIndex, unitIndex, signalSpecIndex } = locator;
+  // GetAddressFromSignalV4 takes no slave.
+  const relative = (locator.slaveIndex ?? -1) !== -1 && mode === ADDRESS_MODES.FIXED;
 
   if (mode === ADDRESS_MODES.CUSTOM) {
     return customAddress ?? null;
@@ -82,6 +90,7 @@ export function getSignalAddress(
   if (groupIndex === -1) {
     if (unitIndex === -1) {
       // Controller-general signal.
+      if (relative) return signalSpecIndex;
       return g50Index * 30 + signalSpecIndex + (v4 ? 1 : 0);
     }
     // Per-unit signal (indoor/outdoor alarm code). Not exercised by the
@@ -91,5 +100,6 @@ export function getSignalAddress(
 
   const offset = groupSignalOffset(mode, signalSpecIndex);
   if (offset === -1) return null;
+  if (relative) return offset;
   return (g50Index * 50 + (groupIndex + 1)) * 100 + offset;
 }

@@ -17,7 +17,8 @@ import { generateMeMbsXbl } from "./xbl";
  * not the proven history (see docs/reference/me-mbs-regeneracio-senyals.md §2).
  * Every step replays the MAPS handler the form would call, and the result is
  * compared signal by signal (every column, idxExternal included), as full XML
- * (MBSlavesArray and ProjectName excluded) and as generated XBL.
+ * (ProjectName excluded; the derived MBSlavesArray included) and as
+ * generated XBL.
  */
 
 const REF_DIR = ".local-data/fixtures/me-mbs-maps-ref";
@@ -32,7 +33,14 @@ type RefName =
   | "grup-fans"
   | "ctrl-errors"
   | "ctrl-2"
-  | "consum";
+  | "consum"
+  | "multi-base"
+  | "multi-grups"
+  | "multi-grups-mig"
+  | "multi-errors"
+  | "multi-ctrl-2"
+  | "multi-stale-errors"
+  | "multi-stale-ctrl2";
 
 interface Step {
   name: RefName;
@@ -111,6 +119,70 @@ const STEPS: Step[] = [
       regenerate(doc, (e) => e.initializeAndRestore());
     },
   },
+  // MULTIPLE slaves (multi-base: base with the slave mode switched, no group).
+  {
+    name: "multi-grups",
+    parent: "multi-base",
+    apply: (doc) => {
+      for (const group of [0, 2]) {
+        updateGroup(doc, 0, group, { enabled: true });
+        regenerate(doc, (e) => e.enableGroup(0, group));
+      }
+    },
+  },
+  {
+    // G2 goes between G1 and G3: G3's signals move to the next slave.
+    name: "multi-grups-mig",
+    parent: "multi-grups",
+    apply: (doc) => {
+      updateGroup(doc, 0, 1, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 1));
+    },
+  },
+  {
+    name: "multi-errors",
+    parent: "multi-grups-mig",
+    apply: (doc) => {
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+    },
+  },
+  {
+    name: "multi-ctrl-2",
+    parent: "multi-errors",
+    apply: (doc) => {
+      updateGroup(doc, 1, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(1, 0));
+    },
+  },
+  {
+    // Stale values, as MAPS saves them: the +1 of EnableGroup also moves the
+    // alarm codes' SlaveIndex (-1 → 0) and leaves their operation behind.
+    name: "multi-stale-errors",
+    parent: "multi-base",
+    apply: (doc) => {
+      updateGroup(doc, 0, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 0));
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+      updateGroup(doc, 0, 1, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 1));
+    },
+  },
+  {
+    // Stale values, as MAPS saves them: ModifyController leaves C2's signals
+    // on the slave indices they had before C1's alarm-code slave.
+    name: "multi-stale-ctrl2",
+    parent: "multi-base",
+    apply: (doc) => {
+      updateGroup(doc, 0, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 0));
+      updateGroup(doc, 1, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(1, 0));
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+    },
+  },
 ];
 
 const hasRefs = existsSync(`${REF_DIR}/base.ibmaps`);
@@ -119,11 +191,9 @@ function loadRef(name: RefName): XmlDocument {
   return XmlDocument.parse(readFileSync(`${REF_DIR}/${name}.ibmaps`, "utf8"));
 }
 
-/** The derived slave list is out of scope; the project name is the file name. */
+/** The project name is the file name. */
 function normalize(xml: string): string {
-  return xml
-    .replace(/\r\n *(<MBSlavesArray>[\s\S]*?<\/MBSlavesArray>|<MBSlavesArray \/>)/, "")
-    .replace(/ ProjectName="[^"]*"/, "");
+  return xml.replace(/ ProjectName="[^"]*"/, "");
 }
 
 function expectMatchesRef(doc: XmlDocument, name: RefName): void {
@@ -134,10 +204,17 @@ function expectMatchesRef(doc: XmlDocument, name: RefName): void {
   ours.mbs.forEach((signal, i) => expect({ i, ...signal }).toEqual({ i, ...theirs.mbs[i] }));
   ours.me.forEach((signal, i) => expect({ i, ...signal }).toEqual({ i, ...theirs.me[i] }));
 
+  expect(ours.slaves).toEqual(theirs.slaves);
   expect(normalize(doc.serialize())).toBe(normalize(ref.serialize()));
 
-  // Same project name so only the content differs; our slave list is kept.
+  // Same project name so only the content differs.
   const ourXml = doc.serialize().replace(/ ProjectName="[^"]*"/, ` ProjectName="${ref.getAttr([], "ProjectName")}"`);
+  if (name.startsWith("multi-stale-")) {
+    // Signals on the wrong slave: the generator refuses them (MBS-SLAVE-INDEX).
+    expect(() => generateMeMbsXbl(ourXml, { now: NOW })).toThrow(/wrong slave/);
+    expect(() => generateMeMbsXbl(ref.serialize(), { now: NOW })).toThrow(/wrong slave/);
+    return;
+  }
   if (ours.model.consumption.enabled) {
     // The XBL generator still refuses the consumption function (pending, own
     // branch: docs/plans/gaps-families-v11.md).
@@ -334,8 +411,64 @@ describe("ME-MBS signal engine", () => {
     expect(doc.serialize()).toBe(before);
   });
 
-  it("rejects regeneration outside FIXED address mode and single slave", () => {
-    for (const patch of [{ addressMode: 1 }, { addressMode: 2 }, { slaveAddressMode: 1 }] as const) {
+  describe("multiple slaves", () => {
+    function multipleProject(): XmlDocument {
+      const doc = emptyProject();
+      updateMbsConfig(doc, { slaveAddressMode: 1 });
+      return doc;
+    }
+    /** SlaveIndex of the Modbus signals of one block. */
+    const slaveOf = (e: MeMbsSignalEngine, controller: number, group: number) => [
+      ...new Set(e.mbs.filter((_, i) => e.me[i].g50Id === controller && e.me[i].groupId === group && e.me[i].unitId === -1).map((x) => x.slaveIndex)),
+    ];
+
+    it("moves the later groups back one slave when a group is disabled", () => {
+      const doc = multipleProject();
+      for (const group of [0, 1, 2]) setGroupEnabled(doc, 0, group, true);
+      setGroupEnabled(doc, 0, 1, false);
+      const e = MeMbsSignalEngine.fromXml(doc);
+      expect(e.slaves.map((x) => x.description)).toEqual(["General Controller 1", "C1G1", "C1G3"]);
+      expect(slaveOf(e, 0, 2)).toEqual([2]);
+      expect(e.mbs[indexOf(e, 0, 2, 0)].address).toBe(0);
+    });
+
+    it("shifts the alarm codes' SlaveIndex with the later groups, as MAPS (stale values)", () => {
+      const doc = multipleProject();
+      setGroupEnabled(doc, 0, 0, true);
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+      let e = MeMbsSignalEngine.fromXml(doc);
+      const alarm = () => e.mbs[indexOf(e, 0, -1, 0, 0)];
+      expect(alarm()).toMatchObject({ slaveIndex: -1, operations: [{ index: 2, inverted: false }] });
+      // Enabling G2 adds a slave before the alarm codes: MAPS adds 1 to
+      // their SlaveIndex and leaves the operation pointing at the old slave.
+      setGroupEnabled(doc, 0, 1, true);
+      e = MeMbsSignalEngine.fromXml(doc);
+      expect(e.slaves.map((x) => x.description)).toEqual([
+        "General Controller 1",
+        "C1G1",
+        "C1G2",
+        "Error Signals Controller 1",
+      ]);
+      expect(alarm()).toMatchObject({ slaveIndex: 0, operations: [{ index: 2, inverted: false }] });
+    });
+
+    it("keeps the other controller's slave indices on ModifyController, as MAPS (stale values)", () => {
+      const doc = multipleProject();
+      setGroupEnabled(doc, 0, 0, true);
+      setGroupEnabled(doc, 1, 0, true);
+      expect(slaveOf(MeMbsSignalEngine.fromXml(doc), 1, 0)).toEqual([3]);
+      // The alarm-code slave of C1 moves C2's slaves one position later.
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+      const e = MeMbsSignalEngine.fromXml(doc);
+      expect(e.slaves.findIndex((x) => x.description === "C2G1")).toBe(4);
+      expect(slaveOf(e, 1, 0)).toEqual([3]);
+    });
+  });
+
+  it("rejects regeneration outside FIXED address mode", () => {
+    for (const patch of [{ addressMode: 1 }, { addressMode: 2 }] as const) {
       const doc = emptyProject();
       updateMbsConfig(doc, patch);
       updateGroup(doc, 0, 0, { enabled: true });
@@ -416,7 +549,9 @@ describe.skipIf(!hasRefs)("ME-MBS signal regeneration vs MAPS reference files", 
   }
 
   it("replays the whole derivation from base, keeping the history", () => {
-    const docs = new Map<RefName, XmlDocument>([["base", loadRef("base")]]);
+    const docs = new Map<RefName, XmlDocument>(
+      (["base", "multi-base"] as const).map((name) => [name, loadRef(name)]),
+    );
     for (const step of STEPS) {
       const doc = XmlDocument.parse(docs.get(step.parent)!.serialize());
       step.apply(doc);

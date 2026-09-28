@@ -20,8 +20,10 @@ import {
   FORMATS,
   groupSignalOffset,
   SLAVE_ADDRESS_MODES,
+  type MbsSlave,
 } from "@/protocols/modbus/slave";
 import { readMbsConfig, readMeConfig } from "./from-xml";
+import { deriveMbSlaves, slaveIndexOf } from "./slaves";
 
 /**
  * ME-MBS signal regeneration, ported literally from the desktop tool
@@ -39,10 +41,12 @@ import { readMbsConfig, readMeConfig } from "./from-xml";
  * controller-general signals of a freshly created controller get
  * `idxExternal = idxConfig + 1`, and any later deletion renumbers them).
  *
- * Scope: FIXED address mode and SINGLE slave mode. The V4_COMP, CUSTOM and
- * MULTIPLE branches of the MAPS code are not ported; every handler rejects a
- * project that uses them (`UnsupportedRegenerationError`). MAPS'
- * `InitializeMbSlaves` (the derived `<MBSlavesArray>`) is out of scope too.
+ * The engine also keeps `mInternal.MbSlavesArray`, the Modbus slave list
+ * MAPS derives from the groups (`InitializeMbSlaves`) in both slave modes.
+ *
+ * Scope: FIXED address mode, SINGLE and MULTIPLE slave modes. The V4_COMP
+ * and CUSTOM branches of the MAPS code are not ported; every handler rejects
+ * a project that uses them (`UnsupportedRegenerationError`).
  */
 
 // --- objects -------------------------------------------------------------------
@@ -114,6 +118,8 @@ export interface EngineModel {
   consumption: { enabled: boolean; signalMode: number; units: number };
   addressMode: number;
   slaveAddressMode: number;
+  /** `RTUConfig SlaveNumber`: address of the first slave of the list. */
+  slaveNumber: number;
 }
 
 /** A regeneration was requested on a project outside the ported scope. */
@@ -144,8 +150,16 @@ export class MeMbsSignalEngine {
   readonly model: EngineModel;
   /** `base.AddressesStorer` (StoredHvacAddresses). */
   readonly addresses: HvacAddress[];
+  /** `mInternal.MbSlavesArray`. */
+  slaves: MbsSlave[];
 
-  constructor(model: EngineModel, mbs: MbsObject[], me: MeObject[], addresses: HvacAddress[] = []) {
+  constructor(
+    model: EngineModel,
+    mbs: MbsObject[],
+    me: MeObject[],
+    addresses: HvacAddress[] = [],
+    slaves: MbsSlave[] = [],
+  ) {
     if (mbs.length !== me.length) {
       throw new Error(`ME-MBS signal lists are not row-aligned (${mbs.length} Modbus vs ${me.length} ME)`);
     }
@@ -153,6 +167,7 @@ export class MeMbsSignalEngine {
     this.mbs = mbs;
     this.me = me;
     this.addresses = addresses;
+    this.slaves = slaves;
   }
 
   static fromXml(doc: XmlDocument): MeMbsSignalEngine {
@@ -169,12 +184,14 @@ export class MeMbsSignalEngine {
       },
       addressMode: mbsConfig.addressMode,
       slaveAddressMode: mbsConfig.slaveAddressMode,
+      slaveNumber: mbsConfig.rtu.slaveNumber,
     };
     return new MeMbsSignalEngine(
       model,
       doc.findAll(["InternalProtocol", "Signals", "Signal"]).map(parseMbsObject),
       doc.findAll(["ExternalProtocol", "Signals", "Signal"]).map(parseMeObject),
       doc.findAll(["HvacAddresses", "UserAddress"]).map(parseHvacAddress),
+      mbsConfig.slaves,
     );
   }
 
@@ -185,7 +202,39 @@ export class MeMbsSignalEngine {
     if (!internal || !external) throw new Error("Project has no <Signals> sections");
     replaceIndented(internal, this.mbs.map(mbsObjectXml), 3);
     replaceIndented(external, this.me.map(meObjectXml), 3);
+    this.writeSlavesTo(doc);
     this.writeAddressesTo(doc);
+  }
+
+  /**
+   * Rewrite `<MBSlavesArray>`, which `InternalMbs.GetXMLProtocol` writes only
+   * while the list has entries, between `<SlaveAddressMode>` and `<Signals>`.
+   */
+  writeSlavesTo(doc: XmlDocument): void {
+    const internal = doc.find(["InternalProtocol"]);
+    const signals = doc.find(["InternalProtocol", "Signals"]);
+    if (!internal || !signals) throw new Error("Project has no <InternalProtocol><Signals>");
+    const stored = doc.find(["InternalProtocol", "MBSlavesArray"]);
+    if (this.slaves.length === 0) {
+      if (stored) removeWithIndent(stored);
+      return;
+    }
+    let el = stored;
+    if (!el) {
+      el = element("MBSlavesArray");
+      el.parent = internal;
+      internal.children.splice(internal.children.indexOf(signals), 0, el, text(`${LINE_ENDING}${INDENT_UNIT.repeat(2)}`));
+    }
+    replaceIndented(
+      el,
+      this.slaves.map((x) =>
+        element("MBSlave", [
+          ["Address", String(x.address)],
+          ["Description", x.description],
+        ]),
+      ),
+      3,
+    );
   }
 
   /**
@@ -228,9 +277,19 @@ export class MeMbsSignalEngine {
   enableGroup(controller: number, group: number): void {
     this.assertSupported();
     const g50 = this.controller(controller);
+    this.initializeMbSlaves();
     if (g50.groups[group].enabled) {
       this.createControllerSignals(g50, controller !== 0 ? this.me.length : 0);
       this.createGroupSignals(g50, controller, group + 1);
+      if (this.multipleSlaves()) {
+        // The Modbus signals after the new group move to the next slave.
+        // Alarm codes (SlaveIndex -1) are shifted too, as in MAPS.
+        const own = this.me.filter((x) => x.groupId === group && x.g50Id === g50.index);
+        if (own.length > 0) {
+          const configId = own[own.length - 1].configId;
+          for (const x of this.mbs) if (x.configId > configId) x.slaveIndex++;
+        }
+      }
       if (
         g50.addErrorSignals &&
         this.me.filter((x) => x.g50Id === g50.index && x.unitId !== -1).length === 0
@@ -262,6 +321,7 @@ export class MeMbsSignalEngine {
     const g50 = this.controller(controller);
     if (!g50.groups.some((g) => g.enabled)) return;
     this.assertSupported();
+    this.initializeMbSlaves();
     this.deleteDescending(this.me.filter((x) => x.g50Id === controller));
     this.createControllerSignals(g50, controller !== 0 ? this.me.length : 0);
     for (let num = 0; num < g50.groups.length; num++) {
@@ -279,6 +339,7 @@ export class MeMbsSignalEngine {
     this.assertSupported();
     const userMbs = this.mbs.slice();
     const userMe = this.me.slice();
+    this.initializeMbSlaves();
     this.mbs = [];
     this.me = [];
     this.initializeControllers();
@@ -303,11 +364,17 @@ export class MeMbsSignalEngine {
    * / multiple slave radio buttons send. Unlike `initializeAndRestore`, the
    * lists are not cleared first, so `InitializeControllers` deletes and
    * recreates controller by controller.
+   *
+   * Deliberate divergence: MAPS reuses the slave list it already derived;
+   * the web app derives it again first, since the list used to be editable
+   * here and a project saved from the web may not match its groups. With a
+   * list that matches, the result is the same.
    */
   slaveAddressModeChanged(): void {
     this.assertSupported();
     const userMbs = this.mbs.slice();
     const userMe = this.me.slice();
+    this.initializeMbSlaves();
     this.initializeControllers();
     this.restoreUserConfig(userMbs, userMe);
   }
@@ -321,11 +388,20 @@ export class MeMbsSignalEngine {
         `ME-MBS signal regeneration supports only the FIXED address mode; this project uses the ${mode} mode`,
       );
     }
-    if (this.model.slaveAddressMode !== SLAVE_ADDRESS_MODES.SINGLE) {
-      throw new UnsupportedRegenerationError(
-        "ME-MBS signal regeneration supports only the single Modbus slave mode; this project uses multiple slaves",
-      );
-    }
+  }
+
+  private multipleSlaves(): boolean {
+    return this.model.slaveAddressMode === SLAVE_ADDRESS_MODES.MULTIPLE;
+  }
+
+  /** `InitializeMbSlaves` (P:3102). */
+  private initializeMbSlaves(): void {
+    this.slaves = deriveMbSlaves(this.model.controllers, this.model.slaveNumber);
+  }
+
+  /** `GetSlaveIndex` (P:1652). */
+  private getSlaveIndex(g50Index: number, group: MeGroupInfo | null, isErrorCode = false): number {
+    return slaveIndexOf(this.model.controllers, this.model.slaveNumber, this.slaves, g50Index, group, isErrorCode);
   }
 
   private controller(position: number): MeControllerInfo {
@@ -436,7 +512,14 @@ export class MeMbsSignalEngine {
   private deleteGroupSignals(g50: MeControllerInfo, enabledIndex: number): void {
     if (enabledIndex === 0) return;
     const groupIndex = enabledIndex - 1;
-    this.deleteDescending(this.me.filter((x) => x.groupId === groupIndex && x.g50Id === g50.index));
+    const own = this.me.filter((x) => x.groupId === groupIndex && x.g50Id === g50.index);
+    if (this.multipleSlaves() && own.length > 0) {
+      // The Modbus signals after the group move to the previous slave.
+      // Alarm codes (SlaveIndex -1) are shifted too, as in MAPS.
+      const configId = Math.max(...own.map((x) => x.configId));
+      for (const x of this.mbs) if (x.configId > configId) x.slaveIndex--;
+    }
+    this.deleteDescending(own);
   }
 
   /** `InitializeControllers` (P:3165). */
@@ -525,7 +608,7 @@ export class MeMbsSignalEngine {
   /** `CreateThisControllerSignals` (P:1574): the 30 controller-general signals. */
   private createThisControllerSignals(g50: MeControllerInfo, configId: number): void {
     let idx = configId !== -1 ? configId : this.mbs.length;
-    const slaveIndex = -1;
+    const slaveIndex = this.multipleSlaves() ? this.getSlaveIndex(g50.index, null) : -1;
     // [signalSpecIndex, readWrite, conversionID]
     const internal: Array<[number, number, number]> = [
       [0, 0, -1], [1, 1, -1], [2, 1, 3], [3, 1, 2], [4, 1, 2], [5, 1, 3], [6, 1, 4],
@@ -570,7 +653,7 @@ export class MeMbsSignalEngine {
     const bigModel = controllerModel === EB_50GU || controllerModel === AE_200 || controllerModel === AE_C400E;
     const newModel = compatibility === COMPATIBILITY_MODES.NEW_MODEL;
     const g = group.index;
-    const slaveIndex = -1;
+    const slaveIndex = this.multipleSlaves() ? this.getSlaveIndex(g50Index, group) : -1;
 
     // --- Modbus side
     let num = configId !== -1 ? configId : this.mbs.length;
@@ -730,8 +813,13 @@ export class MeMbsSignalEngine {
   /** `CreateErrorSignalsWithParams` (P:2247): 50 indoor + 50 outdoor alarm codes. */
   private createErrorSignalsWithParams(g50: MeControllerInfo, configId: number): void {
     let num = configId !== -1 ? configId : this.mbs.length;
-    for (let i = 1; i <= 50; i++) this.createMeMbsUnitObject(g50.index, i, num++, true);
-    for (let j = 51; j <= 100; j++) this.createMeMbsUnitObject(g50.index, j, num++, false);
+    // MAPS quirk, reproduced as is: in MULTIPLE mode the alarm codes' slave
+    // index goes to the unit overload of CreateMEMBSObject, whose parameter
+    // in that position is the conversion: the signals keep SlaveIndex -1 and
+    // get an operation with the slave index.
+    const conversionId = this.multipleSlaves() ? this.getSlaveIndex(g50.index, null, true) : -1;
+    for (let i = 1; i <= 50; i++) this.createMeMbsUnitObject(g50.index, i, num++, true, conversionId);
+    for (let j = 51; j <= 100; j++) this.createMeMbsUnitObject(g50.index, j, num++, false, conversionId);
     num = configId !== -1 ? configId : this.me.length;
     for (let k = 0; k < 100; k++) {
       this.createMeObject(num, num++, -1, g50.index, k, k < 50, false, true, true, 0, 0);
@@ -751,7 +839,13 @@ export class MeMbsSignalEngine {
    * does keep the alarm-code activation: `RestoreUserConfig` matches by the
    * ME identity, unit included.
    */
-  private createMeMbsUnitObject(g50Index: number, unitIdx: number, idxConfig: number, isIndoor: boolean): void {
+  private createMeMbsUnitObject(
+    g50Index: number,
+    unitIdx: number,
+    idxConfig: number,
+    isIndoor: boolean,
+    conversionId: number,
+  ): void {
     const signalIdx = 0;
     const active = this.getActiveFromUnit(true, signalIdx, isIndoor ? unitIdx : -1, isIndoor ? -1 : unitIdx, g50Index);
     this.createMbsObject({
@@ -766,7 +860,7 @@ export class MeMbsSignalEngine {
       isFixed: true,
       isVirtual: false,
       isGeneral: false,
-      conversionId: -1,
+      conversionId,
       inverted: false,
       slaveIndex: -1,
     });
@@ -932,7 +1026,7 @@ export class MeMbsSignalEngine {
     return match ? match.enabled : defaultActive;
   }
 
-  /** `GetAddressFromSignal` (P:2733), FIXED mode. */
+  /** `GetAddressFromSignal` (P:2733), FIXED mode; with a slave, addresses are relative to it. */
   private getAddressFromSignal(
     g50Idx: number,
     groupIdx: number,

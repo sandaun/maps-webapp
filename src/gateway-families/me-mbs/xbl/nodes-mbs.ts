@@ -62,14 +62,19 @@ export function buildMbsSignalItem(signal: EnabledMbsSignal, registerBase: numbe
   return out;
 }
 
-/** Port of InternalMbs.CreateRTUConfigNode (InternalMbs.cs:716-738). */
-function buildRtuConfigNode(rtu: MeMbsXblPipelineResult["mbs"]["rtu"]): XblElementSpec {
+/**
+ * Port of InternalMbs.CreateRTUConfigNode (InternalMbs.cs:737-761). The
+ * slave number (tag 5) is left out when the slave list is used
+ * (`UseMbSlavesArray`: MULTIPLE mode with slaves), as the MAPS XBL of
+ * `multi-ctrl-2` confirms.
+ */
+function buildRtuConfigNode(rtu: MeMbsXblPipelineResult["mbs"]["rtu"], useSlavesArray: boolean): XblElementSpec {
   return container(4, [
     node(1, u32be(rtu.baudrate)),
     node(2, new Uint8Array([rtu.dataBits & 0xff])),
     node(3, new Uint8Array([rtu.parity & 0xff])),
     node(4, new Uint8Array([rtu.stopBits & 0xff])),
-    node(5, new Uint8Array([rtu.slaveNumber & 0xff])),
+    ...(useSlavesArray ? [] : [node(5, new Uint8Array([rtu.slaveNumber & 0xff]))]),
     node(6, new Uint8Array([rtu.connectionType & 0xff])),
   ]);
 }
@@ -80,9 +85,8 @@ function buildTcpConfigNode(tcp: MeMbsXblPipelineResult["mbs"]["tcp"]): XblEleme
 }
 
 /**
- * Port of MBSlave.GenerateXblItem (MBSlave.cs:38-54). UNVERIFIED: only
- * exercised in MULTIPLE slave mode; the real fixture runs SINGLE mode, which
- * omits the whole slaves node.
+ * Port of MBSlave.GenerateXblItem (MBSlave.cs:38-54). Only used in MULTIPLE
+ * slave mode; verified against the MAPS XBL of `multi-ctrl-2`.
  */
 function buildSlaveItem(slave: EnabledMbSlave): XblElementSpec[] {
   return [
@@ -94,6 +98,8 @@ function buildSlaveItem(slave: EnabledMbSlave): XblElementSpec[] {
 
 /** Port of InternalMbs.CreateInternalXBLNode (InternalMbs.cs:646-694). */
 export function buildMbsNode(mbs: MeMbsXblPipelineResult["mbs"]): XblElementSpec {
+  // InternalMbs.UseMbSlavesArray (InternalMbs.cs:387).
+  const useSlavesArray = mbs.slaveAddressMode === SLAVE_MODE_MULTIPLE && mbs.slaves.length > 0;
   const children: XblElementSpec[] = [
     node(1, new Uint8Array([mbs.media & 0xff])),
     node(2, new Uint8Array([mbs.byteOrder & 0xff])),
@@ -105,7 +111,7 @@ export function buildMbsNode(mbs: MeMbsXblPipelineResult["mbs"]): XblElementSpec
     children.push(node(7, u32be((mbs.commErrorTout * 1000) >>> 0)));
   }
   if (mbs.media !== 1) {
-    children.push(buildRtuConfigNode(mbs.rtu));
+    children.push(buildRtuConfigNode(mbs.rtu, useSlavesArray));
   }
   if (mbs.media !== 0) {
     children.push(buildTcpConfigNode(mbs.tcp));
@@ -115,7 +121,7 @@ export function buildMbsNode(mbs: MeMbsXblPipelineResult["mbs"]): XblElementSpec
       container(6, [array(mbs.signals.map((s) => buildMbsSignalItem(s, mbs.registerBase)))]),
     );
   }
-  if (mbs.slaveAddressMode === SLAVE_MODE_MULTIPLE && mbs.slaves.length > 0) {
+  if (useSlavesArray) {
     children.push(container(8, [array(mbs.slaves.map(buildSlaveItem))]));
   }
   return container(9, children);

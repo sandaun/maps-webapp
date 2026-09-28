@@ -198,16 +198,7 @@ describe("project service — me-mbs family", () => {
     const view = await applyPatches(meta.id, [
       { type: "updateSignal", id: 0, patch: { description: "Comm error (edited)" } },
       { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
-      {
-        type: "updateMbsConfig",
-        patch: {
-          addressMode: 1,
-          slaves: [
-            { address: 3, description: "General Controller 1" },
-            { address: 5, description: "C1G2" },
-          ],
-        },
-      },
+      { type: "updateMbsConfig", patch: { addressMode: 1 } },
       { type: "updateRtuConfig", patch: { slaveNumber: 11 } },
       { type: "updateGroup", controllerIndex: 0, groupIndex: 0, patch: { capacity: 8 } },
       { type: "updateMeScalars", patch: { pollPeriod: 250 } },
@@ -220,9 +211,10 @@ describe("project service — me-mbs family", () => {
     expect(view.project.mbs.commErrorTout).toBe(60);
     expect(view.project.mbs.addressMode).toBe(1);
     expect(view.project.mbs.registerBase).toBe(0);
+    // A new slave number moves the derived slave list (UpdateMBArrayNewSlaveNum).
     expect(view.project.mbs.slaves).toEqual([
-      { address: 3, description: "General Controller 1" },
-      { address: 5, description: "C1G2" },
+      { address: 11, description: "General Controller 1" },
+      { address: 12, description: "C1G1" },
     ]);
     expect(view.project.mbs.rtu.slaveNumber).toBe(11);
     expect(view.project.me.controllers[0].groups[0].capacity).toBe(8);
@@ -260,16 +252,27 @@ describe("project service — me-mbs family", () => {
     );
   });
 
-  it("rejects me-mbs changes that would regenerate signals outside FIXED and single slave with 422", async () => {
+  it("rejects edits of the derived me-mbs slave list with 409", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const error = await applyPatches(meta.id, [
+      // @ts-expect-error the slave list is not part of the patch any more
+      { type: "updateMbsConfig", patch: { slaves: [{ address: 3, description: "Edited" }] } },
+    ]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProjectServiceError);
+    expect((error as ProjectServiceError).status).toBe(409);
+    expect((error as ProjectServiceError).message).toMatch(/derived from the enabled groups/);
+  });
+
+  it("rejects me-mbs changes that would regenerate signals outside FIXED with 422", async () => {
     const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
     const before = await getProjectView(meta.id);
-    const toMultiple = await applyPatches(meta.id, [
+    const toV4 = await applyPatches(meta.id, [
       { type: "updateMbsConfig", patch: { commErrorTout: 60 } },
-      { type: "updateMbsConfig", patch: { slaveAddressMode: 1 } },
+      { type: "updateMbsConfig", patch: { addressMode: 2 } },
     ]).catch((e: unknown) => e);
-    expect(toMultiple).toBeInstanceOf(ProjectServiceError);
-    expect((toMultiple as ProjectServiceError).status).toBe(422);
-    expect((toMultiple as ProjectServiceError).message).toMatch(/single Modbus slave/);
+    expect(toV4).toBeInstanceOf(ProjectServiceError);
+    expect((toV4 as ProjectServiceError).status).toBe(422);
+    expect((toV4 as ProjectServiceError).message).toMatch(/V4 compatibility/);
 
     await applyPatches(meta.id, [{ type: "updateMbsConfig", patch: { addressMode: 1 } }]);
     const inCustom = await applyPatches(meta.id, [

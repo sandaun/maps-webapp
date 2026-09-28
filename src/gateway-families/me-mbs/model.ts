@@ -40,6 +40,11 @@ export interface MbsEndpoint {
   stringLength: number;
   /** -1 in SINGLE slave mode. */
   slaveIndex: number;
+  /**
+   * Conversion indices of `IdxOperations`. In MULTIPLE mode MAPS stores the
+   * alarm codes' slave index here (see `slaves.ts`).
+   */
+  operations: number[];
 }
 
 export interface MeMbsSignal {

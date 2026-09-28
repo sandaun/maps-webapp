@@ -352,29 +352,6 @@ export function propertyFields(view: ProjectView): PropertyField[] {
         ["keepAlive", "keepalive", "Keep alive", integer()],
       ],
     );
-    mbs.slaves.forEach((slave, index) => {
-      for (const key of ["address", "description"] as const) {
-        fields.push({
-          id: `cfg-mbs-slaves-${index}-${key}`,
-          group: "mbs",
-          key: `slaves.${index}.${key}`,
-          label: `Slave ${index + 1} · ${key === "address" ? "Address" : "Description"}`,
-          screen: config,
-          section: "bms",
-          base: slave[key],
-          positional: true,
-          ...(key === "address" ? integer(1, 247) : text()),
-          patch: (value) => ({
-            type: "updateMbsConfig",
-            patch: {
-              slaves: mbs.slaves.map((s, i) =>
-                i === index ? { ...s, [key]: value } : { ...s },
-              ),
-            },
-          }),
-        });
-      }
-    });
     add(
       "me",
       "device",
@@ -662,23 +639,16 @@ function validateOwnValue(field: PropertyField, raw: PropertyValue): string | un
     return "Choose a supported value.";
 }
 
-/** Merge leaf patches without resending stale siblings (including the slaves array). */
+/** Merge leaf patches without resending stale siblings. */
 export function buildPropertyPatches(
   fields: PropertyField[],
   edits: Record<string, PropertyValue>,
   view: ProjectView,
 ): ProjectPatchInput[] {
   const merged = new Map<string, ProjectPatchInput>();
-  let slaves: { address: number; description: string }[] | undefined;
   for (const field of fields) {
     if (!(field.id in edits)) continue;
     const value = fieldValue(field, edits[field.id]);
-    if (field.key.startsWith("slaves.") && view.family === "me-mbs") {
-      slaves ??= view.project.mbs.slaves.map((s) => ({ ...s }));
-      const [, index, key] = field.key.split(".");
-      slaves[Number(index)] = { ...slaves[Number(index)], [key]: value };
-      continue;
-    }
     const patch = field.patch(value);
     const { patch: leaf, ...target } = patch as ProjectPatchInput & {
       patch?: Record<string, unknown>;
@@ -711,16 +681,6 @@ export function buildPropertyPatches(
       (field) => field.group === `dev-cc-${patch.controllerIndex}` && field.key === "port",
     );
     if (port) merged.set(key, { ...patch, patch: { ...patch.patch, port: port.base as number } });
-  }
-  if (slaves) {
-    const previous = merged.get(JSON.stringify({ type: "updateMbsConfig" }));
-    merged.set(JSON.stringify({ type: "updateMbsConfig" }), {
-      type: "updateMbsConfig",
-      patch: {
-        ...(previous?.type === "updateMbsConfig" ? previous.patch : {}),
-        slaves,
-      },
-    });
   }
   return [...merged.values()];
 }
