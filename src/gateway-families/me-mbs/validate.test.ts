@@ -99,6 +99,15 @@ describe("validateProject", () => {
       expect(codes(multiple(apply))).toContain("MBS-SLAVE-INDEX");
     });
 
+    it("checks the spec addresses relative to each slave", () => {
+      const project = multiple((doc) => {
+        updateGroupAndSignals(doc, 0, 0, { enabled: true });
+        updateGroupAndSignals(doc, 1, 0, { enabled: true });
+      });
+      expect(project.signals.some((s) => s.modbus.slaveIndex > 0)).toBe(true);
+      expect(codes(project)).not.toContain("ME-SPEC-ADDRESS");
+    });
+
     it("reports a slave list that does not match the groups", () => {
       const project = multiple((doc) => updateGroupAndSignals(doc, 0, 0, { enabled: true }));
       project.mbs.slaves[1] = { ...project.mbs.slaves[1], address: 9 };

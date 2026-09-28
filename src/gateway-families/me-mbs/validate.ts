@@ -206,13 +206,15 @@ function validateSignal(
     }
   }
 
-  // --- spec/address consistency (FIXED / V4_COMP derivable maps only)
+  // --- spec/address consistency (FIXED / V4_COMP derivable maps only;
+  // relative to the signal's slave in MULTIPLE mode)
   if (known && project.mbs.addressMode !== 1 /* CUSTOM */) {
     const expected = getSignalAddress(project.mbs.addressMode, {
       g50Index: signal.me.g50Index,
       groupIndex: signal.me.groupIndex,
       unitIndex: signal.me.unitId,
       signalSpecIndex: spec,
+      slaveIndex: signal.modbus.slaveIndex,
     });
     if (expected !== null && expected !== signal.modbus.address) {
       issues.push({
