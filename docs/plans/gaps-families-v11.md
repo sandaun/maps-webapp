@@ -28,7 +28,7 @@ Git).
 
 | Pendent | Estat | Notes |
 |---|---|---|
-| Mode d'esclaus MULTIPLE | [fet 2026-09-28] | validat amb els fitxers `multi-*`; els índexs d'esclau que MAPS deixa desactualitzats es reprodueixen però bloquegen el desplegament (`MBS-SLAVE-INDEX`). XBL verificat byte a byte amb el de MAPS (`multi-ctrl-2`). Pendent: confirmar aquests dos casos amb fitxers de MAPS (`me-mbs-regeneracio-senyals.md` §6) |
+| Mode d'esclaus MULTIPLE | [fet 2026-09-28] | validat amb els fitxers `multi-*`; els índexs d'esclau que MAPS deixa desactualitzats es reprodueixen però bloquegen el desplegament (`MBS-SLAVE-INDEX`). XBL verificat byte a byte amb el de MAPS (`multi-ctrl-2`). Els dos casos d'índexs desactualitzats, confirmats amb `multi-stale-errors` i `multi-stale-ctrl2` (`me-mbs-regeneracio-senyals.md` §6) |
 | Llista d'esclaus derivada dels grups (`InitializeMbSlaves`) | [fet 2026-09-28] | de només lectura a la UI i rebutjada a l'API (409); es desplaça amb el número d'esclau; `MBS-SLAVE-ADDRESS-RANGE` si passa de 255 |
 | Modes V4_COMP i CUSTOM | [falta] | avui es rebutgen amb un 422 els canvis que regeneren senyals; cal portar-los amb fitxers de referència propis (V4: `v4-grup-on`, `v4-setpoint-x1`; CUSTOM va amb l'editor de registres, 1.4) |
 | Assignació de comptadors en habilitar grups amb consum | [falta] | MAPS crida `GenerateAssignmentsList`; va amb l'assignació de meters (1.1) |

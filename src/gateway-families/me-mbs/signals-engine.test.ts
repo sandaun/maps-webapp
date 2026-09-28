@@ -38,7 +38,9 @@ type RefName =
   | "multi-grups"
   | "multi-grups-mig"
   | "multi-errors"
-  | "multi-ctrl-2";
+  | "multi-ctrl-2"
+  | "multi-stale-errors"
+  | "multi-stale-ctrl2";
 
 interface Step {
   name: RefName;
@@ -153,6 +155,34 @@ const STEPS: Step[] = [
       regenerate(doc, (e) => e.enableGroup(1, 0));
     },
   },
+  {
+    // Stale values, as MAPS saves them: the +1 of EnableGroup also moves the
+    // alarm codes' SlaveIndex (-1 → 0) and leaves their operation behind.
+    name: "multi-stale-errors",
+    parent: "multi-base",
+    apply: (doc) => {
+      updateGroup(doc, 0, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 0));
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+      updateGroup(doc, 0, 1, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 1));
+    },
+  },
+  {
+    // Stale values, as MAPS saves them: ModifyController leaves C2's signals
+    // on the slave indices they had before C1's alarm-code slave.
+    name: "multi-stale-ctrl2",
+    parent: "multi-base",
+    apply: (doc) => {
+      updateGroup(doc, 0, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(0, 0));
+      updateGroup(doc, 1, 0, { enabled: true });
+      regenerate(doc, (e) => e.enableGroup(1, 0));
+      updateController(doc, 0, { addErrorSignals: true });
+      regenerate(doc, (e) => e.modifyController(0));
+    },
+  },
 ];
 
 const hasRefs = existsSync(`${REF_DIR}/base.ibmaps`);
@@ -179,6 +209,12 @@ function expectMatchesRef(doc: XmlDocument, name: RefName): void {
 
   // Same project name so only the content differs.
   const ourXml = doc.serialize().replace(/ ProjectName="[^"]*"/, ` ProjectName="${ref.getAttr([], "ProjectName")}"`);
+  if (name.startsWith("multi-stale-")) {
+    // Signals on the wrong slave: the generator refuses them (MBS-SLAVE-INDEX).
+    expect(() => generateMeMbsXbl(ourXml, { now: NOW })).toThrow(/wrong slave/);
+    expect(() => generateMeMbsXbl(ref.serialize(), { now: NOW })).toThrow(/wrong slave/);
+    return;
+  }
   if (ours.model.consumption.enabled) {
     // The XBL generator still refuses the consumption function (pending, own
     // branch: docs/plans/gaps-families-v11.md).

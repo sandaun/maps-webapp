@@ -47,6 +47,8 @@ mateix minut).
 | `multi-grups-mig` | `multi-grups` | C1 G2 habilitat | `EnableGroup` (+1 als esclaus de G3) | 132 (esclaus 1–4) |
 | `multi-errors` | `multi-grups-mig` | C1 amb «Individual error signals» | `ModifyController` | 232 (esclau 5 per als errors) |
 | `multi-ctrl-2` | `multi-errors` | C2 G1 habilitat | `EnableGroup` | 296 (esclaus 6–7) |
+| `multi-stale-errors` | `multi-base` | C1 G1, errors de C1, C1 G2 | `EnableGroup`, `ModifyController`, `EnableGroup` | 198 (errors amb `SlaveIndex` 0, §6) |
+| `multi-stale-ctrl2` | `multi-base` | C1 G1, C2 G1, errors de C1 | `EnableGroup` ×2, `ModifyController` | 228 (C2 amb els índexs antics, §6) |
 
 - `grup-tipus` també es podria obtenir des de `grup-off` (tornar a habilitar
   G2 i canviar el tipus) amb el mateix resultat; les proves fan servir el
@@ -205,15 +207,17 @@ rebutja sencer amb un 422 i no es desa res.
   perquè fins ara s'hi podia editar a mà i un projecte desat des de la web
   pot no coincidir amb els grups. Amb una llista correcta el resultat és el
   mateix.
-- **Índexs d'esclau desactualitzats (MULTIPLE), pendent de confirmar amb
-  fitxers de MAPS:** deduïts del descompilat, cap fitxer de referència hi
-  passa. (1) El +1/−1 del §5.13 també toca els senyals d'error: habilitar un
+- **Índexs d'esclau desactualitzats (MULTIPLE), confirmats amb fitxers de
+  MAPS:** (1) el +1/−1 del §5.13 també toca els senyals d'error: habilitar un
   grup del mateix controlador després d'activar-los els deixa amb
-  `SlaveIndex = 0`, i la conversió continua apuntant a l'esclau antic.
-  (2) `ModifyController` no toca l'altre controlador: activar els errors de
-  C1 afegeix un esclau davant dels de C2, però els senyals de C2 conserven
-  l'índex antic. Com que l'XBL els copia (§5.15), la passarel·la
-  contestaria aquests senyals a l'esclau equivocat. La webapp els reprodueix
+  `SlaveIndex = 0`, i la conversió continua apuntant a l'esclau antic
+  (`multi-stale-errors`). (2) `ModifyController` no toca l'altre
+  controlador: activar els errors de C1 afegeix un esclau davant dels de C2,
+  però els senyals de C2 conserven l'índex antic (`multi-stale-ctrl2`). La
+  webapp desa tots dos fitxers igual que MAPS. L'XBL que genera MAPS per a
+  `multi-stale-errors` els copia tal qual: els 100 senyals d'error surten a
+  l'esclau 0 («General Controller 1») i l'esclau «Error Signals Controller 1»
+  queda buit, així que la passarel·la els contestaria a l'esclau equivocat. La webapp els reprodueix
   com MAPS, però els detecta (`slaveIndexMismatches`, `slaves.ts`): error de
   validació `MBS-SLAVE-INDEX`, porta `project` del desplegament tancada i
   generador d'XBL que s'hi nega. Es refan canviant el mode d'esclaus a Single
@@ -262,12 +266,14 @@ rebutja sencer amb un 422 i no es desa res.
 **Validat amb fitxers desats amb MAPS** (`signals-engine.test.ts`,
 `regeneration.test.ts`; s'executen si hi ha `.local-data`):
 
-- Els dotze passos del §2 (FIXED i MULTIPLE), cadascun des del seu pare i la
+- Els catorze passos del §2 (FIXED i MULTIPLE, els dos d'índexs
+  desactualitzats inclosos), cadascun des del seu pare i la
   cadena sencera: senyals idèntics camp per camp (`idxExternal` i
   `SlaveIndex` inclosos) i XML sencer idèntic llevat de `ProjectName`,
   `MBSlavesArray` inclòs. També a través dels patches reals de l'API.
 - El nostre XBL de l'XML regenerat és idèntic byte a byte al que el nostre
-  generador fa de l'XML de MAPS, en tots els passos llevat de `consum`.
+  generador fa de l'XML de MAPS, en tots els passos llevat de `consum` i dels
+  dos d'índexs desactualitzats, on el generador es nega en tots dos casos.
 - **XBL de MAPS en MULTIPLE:** `IntesisMAPS.exe -i <projecte> -o <sortida>
   -compID 64` (`CmdUtils.cs`, `Program.cs:98`) genera l'XBL sense
   passarel·la. Rebutja un projecte sense contrasenya de la passarel·la, així
@@ -281,8 +287,9 @@ rebutja sencer amb un 422 i no es desa res.
 s'executen sempre):
 
 - Senyal 46 (§5.2), segon controlador (§5.3), `InitializeControllers` en
-  canviar de mode (§5.6), −1 en deshabilitar un grup en MULTIPLE i els dos
-  casos d'índexs desactualitzats (§6), desplaçament de la llista amb el
+  canviar de mode (§5.6), −1 en deshabilitar un grup en MULTIPLE i la
+  reparació dels índexs desactualitzats amb Single → Multiple (§6),
+  desplaçament de la llista amb el
   número d'esclau, `HvacAddresses` (desar, recuperar, format XML),
   senyals d'error (§5.8), regles dels formularis (§5.9) llevat de la de BU,
   que sí que surt a `grup-tipus`.

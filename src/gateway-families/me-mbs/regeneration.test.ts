@@ -286,7 +286,9 @@ type RefName =
   | "multi-grups"
   | "multi-grups-mig"
   | "multi-errors"
-  | "multi-ctrl-2";
+  | "multi-ctrl-2"
+  | "multi-stale-errors"
+  | "multi-stale-ctrl2";
 
 /** The reference derivation (signals-engine.test.ts), as the API patches send it. */
 const PATCH_STEPS: Array<{ name: RefName; parent: RefName; apply: (doc: XmlDocument) => void }> = [
@@ -310,6 +312,24 @@ const PATCH_STEPS: Array<{ name: RefName; parent: RefName; apply: (doc: XmlDocum
   { name: "multi-grups-mig", parent: "multi-grups", apply: (d) => updateGroupAndSignals(d, 0, 1, { enabled: true }) },
   { name: "multi-errors", parent: "multi-grups-mig", apply: (d) => updateControllerAndSignals(d, 0, { addErrorSignals: true }) },
   { name: "multi-ctrl-2", parent: "multi-errors", apply: (d) => updateGroupAndSignals(d, 1, 0, { enabled: true }) },
+  {
+    name: "multi-stale-errors",
+    parent: "multi-base",
+    apply: (d) => {
+      updateGroupAndSignals(d, 0, 0, { enabled: true });
+      updateControllerAndSignals(d, 0, { addErrorSignals: true });
+      updateGroupAndSignals(d, 0, 1, { enabled: true });
+    },
+  },
+  {
+    name: "multi-stale-ctrl2",
+    parent: "multi-base",
+    apply: (d) => {
+      updateGroupAndSignals(d, 0, 0, { enabled: true });
+      updateGroupAndSignals(d, 1, 0, { enabled: true });
+      updateControllerAndSignals(d, 0, { addErrorSignals: true });
+    },
+  },
 ];
 
 function normalize(xml: string): string {
