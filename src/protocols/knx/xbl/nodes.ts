@@ -1,5 +1,7 @@
 /**
- * XBL writer for the KNX internal protocol node (tag 4).
+ * XBL writer for the KNX protocol node (tag 4). MAPS builds the same node
+ * whether KNX is the internal side (`InternalKnx`, KNX–MBM) or the external
+ * one (`ExternalKnx.CreateExternalXBLNode`, MBS–KNX: ExternalKnx.cs:1221-1255).
  *
  * Provenance: `InternalKnx.CreateInternalXBLNode` and its helpers
  * (temp/maps-cloud/maps-poc/decompiled/IntesisMAPS/IntesisBoxMAPS.Protocols.KNX.Internal/InternalKnx.cs:838-872,
@@ -7,7 +9,6 @@
  * `GetTypeFromDPT` (IntesisBoxMAPS.Protocols.KNX/IntesisKnx.cs:322-421).
  */
 
-import type { EnabledKnxObject, XblPipelineResult } from "./pipeline";
 import {
   array,
   container,
@@ -17,6 +18,7 @@ import {
   utf8,
   type XblElementSpec,
 } from "@/core/xbl";
+import type { EnabledKnxObject, KnxXblNode } from "./parse";
 
 /**
  * DPT main number → KNX type byte (IntesisKnx.GetTypeFromDPT switch,
@@ -149,7 +151,7 @@ function buildKnxConfigNode(objects: EnabledKnxObject[]): XblElementSpec {
  * Port of InternalKnx.CreateInternalXBLNode (:838-872). NOTE the child order
  * is positional and NOT tag-ordered: 6, 7, 8, 9, 11, 10, 12.
  */
-export function buildKnxNode(knx: XblPipelineResult["knx"]): XblElementSpec {
+export function buildKnxNode(knx: KnxXblNode): XblElementSpec {
   const keys = new Uint8Array(12);
   // Keys: 4 UTF-8 bytes each into a zero-padded 12B buffer (InternalKnx.cs:844-848).
   knx.keys.forEach((key, i) => {

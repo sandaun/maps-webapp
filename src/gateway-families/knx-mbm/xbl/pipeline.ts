@@ -3,9 +3,9 @@
  * structures the MAPS XBL writers consume, porting
  * `IntesisProjectKnxMbm.PreXBLActions`
  * (temp/maps-cloud/maps-poc/decompiled/IntesisMAPS/IntesisBoxMAPS.Projects/IntesisProjectKnxMbm.cs:310-396)
- * and the parsers in `InternalKnx.ParseProtocolXML` / `KnxComObject(XmlNode)` /
- * `ExternalMbm.ParseProtocolXML` / `ParseMBMObjects` / `MbmRtuNode(XmlNode)` /
- * `MbmTcpNode(XmlNode)` / `MbmDevice(XmlNode)`.
+ * and the parsers in `ExternalMbm.ParseProtocolXML` / `ParseMBMObjects` /
+ * `MbmRtuNode(XmlNode)` / `MbmTcpNode(XmlNode)` / `MbmDevice(XmlNode)`. The
+ * KNX side (`KnxComObject(XmlNode)`) comes from `src/protocols/knx/xbl`.
  *
  * The generator works from the XmlDocument directly (not the UI model in
  * `../model.ts`) because the writers need fields the model deliberately drops
@@ -29,26 +29,20 @@ import {
   type ConversionIdRef,
   type ParsedConversion,
 } from "@/core/xbl";
-import { parseGroupAddress } from "@/protocols/knx";
+import {
+  parseKnxObjects,
+  parseKnxXblSettings,
+  type EnabledKnxObject,
+  type KnxXblNode,
+} from "@/protocols/knx/xbl";
 
 // --- parsed (pre-XBL) structures -------------------------------------------
 
 // Conversion types/table builder are shared with the other families; they
 // live in `src/core/xbl/conversions.ts` (moved in step 2.4).
 export type { ActiveConversion, ConversionIdRef, ParsedConversion } from "@/core/xbl";
-
-export interface KnxObjectParsed {
-  active: boolean;
-  dpt: number;
-  sendingGA: number;
-  listeningGAs: number[];
-  flags: { u: boolean; t: boolean; ri: boolean; w: boolean; r: boolean };
-  priority: number;
-  updateGA: number;
-  isVirtual: boolean;
-  filterIds: ConversionIdRef[];
-  operationIds: ConversionIdRef[];
-}
+// The KNX side is shared with MBS–KNX; it lives in `src/protocols/knx/xbl`.
+export type { EnabledKnxObject, KnxObjectParsed, KnxXblNode } from "@/protocols/knx/xbl";
 
 export interface MbmObjectParsed {
   configId: number;
@@ -108,11 +102,6 @@ export interface TcpNodeParsed {
 
 // --- enabled (post-PreXBLActions) structures --------------------------------
 
-export interface EnabledKnxObject extends KnxObjectParsed {
-  externalId: number;
-  conversionId: number;
-}
-
 export interface EnabledMbmObject extends MbmObjectParsed {
   externalId: number;
   conversionId: number;
@@ -167,11 +156,7 @@ export interface XblPipelineResult {
     security: { tcpDisabled: boolean; udpDisabled: boolean; customPort: boolean; port: number };
   };
   activeConversions: ActiveConversion[];
-  knx: {
-    physicalAddress: number;
-    keys: [string, string, string];
-    objects: EnabledKnxObject[];
-  };
+  knx: KnxXblNode;
   mbm: {
     nodeEmitted: boolean;
     media: number;
@@ -301,8 +286,7 @@ export function runXblPipeline(
     ibox: parseXblIbox(doc),
     activeConversions,
     knx: {
-      physicalAddress: parseIntText(internal, "IndAddress", 65535),
-      keys: parseKeys(internal),
+      ...parseKnxXblSettings(internal),
       objects: enabledKnx,
     },
     mbm: {
@@ -365,39 +349,6 @@ function parseNumberAttr(el: XmlElement | undefined, name: string, fallback: num
 function parseStringAttr(el: XmlElement | undefined, name: string, fallback: string): string {
   const v = el ? getAttr(el, name) : undefined;
   return v ?? fallback;
-}
-
-/** GroupAddress(XmlNode): invalid/empty values decode to address 0. */
-function parseGaAttr(el: XmlElement | undefined): number {
-  const v = el ? getAttr(el, "Value") : undefined;
-  if (v === undefined) return 0;
-  return parseGroupAddress(v) ?? 0;
-}
-
-function parseKnxObjects(internal: XmlElement): KnxObjectParsed[] {
-  return childrenOf(internal, "KNXObject").map((el) => {
-    const flagsEl = child(el, "Flags");
-    const virtEl = child(el, "Virtual");
-    const listeningEl = child(el, "ListeningAddresses");
-    return {
-      active: parseBoolText(textOf(el, "Active"), true),
-      dpt: parseNumberAttr(child(el, "DPT"), "Value", 0),
-      sendingGA: parseGaAttr(child(el, "SendingAddress")),
-      listeningGAs: listeningEl ? childrenOf(listeningEl, "Address").map(parseGaAttr) : [],
-      flags: {
-        u: parseBoolAttr(flagsEl, "U", false),
-        t: parseBoolAttr(flagsEl, "T", false),
-        ri: parseBoolAttr(flagsEl, "Ri", false),
-        w: parseBoolAttr(flagsEl, "W", false),
-        r: parseBoolAttr(flagsEl, "R", false),
-      },
-      priority: parseIntText(el, "Priority", 3),
-      updateGA: parseIntText(el, "UpdateGA", 0),
-      isVirtual: parseBoolAttr(virtEl, "Status", false),
-      filterIds: parseConversionIds(textOf(el, "IdxFilters")),
-      operationIds: parseConversionIds(textOf(el, "IdxOperations")),
-    };
-  });
 }
 
 function parseMbmObjects(external: XmlElement): MbmObjectParsed[] {
@@ -480,15 +431,6 @@ function parseTcpNodes(external: XmlElement): TcpNodeParsed[] {
       timeInterFrame: parseNumberAttr(el, "TimeInterFrameNode", 10),
       devices: childrenOf(el, "Device").map(parseDevice),
     }));
-}
-
-function parseKeys(internal: XmlElement): [string, string, string] {
-  const keys = child(internal, "Keys");
-  return [
-    parseStringAttr(keys, "Key1", "0001"),
-    parseStringAttr(keys, "Key2", "0002"),
-    parseStringAttr(keys, "Key3", "0003"),
-  ];
 }
 
 // --- PreXBLActions helpers ---------------------------------------------------

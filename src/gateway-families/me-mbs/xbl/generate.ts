@@ -28,7 +28,7 @@ import {
 import { isMeMbsProject } from "../detect";
 import { projectFromXml } from "../from-xml";
 import { validateSlaveIndices } from "../validate";
-import { buildMbsNode } from "./nodes-mbs";
+import { buildMbsNode } from "@/protocols/modbus/slave/xbl";
 import { buildMeNode } from "./nodes-me";
 import { runMeMbsXblPipeline } from "./pipeline";
 

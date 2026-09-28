@@ -5,7 +5,8 @@ import {
   type XmlElement,
 } from "@/core/project-format";
 import { readHalfConversionRefs } from "@/core/signals/conversion-refs";
-import { DEFAULT_FLAGS, type KnxFlags } from "@/protocols/knx";
+import { defaultKnxEndpoint } from "@/protocols/knx";
+import { readKnxConfig, readKnxEndpoint } from "@/protocols/knx/xml";
 import {
   defaultMbmConfig,
   type MbmConfig,
@@ -30,7 +31,7 @@ export function projectFromXml(doc: XmlDocument): KnxMbmProject {
     name: doc.getAttr([], "ProjectName") ?? "",
     description: doc.getAttr([], "ProjectDescription") ?? "",
     gateway: readGateway(doc),
-    knx: readKnxConfig(doc),
+    knx: readKnxConfig(doc.find(["InternalProtocol"])),
     mbm: readMbmConfig(doc),
     signals: readSignals(doc),
     conversions: readConversions(doc),
@@ -45,20 +46,6 @@ function readGateway(doc: XmlDocument): GatewayInfo {
     netmask: doc.getAttr(["IBOX"], "NetMask") ?? "",
     gateway: doc.getAttr(["IBOX"], "Gateway") ?? "",
     dhcp: parseBool(doc.getAttr(["IBOX"], "DHCP"), false),
-  };
-}
-
-function readKnxConfig(doc: XmlDocument): KnxMbmProject["knx"] {
-  const internal = doc.find(["InternalProtocol"]);
-  const keys = doc.find(["InternalProtocol", "Keys"]);
-  return {
-    physicalAddress: parseIntText(internal, "IndAddress", 65535),
-    extendedAddresses: parseBool(textOf(internal, "UseExtendedAddresses"), false),
-    keys: [
-      keys ? (getAttr(keys, "Key1") ?? "0001") : "0001",
-      keys ? (getAttr(keys, "Key2") ?? "0002") : "0002",
-      keys ? (getAttr(keys, "Key3") ?? "0003") : "0003",
-    ],
   };
 }
 
@@ -164,39 +151,6 @@ function readSignals(doc: XmlDocument): KnxMbmSignal[] {
   });
 }
 
-function readKnxEndpoint(el: XmlElement): KnxMbmSignal["knx"] {
-  const flagsEl = el.children.find(
-    (c): c is XmlElement => c.kind === "element" && c.tag === "Flags",
-  );
-  const flags: KnxFlags = flagsEl
-    ? {
-        u: parseBool(getAttr(flagsEl, "U"), false),
-        t: parseBool(getAttr(flagsEl, "T"), false),
-        ri: parseBool(getAttr(flagsEl, "Ri"), false),
-        w: parseBool(getAttr(flagsEl, "W"), false),
-        r: parseBool(getAttr(flagsEl, "R"), false),
-      }
-    : { ...DEFAULT_FLAGS };
-
-  const dptEl = el.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "DPT");
-  const sending = el.children.find(
-    (c): c is XmlElement => c.kind === "element" && c.tag === "SendingAddress",
-  );
-  const listening = el.children.find(
-    (c): c is XmlElement => c.kind === "element" && c.tag === "ListeningAddresses",
-  );
-
-  return {
-    dpt: dptEl ? parseNumber(getAttr(dptEl, "Value"), 0) : 0,
-    groupAddress: sending ? parseNumber(getAttr(sending, "Value"), 0) : 0,
-    additionalAddresses: listening
-      ? childrenOf(listening, "Address").map((a) => parseNumber(getAttr(a, "Value"), 0))
-      : [],
-    flags,
-    priority: parseNumber(textOf(el, "Priority"), 3),
-  };
-}
-
 function readMbmEndpoint(el: XmlElement): KnxMbmSignal["modbus"] {
   const port = parseNumber(textOf(el, "Port"), -1);
   return {
@@ -228,10 +182,6 @@ function readConversions(doc: XmlDocument): Conversion[] {
       getAttr(el, "Param4") ?? "",
     ],
   }));
-}
-
-function defaultKnxEndpoint(): KnxMbmSignal["knx"] {
-  return { dpt: 0, groupAddress: 0, additionalAddresses: [], flags: { ...DEFAULT_FLAGS }, priority: 3 };
 }
 
 function defaultMbmEndpoint(): KnxMbmSignal["modbus"] {

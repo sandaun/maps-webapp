@@ -10,11 +10,11 @@ import {
   type MeControllerInfo,
   type MeGroupInfo,
 } from "@/protocols/me";
+import { defaultMbsEndpoint, type MbsConfig } from "@/protocols/modbus/slave";
 import {
-  defaultMbsConfig,
-  type MbsConfig,
-  type MbsSlave,
-} from "@/protocols/modbus/slave";
+  readMbsConfig as readMbsProtocolConfig,
+  readMbsEndpoint as readMbsProtocolEndpoint,
+} from "@/protocols/modbus/slave/xml";
 import type {
   Conversion,
   GatewayInfo,
@@ -53,52 +53,7 @@ function readGateway(doc: XmlDocument): GatewayInfo {
 // --- internal side (Modbus Slave) -------------------------------------------
 
 export function readMbsConfig(doc: XmlDocument): MbsConfig {
-  const internal = doc.find(["InternalProtocol"]);
-  if (!internal) return defaultMbsConfig();
-
-  const config = defaultMbsConfig();
-  config.media = parseNumber(textOf(internal, "Media"), 2) as MbsConfig["media"];
-  config.byteOrder = parseNumber(textOf(internal, "ByteOrder"), 0);
-  config.updateCOV = parseBool(textOf(internal, "UpdateCOV"), true);
-  config.addressMode = parseNumber(textOf(internal, "AddressMode"), 0) as MbsConfig["addressMode"];
-  config.tempSetpoint = parseNumber(textOf(internal, "TempSetpoint"), 0) as MbsConfig["tempSetpoint"];
-  config.formatExtra = parseNumber(textOf(internal, "FormatExtra"), 0);
-  config.commErrorTout = parseNumber(textOf(internal, "CommErrorTout"), 180);
-  config.registerBase = parseNumber(textOf(internal, "RegisterBase"), 0) as 0 | 1;
-  config.slaveAddressMode = parseNumber(textOf(internal, "SlaveAddressMode"), 0) as MbsConfig["slaveAddressMode"];
-
-  const rtu = childElOpt(internal, "RTUConfig");
-  if (rtu) {
-    config.rtu = {
-      connectionType: parseNumber(getAttr(rtu, "ConnectionType"), 1),
-      baudrate: parseNumber(getAttr(rtu, "Baudrate"), 9600),
-      dataBits: parseNumber(getAttr(rtu, "DataBits"), 8),
-      parity: parseNumber(getAttr(rtu, "Parity"), 0) as 0 | 1 | 2,
-      stopBits: parseNumber(getAttr(rtu, "StopBits"), 1) as 1 | 2,
-      slaveNumber: parseNumber(getAttr(rtu, "SlaveNumber"), 1),
-    };
-  }
-  const tcp = childElOpt(internal, "TCPConfig");
-  if (tcp) {
-    config.tcp = {
-      port: parseNumber(getAttr(tcp, "Port"), 502),
-      keepAlive: parseNumber(getAttr(tcp, "KeepAlive"), 10),
-    };
-  }
-  const sensor = childElOpt(internal, "TemperatureSensor");
-  config.temperatureSensorEnabled = sensor ? parseBool(getAttr(sensor, "Enabled"), false) : false;
-
-  config.slaves = childrenOf(internal, "MBSlavesArray")
-    .flatMap((c) => childrenOf(c, "MBSlave"))
-    .map(readSlave);
-  return config;
-}
-
-function readSlave(el: XmlElement): MbsSlave {
-  return {
-    address: parseNumber(getAttr(el, "Address"), 0),
-    description: getAttr(el, "Description") ?? "",
-  };
+  return readMbsProtocolConfig(doc.find(["InternalProtocol"]));
 }
 
 // --- external side (Mitsubishi Electric) -------------------------------------
@@ -193,7 +148,7 @@ function readSignals(doc: XmlDocument): MeMbsSignal[] {
       active: parseBool(m ? textOf(m, "isEnabled") : undefined, true),
       description: (m ? textOf(m, "Description") : undefined) ?? "",
       me: e ? readMeEndpoint(e) : defaultMeEndpoint(),
-      modbus: m ? readMbsEndpoint(m) : defaultMbsEndpoint(),
+      modbus: m ? readMbsEndpoint(m) : defaultMeMbsEndpoint(),
       virtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
     };
   });
@@ -213,13 +168,7 @@ function readMeEndpoint(el: XmlElement): MeMbsSignal["me"] {
 
 function readMbsEndpoint(el: XmlElement): MeMbsSignal["modbus"] {
   return {
-    address: parseNumber(textOf(el, "Address"), 0),
-    bit: parseNumber(textOf(el, "Bit"), 255),
-    lenBits: parseNumber(textOf(el, "LenBits"), 16),
-    format: parseNumber(textOf(el, "Format"), 0),
-    readWrite: parseNumber(textOf(el, "ReadWrite"), 2) as MeMbsSignal["modbus"]["readWrite"],
-    stringLength: parseNumber(textOf(el, "StringLength"), -1),
-    slaveIndex: parseNumber(textOf(el, "SlaveIndex"), -1),
+    ...readMbsProtocolEndpoint(el),
     operations: (textOf(el, "IdxOperations") ?? "")
       .split(";")
       .filter((entry) => entry.trim() !== "")
@@ -255,8 +204,8 @@ function defaultMeEndpoint(): MeMbsSignal["me"] {
   };
 }
 
-function defaultMbsEndpoint(): MeMbsSignal["modbus"] {
-  return { address: 0, bit: 255, lenBits: 16, format: 0, readWrite: 2, stringLength: -1, slaveIndex: -1, operations: [] };
+function defaultMeMbsEndpoint(): MeMbsSignal["modbus"] {
+  return { ...defaultMbsEndpoint(), operations: [] };
 }
 
 // --- helpers ---------------------------------------------------------------

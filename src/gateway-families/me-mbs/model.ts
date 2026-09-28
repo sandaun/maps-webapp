@@ -1,5 +1,5 @@
 import type { MeConfig } from "@/protocols/me";
-import type { MbsConfig, MbsReadWrite } from "@/protocols/modbus/slave";
+import type { MbsConfig, MbsEndpoint as MbsRegisterEndpoint } from "@/protocols/modbus/slave";
 
 /**
  * Mitsubishi Electric AC ↔ Modbus Slave project model (770 Air variant,
@@ -28,18 +28,8 @@ export interface MeEndpoint {
   signalSpecIndex: number;
 }
 
-export interface MbsEndpoint {
-  address: number;
-  /** 255 = no bit field. */
-  bit: number;
-  lenBits: number;
-  /** 0 = Unsigned, 1 = Signed C2 (MbmObjectType). */
-  format: number;
-  readWrite: MbsReadWrite;
-  /** -1 = not a string. */
-  stringLength: number;
-  /** -1 in SINGLE slave mode. */
-  slaveIndex: number;
+/** The shared Modbus Slave endpoint (`src/protocols/modbus/slave`) plus ME's own field. */
+export interface MbsEndpoint extends MbsRegisterEndpoint {
   /**
    * Conversion indices of `IdxOperations`. In MULTIPLE mode MAPS stores the
    * alarm codes' slave index here (see `slaves.ts`).

@@ -266,6 +266,33 @@ el comportament** (els tests d'XBL existents han de donar els mateixos bytes).
 | `checkMbsSignal` / col·lisions | `protocols/modbus/slave/rules.ts` | ja hi és, però està fet a mida de ME (només formats 0/1, sense BitFields ni 64 bits). Per a MBS–KNX cal el port literal de `CheckProjectObjects`; les regles de ME no s'han de canviar |
 | `PreXBLActions`, llicències, detecció, valors per defecte de fila nova, acoblament R/W ↔ flags, UI | — | `gateway-families/mbs-knx` |
 
+**Estat (2026-09-28, fase 2 feta).** Tot el que depèn de l'XML va en
+entrades pròpies, perquè `@/protocols/knx` i `@/protocols/modbus/slave` els
+importa la UI i `project-format` arrossega `fflate`:
+
+- `@/protocols/knx/xbl`: `parseKnxObjects`, `parseKnxXblSettings`,
+  `buildKnxNode`.
+- `@/protocols/knx/xml`: `readKnxConfig`, `readKnxEndpoint`,
+  `patchKnxEndpoint`, `setKnxPhysicalAddress`, `setKnxExtendedAddresses`.
+  Reben l'element del protocol, i la família decideix si és
+  `InternalProtocol` o `ExternalProtocol`.
+- `@/protocols/knx`: `KnxEndpoint`, `KnxConfig`, `defaultKnxEndpoint`,
+  `checkKnxEndpoint`.
+- `@/protocols/modbus/slave/xbl`: `parseMbsXblSettings`, `parseMbsSignals`,
+  `buildMbsNode`.
+- `@/protocols/modbus/slave/xml`: `readMbsConfig`, `readMbsEndpoint`,
+  `patchMbsConfig`, `patchMbsRtuConfig`, `patchMbsTcpConfig`,
+  `patchMbsEndpoint`, `buildMbsSignal`.
+- `@/protocols/modbus/slave`: `MbsEndpoint`, `defaultMbsEndpoint`. ME–MBS
+  l'amplia amb `operations`.
+
+Sense canvis de comportament. Els 134 projectes reals de `.local-data`
+(KNX–MBM i ME–MBS, inclosos els fitxers de referència de MAPS) donen el
+mateix XBL byte a byte, i el mateix model i la mateixa validació, abans i
+després de l'extracció. Queden per a la fase de la família: el port literal
+de `InternalMbs.CheckProjectObjects` i la validació de les GA d'escolta de
+`ExternalKnx`.
+
 ## 8. UI (inventari per pantalla)
 
 - **Configuration**: General / Network (comú); BMS · Modbus Slave amb els camps

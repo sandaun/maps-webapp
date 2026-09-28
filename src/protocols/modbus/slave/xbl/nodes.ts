@@ -1,5 +1,6 @@
 /**
- * XBL writer for the MBS internal node (top-level tag 9).
+ * XBL writer for the MBS internal node (top-level tag 9), shared by every
+ * family whose BMS side is Modbus Slave.
  *
  * Provenance: `InternalMbs.CreateInternalXBLNode` / `CreateRTUConfigNode` /
  * `CreateTCPConfigNode` / `CreateSignalsNode` / `CresateSlavesNode`
@@ -23,7 +24,7 @@ import {
   u32be,
   type XblElementSpec,
 } from "@/core/xbl";
-import type { EnabledMbsSignal, EnabledMbSlave, MeMbsXblPipelineResult } from "./pipeline";
+import type { EnabledMbsSignal, EnabledMbSlave, MbsXblNode } from "./parse";
 
 /** MbmObjectType.STRING = 5 (MbmObjectType.cs). */
 const FORMAT_STRING = 5;
@@ -68,7 +69,7 @@ export function buildMbsSignalItem(signal: EnabledMbsSignal, registerBase: numbe
  * (`UseMbSlavesArray`: MULTIPLE mode with slaves), as the MAPS XBL of
  * `multi-ctrl-2` confirms.
  */
-function buildRtuConfigNode(rtu: MeMbsXblPipelineResult["mbs"]["rtu"], useSlavesArray: boolean): XblElementSpec {
+function buildRtuConfigNode(rtu: MbsXblNode["rtu"], useSlavesArray: boolean): XblElementSpec {
   return container(4, [
     node(1, u32be(rtu.baudrate)),
     node(2, new Uint8Array([rtu.dataBits & 0xff])),
@@ -80,7 +81,7 @@ function buildRtuConfigNode(rtu: MeMbsXblPipelineResult["mbs"]["rtu"], useSlaves
 }
 
 /** Port of InternalMbs.CreateTCPConfigNode (InternalMbs.cs:740-760). */
-function buildTcpConfigNode(tcp: MeMbsXblPipelineResult["mbs"]["tcp"]): XblElementSpec {
+function buildTcpConfigNode(tcp: MbsXblNode["tcp"]): XblElementSpec {
   return container(5, [node(1, u16be(tcp.port)), node(2, u16be(tcp.keepAlive))]);
 }
 
@@ -97,7 +98,7 @@ function buildSlaveItem(slave: EnabledMbSlave): XblElementSpec[] {
 }
 
 /** Port of InternalMbs.CreateInternalXBLNode (InternalMbs.cs:646-694). */
-export function buildMbsNode(mbs: MeMbsXblPipelineResult["mbs"]): XblElementSpec {
+export function buildMbsNode(mbs: MbsXblNode): XblElementSpec {
   // InternalMbs.UseMbSlavesArray (InternalMbs.cs:387).
   const useSlavesArray = mbs.slaveAddressMode === SLAVE_MODE_MULTIPLE && mbs.slaves.length > 0;
   const children: XblElementSpec[] = [

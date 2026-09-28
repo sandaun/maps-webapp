@@ -8,11 +8,12 @@ import {
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
+import { DEFAULT_DPT, type KnxFlags } from "@/protocols/knx";
 import {
-  DEFAULT_DPT,
-  formatGroupAddress,
-  type KnxFlags,
-} from "@/protocols/knx";
+  patchKnxEndpoint,
+  setKnxExtendedAddresses as setKnxExtendedAddressesOn,
+  setKnxPhysicalAddress as setKnxPhysicalAddressOn,
+} from "@/protocols/knx/xml";
 import {
   defaultDevice,
   defaultRtuNode,
@@ -67,11 +68,11 @@ export function setGatewayInfo(doc: XmlDocument, patch: Partial<GatewayInfo>): v
 }
 
 export function setKnxPhysicalAddress(doc: XmlDocument, address: number): void {
-  setText(mustFind(doc, ["InternalProtocol", "IndAddress"]), String(address));
+  setKnxPhysicalAddressOn(mustFind(doc, ["InternalProtocol"]), address);
 }
 
 export function setKnxExtendedAddresses(doc: XmlDocument, enabled: boolean): void {
-  setText(mustFind(doc, ["InternalProtocol", "UseExtendedAddresses"]), boolText(enabled));
+  setKnxExtendedAddressesOn(mustFind(doc, ["InternalProtocol"]), enabled);
 }
 
 /** Global Modbus Master settings: media, deadband and poll records. */
@@ -185,36 +186,7 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
     setText(childEl(mbm, "IdxFilters"), formatConversionIds(external.filters));
   }
 
-  const k = patch.knx;
-  if (k) {
-    if (k.dpt !== undefined) setAttr(childEl(knx, "DPT"), "Value", String(k.dpt ?? DEFAULT_DPT));
-    if (k.groupAddress !== undefined) {
-      const sending = childEl(knx, "SendingAddress");
-      setAttr(sending, "Value", String(k.groupAddress));
-      setAttr(sending, "String", formatGroupAddress(k.groupAddress));
-    }
-    if (k.additionalAddresses !== undefined) {
-      const listening = childEl(knx, "ListeningAddresses");
-      listening.children = [];
-      for (const address of k.additionalAddresses) {
-        listening.children.push(
-          element("Address", [
-            ["Value", String(address)],
-            ["String", formatGroupAddress(address)],
-          ]),
-        );
-      }
-    }
-    if (k.flags !== undefined) {
-      const flags = childEl(knx, "Flags");
-      setAttr(flags, "U", boolText(k.flags.u));
-      setAttr(flags, "T", boolText(k.flags.t));
-      setAttr(flags, "Ri", boolText(k.flags.ri));
-      setAttr(flags, "W", boolText(k.flags.w));
-      setAttr(flags, "R", boolText(k.flags.r));
-    }
-    if (k.priority !== undefined) setText(childEl(knx, "Priority"), String(k.priority));
-  }
+  if (patch.knx) patchKnxEndpoint(knx, patch.knx);
 
   const m = patch.modbus;
   if (m) {

@@ -1,4 +1,4 @@
-import { hasAnyFlag, isValidDpt, isValidGroupAddress } from "@/protocols/knx";
+import { checkKnxEndpoint, type KnxRuleCode } from "@/protocols/knx";
 import {
   checkMbmSignal,
   isReadFunction,
@@ -263,48 +263,12 @@ function validateSignal(
   const ref = { screen: "signals" as const, entity: "signal" as const, id: signal.id };
 
   // KNX side
-  if (!isValidGroupAddress(signal.knx.groupAddress, { extended: project.knx.extendedAddresses })) {
-    const extended = project.knx.extendedAddresses;
+  for (const code of checkKnxEndpoint(signal.knx, { extended: project.knx.extendedAddresses })) {
     issues.push({
-      code: signal.knx.groupAddress > 32767 && !extended ? "KNX-GA-EXTENDED" : "KNX-GA-FORMAT",
+      code,
       severity: "error",
-      message:
-        signal.knx.groupAddress > 32767 && !extended
-          ? `Signal #${signal.id}: group address exceeds 15/7/255; enable extended addresses.`
-          : `Signal #${signal.id}: invalid KNX group address.`,
-      ref: { ...ref, field: "groupAddress" },
-    });
-  }
-  if (!isValidDpt(signal.knx.dpt)) {
-    issues.push({
-      code: "KNX-DPT-INVALID",
-      severity: "error",
-      message: `Signal #${signal.id}: DPT is not in the supported KNX–MBM selection.`,
-      ref: { ...ref, field: "dpt" },
-    });
-  }
-  if (!hasAnyFlag(signal.knx.flags)) {
-    issues.push({
-      code: "KNX-FLAGS-NONE",
-      severity: "error",
-      message: `Signal #${signal.id}: at least one KNX flag (U, T, Ri, W, R) is required.`,
-      ref: { ...ref, field: "flags" },
-    });
-  }
-  if (signal.knx.flags.ri && signal.knx.flags.r) {
-    issues.push({
-      code: "KNX-FLAGS-RI-R",
-      severity: "error",
-      message: `Signal #${signal.id}: flags Ri and R are mutually exclusive.`,
-      ref: { ...ref, field: "flags" },
-    });
-  }
-  if (signal.knx.additionalAddresses.length > 0 && !signal.knx.flags.u && !signal.knx.flags.w) {
-    issues.push({
-      code: "KNX-FLAGS-LISTEN",
-      severity: "error",
-      message: `Signal #${signal.id}: additional addresses require the U or W flag.`,
-      ref: { ...ref, field: "flags" },
+      message: knxMessage(code, signal),
+      ref: { ...ref, field: knxField(code) },
     });
   }
 
@@ -419,6 +383,35 @@ function validateRegisterOverlaps(project: KnxMbmProject, issues: ValidationIssu
     }
     list.push({ start: signal.modbus.address, end: signal.modbus.address + span - 1, id: signal.id });
     ranges.set(key, list);
+  }
+}
+
+function knxMessage(code: KnxRuleCode, signal: KnxMbmSignal): string {
+  switch (code) {
+    case "KNX-GA-EXTENDED":
+      return `Signal #${signal.id}: group address exceeds 15/7/255; enable extended addresses.`;
+    case "KNX-GA-FORMAT":
+      return `Signal #${signal.id}: invalid KNX group address.`;
+    case "KNX-DPT-INVALID":
+      return `Signal #${signal.id}: DPT is not in the supported KNX–MBM selection.`;
+    case "KNX-FLAGS-NONE":
+      return `Signal #${signal.id}: at least one KNX flag (U, T, Ri, W, R) is required.`;
+    case "KNX-FLAGS-RI-R":
+      return `Signal #${signal.id}: flags Ri and R are mutually exclusive.`;
+    case "KNX-FLAGS-LISTEN":
+      return `Signal #${signal.id}: additional addresses require the U or W flag.`;
+  }
+}
+
+function knxField(code: KnxRuleCode): string {
+  switch (code) {
+    case "KNX-GA-EXTENDED":
+    case "KNX-GA-FORMAT":
+      return "groupAddress";
+    case "KNX-DPT-INVALID":
+      return "dpt";
+    default:
+      return "flags";
   }
 }
 

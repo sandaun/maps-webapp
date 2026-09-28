@@ -4,13 +4,12 @@
  * `IntesisProjectMbsMe_RT.PreXBLActions`
  * (temp/maps-cloud/maps-poc/decompiled/IntesisMAPS/IntesisBoxMAPS.Projects/
  * IntesisProjectMbsMe_RT.cs:321-441) and the parsers in
- * `InternalMbs.ParseProtocolXML` / `MbsObject(XmlNode)`
- * (IntesisBoxMAPS.Protocols.MB.Internal/InternalMbs.cs:900-956,
- * IntesisBoxMAPS.Protocols.MB/MbsObject.cs:92-132) and
  * `ExternalME.ParseProtocolXML` / `ParseMEObjects` / `ParseControllers`
  * (IntesisBoxMAPS.Protocols.ME/ExternalME.cs:574-646,
  * IntesisBoxMAPS.Protocols.ME/MeController.cs:72-99,
- * IntesisBoxMAPS.Protocols.ME/MeGroup.cs:33-47).
+ * IntesisBoxMAPS.Protocols.ME/MeGroup.cs:33-47). The Modbus Slave side
+ * (`InternalMbs.ParseProtocolXML` / `MbsObject(XmlNode)`) comes from
+ * `src/protocols/modbus/slave/xbl`.
  *
  * Like the KNX–MBM pipeline, the generator works from the XmlDocument
  * directly (not the UI model in `../model.ts`) because the writers need
@@ -37,24 +36,25 @@ import {
   type XblHeaderFields,
   type XblIboxFields,
 } from "@/core/xbl";
+import {
+  parseMbsSignals,
+  parseMbsXblSettings,
+  type EnabledMbSlave,
+  type EnabledMbsSignal,
+  type MbsXblNode,
+} from "@/protocols/modbus/slave/xbl";
+
+// The Modbus Slave side is shared with MBS–KNX; it lives in
+// `src/protocols/modbus/slave/xbl`.
+export type {
+  EnabledMbSlave,
+  EnabledMbsSignal,
+  MbSlaveParsed,
+  MbsSignalParsed,
+  MbsXblNode,
+} from "@/protocols/modbus/slave/xbl";
 
 // --- parsed (pre-XBL) structures -------------------------------------------
-
-/** Port of `MbsObject` (MbsObject.cs:17-55) limited to the XBL-relevant fields. */
-export interface MbsSignalParsed {
-  configId: number;
-  isEnabled: boolean;
-  lenBits: number;
-  format: number;
-  bit: number;
-  address: number;
-  readWrite: number;
-  stringLength: number;
-  slaveIndex: number;
-  isVirtual: boolean;
-  filterIds: ConversionIdRef[];
-  operationIds: ConversionIdRef[];
-}
 
 /** Port of `MeObject` (MeObject.cs:10-38) limited to the XBL-relevant fields. */
 export interface MeSignalParsed {
@@ -100,26 +100,11 @@ export interface MeControllerParsed {
   groups: MeGroupParsed[];
 }
 
-/** Port of `MBSlave` (MBSlave.cs). */
-export interface MbSlaveParsed {
-  address: number;
-}
-
 // --- enabled (post-PreXBLActions) structures --------------------------------
-
-export interface EnabledMbsSignal extends MbsSignalParsed {
-  externalId: number;
-  conversionId: number;
-}
 
 export interface EnabledMeSignal extends MeSignalParsed {
   externalId: number;
   conversionId: number;
-}
-
-export interface EnabledMbSlave extends MbSlaveParsed {
-  indexFirst: number;
-  indexLast: number;
 }
 
 export interface EnabledMeController extends MeControllerParsed {
@@ -131,25 +116,7 @@ export interface MeMbsXblPipelineResult {
   ibox: XblIboxFields;
   activeConversions: ActiveConversion[];
   activeMappings: ParsedRemapLut[];
-  mbs: {
-    media: number;
-    byteOrder: number;
-    updateCOV: boolean;
-    commErrorTout: number;
-    registerBase: number;
-    rtu: {
-      connectionType: number;
-      baudrate: number;
-      dataBits: number;
-      parity: number;
-      stopBits: number;
-      slaveNumber: number;
-    };
-    tcp: { port: number; keepAlive: number };
-    slaveAddressMode: number;
-    slaves: EnabledMbSlave[];
-    signals: EnabledMbsSignal[];
-  };
+  mbs: MbsXblNode;
   me: {
     pollPeriod: number;
     ansTimeout: number;
@@ -176,7 +143,7 @@ export function runMeMbsXblPipeline(doc: XmlDocument): MeMbsXblPipelineResult {
     throw new Error("Project XML lacks InternalProtocol/ExternalProtocol");
   }
 
-  const mbsConfig = parseMbsConfig(internal);
+  const mbsConfig = parseMbsXblSettings(internal);
   const mbsSignals = parseMbsSignals(internal);
   const meConfig = parseMeConfig(external);
   const meSignals = parseMeSignals(external);
@@ -347,72 +314,6 @@ function parseNumberAttr(el: XmlElement | undefined, name: string, fallback: num
 function parseStringAttr(el: XmlElement | undefined, name: string, fallback: string): string {
   const v = el ? getAttr(el, name) : undefined;
   return v ?? fallback;
-}
-
-/** Port of InternalMbs.ParseProtocolXML (InternalMbs.cs:900-956). */
-function parseMbsConfig(internal: XmlElement): Omit<
-  MeMbsXblPipelineResult["mbs"],
-  "slaves" | "signals"
-> & { slaves: MbSlaveParsed[] } {
-  // Media: C# int.TryParse, falling back to "True"→1/else 0.
-  const mediaText = textOf(internal, "Media") ?? "";
-  const mediaNum = Number(mediaText);
-  const media = Number.isInteger(mediaNum) ? mediaNum : mediaText === "True" ? 1 : 0;
-  const rtuEl = child(internal, "RTUConfig");
-  const tcpEl = child(internal, "TCPConfig");
-  return {
-    media,
-    byteOrder: parseIntText(internal, "ByteOrder", 0),
-    updateCOV: parseBoolText(textOf(internal, "UpdateCOV"), false),
-    commErrorTout: parseIntText(internal, "CommErrorTout", 180),
-    registerBase: parseIntText(internal, "RegisterBase", 0),
-    rtu: {
-      connectionType: parseNumberAttr(rtuEl, "ConnectionType", 0),
-      baudrate: parseNumberAttr(rtuEl, "Baudrate", 9600),
-      dataBits: parseNumberAttr(rtuEl, "DataBits", 8),
-      parity: parseNumberAttr(rtuEl, "Parity", 0),
-      stopBits: parseNumberAttr(rtuEl, "StopBits", 1),
-      slaveNumber: parseNumberAttr(rtuEl, "SlaveNumber", 1),
-    },
-    tcp: {
-      port: parseNumberAttr(tcpEl, "Port", 502),
-      keepAlive: parseNumberAttr(tcpEl, "KeepAlive", 10),
-    },
-    slaveAddressMode: parseIntText(internal, "SlaveAddressMode", 0),
-    slaves: childrenOf(internal, "MBSlavesArray")
-      .flatMap((c) => childrenOf(c, "MBSlave"))
-      .map((el) => ({ address: parseNumberAttr(el, "Address", 0) })),
-  };
-}
-
-/** Port of MbsObject(XmlNode) (MbsObject.cs:92-132). */
-function parseMbsSignals(internal: XmlElement): MbsSignalParsed[] {
-  const signals = childrenOf(internal, "Signals").flatMap((c) => childrenOf(c, "Signal"));
-  return signals.map((el) => {
-    const virtEl = child(el, "Virtual");
-    let lenBits = parseIntText(el, "LenBits", 0);
-    // GetFormatFromIndex: 255 → -1 (IntesisMb.cs:912-919).
-    let format = parseIntText(el, "Format", 0);
-    if (format === 255) format = -1;
-    if (lenBits === 1) {
-      lenBits = 16;
-      format = 0; // UNSIGNED
-    }
-    return {
-      configId: parseIntText(el, "idxConfig", 0),
-      isEnabled: parseBoolText(textOf(el, "isEnabled"), false),
-      lenBits,
-      format,
-      bit: parseIntText(el, "Bit", 0),
-      address: parseIntText(el, "Address", 0),
-      readWrite: parseIntText(el, "ReadWrite", 0),
-      stringLength: parseIntText(el, "StringLength", -1),
-      slaveIndex: parseIntText(el, "SlaveIndex", -1),
-      isVirtual: parseBoolAttr(virtEl, "Status", false),
-      filterIds: parseConversionIds(textOf(el, "IdxFilters")),
-      operationIds: parseConversionIds(textOf(el, "IdxOperations")),
-    };
-  });
 }
 
 /** Port of ExternalME.ParseProtocolXML (ExternalME.cs:574-589). */
