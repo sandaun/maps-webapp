@@ -424,7 +424,9 @@ export function SignalsGrid<R>({
                 )}
                 aria-label={`Flag ${flag.toUpperCase()} signal ${id}`}
                 onClick={() => {
-                  const next = applyFlagChange({ ...flags, [flag]: !flags[flag] }, flag);
+                  const next = col.toggleFlag
+                    ? col.toggleFlag(flags, flag)
+                    : applyFlagChange({ ...flags, [flag]: !flags[flag] }, flag);
                   const patch = col.toPatchFromFlags?.(row, next);
                   if (patch) save(id, col.id, patch, col.inverseFromFlags?.(row) ?? {});
                 }}

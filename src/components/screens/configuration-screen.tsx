@@ -483,7 +483,7 @@ function BmsMbsKnxSection({ view }: { view: Extract<ProjectView, { family: "mbs-
             options={dataTypeOptions}
           />
         </FieldRow>
-        <FieldRow label="Slave number" hint={`${MBS_KNX_SLAVE_RANGE.min}–${MBS_KNX_SLAVE_RANGE.max} · also the TCP unit id`}>
+        <FieldRow label="Slave number" hint={`${MBS_KNX_SLAVE_RANGE.min}–${MBS_KNX_SLAVE_RANGE.max}`}>
           <TextControl
             id="cfg-mbs-slave"
             type="number"

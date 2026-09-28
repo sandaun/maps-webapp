@@ -45,6 +45,12 @@ export interface GridColumn<R> {
   parse?: (row: R, raw: string) => { patch: SignalPatchInput } | { error: string };
   toPatchFromSwitch?: (row: R, checked: boolean) => SignalPatchInput;
   toPatchFromFlags?: (row: R, flags: KnxFlags) => SignalPatchInput;
+  /**
+   * Flags a click on one flag leaves before `toPatchFromFlags`. Defaults to
+   * the KNX–MBM interlocks (`applyFlagChange`); a family whose server applies
+   * the MAPS interlocks itself (MBS–KNX) just toggles the flag.
+   */
+  toggleFlag?: (flags: KnxFlags, flag: keyof KnxFlags) => KnxFlags;
   inverseFromSwitch?: (row: R) => SignalPatchInput;
   inverseFromText?: (row: R) => SignalPatchInput;
   inverseFromFlags?: (row: R) => SignalPatchInput;

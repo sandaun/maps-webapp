@@ -198,7 +198,7 @@ export interface SignalPatch {
  * - the edited KNX flags (`applyFlagEdit`, `ExternalKnx.CheckThisRow`);
  * - the KNX flags against the Modbus read/write mode (`CheckThisRowSpecific`,
  *   IntesisProjectMBSKNX_RT.cs:349-377); when the mode itself changes, the
- *   mode's flags are turned on as well.
+ *   mode's flags are turned on as well, unless the same edit sets the flags.
  */
 export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): void {
   const mbs = findMbsSignal(doc, id);
@@ -225,7 +225,10 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
   const rwMode = mbsObjectRwMode(readWrite);
   const flags = readKnxEndpoint(knx).flags;
   const edited = patch.knx?.flags ? applyFlagEdit(flagsBefore, flags, rwMode) : flags;
-  const fitted = flagsForRwMode(edited, rwMode, readWrite !== loaded.readWrite);
+  // MAPS turns the mode's flags on when the read/write cell changes; flags sent
+  // in the same edit (an undo restoring both) are kept, only fitted to the mode.
+  const forceModeFlags = readWrite !== loaded.readWrite && patch.knx?.flags === undefined;
+  const fitted = flagsForRwMode(edited, rwMode, forceModeFlags);
   if (!sameFlags(flags, fitted)) patchKnxEndpoint(knx, { flags: fitted });
 }
 

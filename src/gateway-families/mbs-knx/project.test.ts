@@ -194,6 +194,17 @@ describe("updateSignal", () => {
     expect(projectFromXml(doc).signals[1].knx.flags).toEqual({ u: true, t: false, ri: false, w: true, r: false });
   });
 
+  it("keeps the flags sent with a read/write change (undo of that change)", () => {
+    const doc = parseFixture();
+    // Signal 0 is Read/Write with U T W R; its user flags are only U and W.
+    updateSignal(doc, 0, { knx: { flags: { u: true, t: false, ri: false, w: true, r: false } } });
+    const before = projectFromXml(doc).signals[0];
+    updateSignal(doc, 0, { modbus: { readWrite: 1 } });
+    expect(projectFromXml(doc).signals[0].knx.flags).toEqual({ u: false, t: true, ri: false, w: false, r: true });
+    updateSignal(doc, 0, { modbus: { readWrite: before.modbus.readWrite }, knx: { flags: before.knx.flags } });
+    expect(projectFromXml(doc).signals[0].knx.flags).toEqual(before.knx.flags);
+  });
+
   it("saves the row back as MAPS does: only the bit of a non-BitFields row changes (255 → -1)", () => {
     const doc = parseFixture();
     const before = doc.serialize();
@@ -248,6 +259,18 @@ describe("updateSignal", () => {
     // U off and Ri on: U first (Ri stays off), then Ri (turns U back on).
     updateSignal(doc, 0, { knx: { flags: { u: false, t: true, ri: true, w: true, r: false } } });
     expect(flags()).toEqual({ u: true, t: true, ri: true, w: true, r: false });
+  });
+
+  it("restores the previous flags when they are sent back (undo)", () => {
+    const doc = parseFixture();
+    const flags = () => projectFromXml(doc).signals[0].knx.flags;
+    updateSignal(doc, 0, { knx: { flags: { u: false, t: true, ri: false, w: true, r: false } } });
+    const before = flags();
+    // Ri on with U off: U comes back on.
+    updateSignal(doc, 0, { knx: { flags: { ...before, ri: true } } });
+    expect(flags()).toEqual({ u: true, t: true, ri: true, w: true, r: false });
+    updateSignal(doc, 0, { knx: { flags: before } });
+    expect(flags()).toEqual(before);
   });
 
   it("does not force U on for Ri when the Modbus side is a trigger", () => {

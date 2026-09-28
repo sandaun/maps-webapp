@@ -89,7 +89,9 @@ export function flagsForRwMode(
  * way) clears R and sets U, unless the other side's mode is "read"; setting
  * R clears Ri. MAPS edits one flag cell at a time; when several changed,
  * each is applied as its own cell edit on the result of the previous one, in
- * the order T, W, U, Ri, R (T and W have no interlocks).
+ * the order T, W, U, Ri, R (T and W have no interlocks), and only if the
+ * previous edits have not already left it as asked. That way sending back
+ * the flags a signal had (undo) restores them.
  */
 export function applyFlagEdit(
   before: KnxFlags,
@@ -98,7 +100,7 @@ export function applyFlagEdit(
 ): KnxFlags {
   const next = { ...before };
   for (const flag of ["t", "w", "u", "ri", "r"] as const) {
-    if (after[flag] === before[flag]) continue;
+    if (after[flag] === before[flag] || next[flag] === after[flag]) continue;
     next[flag] = after[flag];
     if (flag === "u" && !next.u) next.ri = false;
     if (flag === "ri" && rwMode !== "read") {
