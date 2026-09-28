@@ -1,4 +1,5 @@
-import type { MbsReadWrite } from "./types";
+import type { ConversionRwMode } from "@/core/signals/conversion-refs";
+import { FORMATS, READ_WRITE, type MbsReadWrite } from "./types";
 
 /**
  * Modbus Slave side of a signal row (`MbsObject`, MbsObject.cs), as the
@@ -21,4 +22,37 @@ export interface MbsEndpoint {
 
 export function defaultMbsEndpoint(): MbsEndpoint {
   return { address: 0, bit: 255, lenBits: 16, format: 0, readWrite: 2, stringLength: -1, slaveIndex: -1 };
+}
+
+/**
+ * Port of `MbsObject.GetRwMode` (MbsObject.cs:489-497): the conversion
+ * direction of a Modbus Slave object. A register the BMS only reads is
+ * written by the gateway ("write"); a trigger is read by it ("read").
+ */
+export function mbsConversionRwMode(readWrite: number): ConversionRwMode {
+  if (readWrite === READ_WRITE.READ) return "write";
+  if (readWrite === READ_WRITE.TRIGGER) return "read";
+  return "readwrite";
+}
+
+/**
+ * The length, format and bit a Modbus Slave row keeps after an edit in MAPS:
+ * every cell edit re-checks the row (`InternalMbs.CheckThisRow`,
+ * InternalMbs.cs:1233-1283) and saves it back (`SaveThisRow`, :1104-1132).
+ * BitFields forces 16 bits and, when the bit cell showed "-" (the row was not
+ * BitFields), bit 0; any other format shows the bit as "-", which is saved as
+ * -1. `loaded` is the row as MAPS loaded it; `patch` the edited fields.
+ */
+export function fitMbsRowEdit(
+  loaded: Pick<MbsEndpoint, "lenBits" | "format" | "bit">,
+  patch: Partial<Pick<MbsEndpoint, "lenBits" | "format" | "bit">>,
+): Pick<MbsEndpoint, "lenBits" | "format" | "bit"> {
+  const next = { ...loaded, ...patch };
+  if (next.format !== FORMATS.BITFIELDS) return { ...next, bit: -1 };
+  const bitShowedDash = loaded.format !== FORMATS.BITFIELDS;
+  return {
+    lenBits: 16,
+    format: next.format,
+    bit: patch.bit !== undefined ? patch.bit : bitShowedDash ? 0 : next.bit,
+  };
 }

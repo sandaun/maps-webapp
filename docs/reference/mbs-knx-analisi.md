@@ -115,8 +115,12 @@ Diferències respecte al KNX intern:
   `StringLength` amagada: `GetInternalIdxToHide → {8}`). `ReadWrite`: 0 Read,
   1 Trigger, 2 Read/Write.
 - Acoblaments de fila (`InternalMbs.CheckThisRow`, `:1233-1283`): BitFields
-  força `LenBits=16` i habilita `Bit` (per defecte 0); la resta de formats
-  posen `Bit` a `-` (només a la UI; l'XML guarda el valor que hi hagi).
+  força `LenBits=16` i habilita `Bit` (0 si abans mostrava `-`); la resta de
+  formats mostren `Bit` com a `-`. Cada edició desa la fila sencera
+  (`SaveThisRow`, `:1104-1132`), i `-` es desa com a `Bit = -1`. Per tant,
+  **un senyal no BitFields que s'edita passa de bit 255 a -1**, i això canvia
+  l'XBL: el tag 3 només s'emet si el bit és diferent de -1. Portat a
+  `fitMbsRowEdit`.
 - Adreça màxima: 20.000 (`maxAddress` per defecte d'`InternalMbs`; ME–MBS en
   passa 82.500). L'autoenumeració d'adreces Modbus i de GA KNX existeix a MAPS
   (`AutoEnumModbusAddress`, `AutoEnumGroupAddresses`).

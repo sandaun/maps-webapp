@@ -400,6 +400,8 @@ function knxMessage(code: KnxRuleCode, signal: KnxMbmSignal): string {
       return `Signal #${signal.id}: flags Ri and R are mutually exclusive.`;
     case "KNX-FLAGS-LISTEN":
       return `Signal #${signal.id}: additional addresses require the U or W flag.`;
+    case "KNX-GA-LISTEN":
+      return `Signal #${signal.id}: invalid additional group address.`;
   }
 }
 
