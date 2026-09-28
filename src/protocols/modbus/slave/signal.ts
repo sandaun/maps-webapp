@@ -25,13 +25,28 @@ export function defaultMbsEndpoint(): MbsEndpoint {
 }
 
 /**
- * Port of `MbsObject.GetRwMode` (MbsObject.cs:489-497): the conversion
- * direction of a Modbus Slave object. A register the BMS only reads is
- * written by the gateway ("write"); a trigger is read by it ("read").
+ * Port of `MbsObject.GetRwMode` (MbsObject.cs:489-497): the mode a Modbus
+ * Slave object hands to the object on the other side, which fits its KNX
+ * flags with it (`ExternalKnx.SetRwProject` / `UpdateFlagsValueFromRWObject`).
+ * A register the BMS only reads is written into by the other side
+ * ("write"); a trigger is read from it ("read"). NOT the conversion
+ * direction: see `mbsConversionRwMode`.
  */
-export function mbsConversionRwMode(readWrite: number): ConversionRwMode {
+export function mbsObjectRwMode(readWrite: number): ConversionRwMode {
   if (readWrite === READ_WRITE.READ) return "write";
   if (readWrite === READ_WRITE.TRIGGER) return "read";
+  return "readwrite";
+}
+
+/**
+ * Conversion direction of a Modbus Slave object, as `frmSelectConversion`
+ * sees it (`ConversionObject(MbsObject)`, ConversionObject.cs:83-100): Read →
+ * "read", Trigger → "write", Read/Write → "readwrite". The opposite of
+ * `mbsObjectRwMode` for Read and Trigger.
+ */
+export function mbsConversionRwMode(readWrite: number): ConversionRwMode {
+  if (readWrite === READ_WRITE.READ) return "read";
+  if (readWrite === READ_WRITE.TRIGGER) return "write";
   return "readwrite";
 }
 

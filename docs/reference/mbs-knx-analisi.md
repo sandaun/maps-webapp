@@ -133,11 +133,26 @@ Cada edició de fila crida `ExternalKnx.CheckThisRow` →
 (`_RT.cs:349-377`; `IntesisKnx.cs`). El mode surt de `MbsObject.GetRwMode`
 (`MbsObject.cs:489-497`):
 
-| MBS `ReadWrite` | Mode de conversió | Sempre | Si s'ha canviat la columna R/W |
+| MBS `ReadWrite` | `GetRwMode` | Sempre | Si s'ha canviat la columna R/W |
 |---|---|---|---|
 | 0 Read | `WRITE` | treu R i T | posa W i U |
 | 1 Trigger | `READ` | treu W, U i Ri | posa R i T |
 | 2 Read/Write | `READWRITE` | — | posa W, U, R i T |
+
+Aquest mode **no** és la direcció de les conversions. `frmSelectConversion`
+fa servir `ConversionObject(MbsObject)` (`ConversionObject.cs:83-100`), que
+fa just el contrari per a Read i Trigger:
+
+| MBS `ReadWrite` | Conversió |
+|---|---|
+| 0 Read | `READ` |
+| 1 Trigger | `WRITE` |
+| 2 Read/Write | `READWRITE` |
+
+És el que diu la guia (§9.1.3.1): d'esquerra a dreta (Modbus → KNX) per als
+objectes d'escriptura i de lectura/escriptura, i de dreta a esquerra per als
+que el BMS només llegeix. Està portat a `mbsConversionRwMode`; el mode dels
+flags és `mbsObjectRwMode`.
 
 Interlocks de `UpdateFlagsValue`: treure U treu Ri; **tocar Ri** (sigui per
 activar-lo o desactivar-lo) treu R i posa U, llevat que el mode sigui `READ`;
@@ -296,6 +311,22 @@ mateix XBL byte a byte, i el mateix model i la mateixa validació, abans i
 després de l'extracció. Queden per a la fase de la família: el port literal
 de `InternalMbs.CheckProjectObjects` i la validació de les GA d'escolta de
 `ExternalKnx`.
+
+**Conversions (fase 3.2).** La biblioteca de conversions (afegir, editar,
+esborrar, `setConversions`) i les comprovacions de rang d'una selecció o
+d'una restauració són a `core/conversions/library-xml.ts` i
+`core/conversions/selection.ts`. Cada família hi aporta tres coses:
+
+- les files dels dos costats, perquè en esborrar una entrada s'ajustin les
+  refs de totes, també les desactivades;
+- el senyal objectiu i el rebuig dels virtuals (a KNX–MBM, el costat KNX; a
+  MBS–KNX, el Modbus);
+- la direcció: a KNX–MBM, els flags KNX; a MBS–KNX, `mbsConversionRwMode`
+  amb el R/W resultant de l'edició.
+
+Verificat sobre els 100 projectes KNX–MBM de `.local-data`: la mateixa
+seqüència d'altes, edicions, seleccions, restauracions i esborrats dona el
+mateix XML i els mateixos errors abans i després.
 
 ## 8. UI (inventari per pantalla)
 

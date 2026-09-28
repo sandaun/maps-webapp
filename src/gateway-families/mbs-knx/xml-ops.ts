@@ -8,6 +8,10 @@ import {
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
+import {
+  removeConversion as removeLibraryConversion,
+  type ConversionLocator,
+} from "@/core/conversions/library-xml";
 import { formatConversionIds, type SignalConversionRefs } from "@/core/signals/conversion-refs";
 import {
   applyFlagEdit,
@@ -27,7 +31,7 @@ import {
 } from "@/protocols/knx/xml";
 import {
   fitMbsRowEdit,
-  mbsConversionRwMode,
+  mbsObjectRwMode,
   type MbsConfig,
   type MbsEndpoint,
 } from "@/protocols/modbus/slave";
@@ -218,7 +222,7 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
   if (patch.knx) patchKnxEndpoint(knx, patch.knx);
 
   const readWrite = readMbsEndpoint(mbs).readWrite;
-  const rwMode = mbsConversionRwMode(readWrite);
+  const rwMode = mbsObjectRwMode(readWrite);
   const flags = readKnxEndpoint(knx).flags;
   const edited = patch.knx?.flags ? applyFlagEdit(flagsBefore, flags, rwMode) : flags;
   const fitted = flagsForRwMode(edited, rwMode, readWrite !== loaded.readWrite);
@@ -247,6 +251,26 @@ function assertFixedRowPatch(id: number, patch: SignalPatch): void {
   if (locked) {
     throw new SignalEditError(409, `Signal ${id + 1} is fixed by the template: only its address, group address, priority, state and conversions can change.`);
   }
+}
+
+// --- conversions -----------------------------------------------------------
+
+// The conversion library is shared by every family: `src/core/conversions/library-xml.ts`.
+export {
+  addConversion,
+  ConversionEditError,
+  setConversions,
+  updateConversion,
+  type ConversionLocator,
+  type ConversionPatch,
+} from "@/core/conversions/library-xml";
+
+/**
+ * `removeConversion` over both halves of every MBS–KNX row (Modbus signals +
+ * KNX objects), enabled or not.
+ */
+export function removeConversion(doc: XmlDocument, locator: ConversionLocator): number[] {
+  return removeLibraryConversion(doc, locator, [...mbsSignals(doc), ...knxObjects(doc)]);
 }
 
 // --- XML builders (desktop-tool default shapes) ------------------------------
