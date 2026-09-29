@@ -65,6 +65,17 @@ describe("projectFromXml", () => {
     expect(project.mbs.rtu.slaveNumber).toBe(1);
   });
 
+  it("keeps the level of listening addresses on the external KNX side", () => {
+    const doc = parseFixture();
+    updateSignal(doc, 2, { knx: {
+      additionalAddresses: [2563, 4361],
+      additionalAddressLevels: [2, 1],
+    } });
+    expect(doc.serialize()).toContain('<Address Value="2563" String="1/515" />');
+    expect(doc.serialize()).toContain('<Address Value="4361" String="4361" />');
+    expect(projectFromXml(doc).signals[2].knx.additionalAddressLevels).toEqual([2, 1]);
+  });
+
   it("reads the Modbus side as MAPS loads it (LenBits 1 → 16 unsigned, -1 → 16, Format 255 → none)", () => {
     const doc = parseFixture();
     const signals = doc.findAll(["InternalProtocol", "Signals", "Signal"]);

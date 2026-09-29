@@ -173,6 +173,14 @@ Pendents (abans de disseny):
 
 ## 3. Transversals (afecten totes les famílies presents i futures)
 
+- **Plataformes KTS/V6, RT/S700 i RT_AIR** [falta; conversió: decidir,
+  investigat 2026-09-29]: protocols i AppId no distingeixen totes les variants.
+  KNX-MBM encara no filtra plataforma en detectar; MBS-KNX i ME-MBS sí, però
+  el desplegament compartit no compara la plataforma del projecte amb la del
+  gateway. Cal delimitar el suport actual, completar el deadband per senyal
+  KNX-MBM RT i decidir la conversió legacy explícita. Flux real de MAPS,
+  diferències per família, firmware, abast i proves pendents a
+  [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
 - **API de gateway en viu** (sessió persistent per a scans, reads i mètriques):
   desbloqueja Scan groups (ME), Poll now / estats (KNX-MBM), live values,
   comptadors d'errors. És el blocant grosso de mig V11.
@@ -281,18 +289,15 @@ ja existeix i què es pot compartir.
      El nivell del GA (1, 2 o 3) es llegeix de l'atribut `String`, es mostra a
      la taula i a l'export de graella, i l'edició manual desa el nivell escrit,
      com MAPS (`ExternalKnx.cs:1147-1153`). `Value` continua sent numèric.
-5. **Adreces addicionals (listening) a KNX–MBM** — **[següent]**.
+5. **Adreces addicionals (listening) a KNX–MBM** — **[fet 2026-09-29]**.
    - **MAPS:** `InternalKnx` té la columna `COL_LISTENING`
      (`InternalKnx.cs:29`), la desa amb `ExtractGroupAddress`
      (`InternalKnx.cs:808-812`) i exigeix U o W si n'hi ha
      (`InternalKnx.cs:1092`).
-   - **Nosaltres:** el model les llegeix (`readKnxEndpoint`) i es preserven a
-     l'XML, però la taula de KNX–MBM no té la columna. MBS–KNX sí que la té
-     (`columns-mbs-knx.ts`) i se'n pot compartir la columna, el parse i la
-     validació.
-   - A les dues famílies, el text de cada adreça addicional s'escriu sempre a
-     3 nivells. MAPS desa el text tal com s'escriu; cal guardar-ne el nivell
-     per adreça, igual que a l'adreça d'enviament.
+   - **Nosaltres:** KNX–MBM mostra i edita la columna com MBS–KNX, amb
+     validació i desfer. La regla U o W ja era compartida.
+   - A les dues famílies, el model conserva el nivell de cada adreça i l'XML,
+     la graella i l'XLSX escriuen els formats d'1, 2 o 3 nivells.
 6. **Reordenar files.**
    - **MAPS:** Move Up/Down (`ModifyObjectsPosition` → `MoveRowByOne` a
      `InternalMbs.cs:1013` i `ExternalKnx.cs:768`). Intercanvia les dues

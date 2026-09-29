@@ -77,6 +77,22 @@ describe("projectFromXml", () => {
     expect(project.conversions[0].description).toBe("x0.1 to degC");
   });
 
+  it("keeps each listening address's level through an edit and XML reload", () => {
+    const doc = parseFixture();
+    updateSignal(doc, 0, { knx: {
+      additionalAddresses: [2563, 4361, 2052],
+      additionalAddressLevels: [2, 1, 3],
+    } });
+    const xml = doc.serialize();
+    expect(xml).toContain('<Address Value="2563" String="1/515" />');
+    expect(xml).toContain('<Address Value="4361" String="4361" />');
+    expect(xml).toContain('<Address Value="2052" String="1/0/4" />');
+    expect(projectFromXml(doc).signals[0].knx).toMatchObject({
+      additionalAddresses: [2563, 4361, 2052],
+      additionalAddressLevels: [2, 1, 3],
+    });
+  });
+
   it("reads the conversion refs of each half, even when the KNX half is empty", () => {
     const knxLine = "\r\n      <IdxOperations>0,0;</IdxOperations>";
     expect(SYNTHETIC_KNX_MBM_XML).toContain(knxLine);

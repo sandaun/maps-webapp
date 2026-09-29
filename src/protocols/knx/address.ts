@@ -53,6 +53,15 @@ export function formatGroupAddressAtLevel(value: number, level: 1 | 2 | 3): stri
   return formatGroupAddress(value);
 }
 
+/** Render each listening address in the notation stored for that address. */
+export function formatListeningAddresses(
+  addresses: readonly number[],
+  levels: readonly (1 | 2 | 3)[] | undefined,
+  separator = ", ",
+): string {
+  return addresses.map((address, index) => formatGroupAddressAtLevel(address, levels?.[index] ?? 3)).join(separator);
+}
+
 export function isValidGroupAddress(
   value: number,
   opts: { extended: boolean },

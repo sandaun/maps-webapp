@@ -14,6 +14,8 @@ export interface KnxEndpoint {
   groupAddressLevel?: 1 | 2 | 3;
   /** Additional (listening) group addresses. */
   additionalAddresses: number[];
+  /** Display level of each additional address, aligned with additionalAddresses. */
+  additionalAddressLevels?: (1 | 2 | 3)[];
   flags: KnxFlags;
   priority: number;
 }

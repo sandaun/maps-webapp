@@ -282,6 +282,42 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
+  it("edits KNX–MBM listening addresses and restores them with Undo", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByText("1/0/4"));
+    const editor = screen.getByLabelText("Edit Additional addresses signal 0");
+    fireEvent.change(editor, { target: { value: "1/515, 4361" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledWith([
+      { type: "updateSignal", id: 0, patch: { knx: {
+        additionalAddresses: [2563, 4361], additionalAddressLevels: [2, 1],
+      } } },
+    ]));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenLastCalledWith([
+      { type: "updateSignal", id: 0, patch: { knx: {
+        additionalAddresses: [2052], additionalAddressLevels: [3],
+      } } },
+    ]));
+  });
+
+  it("accepts a listening address above 15/7/255 without extended mode", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+    fireEvent.click(screen.getByText("1/0/4"));
+    const editor = screen.getByLabelText("Edit Additional addresses signal 0");
+    fireEvent.change(editor, { target: { value: "20/0/1" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledWith([
+      { type: "updateSignal", id: 0, patch: { knx: {
+        additionalAddresses: [40961], additionalAddressLevels: [3],
+      } } },
+    ]));
+  });
+
   it("cancels an inline edit on Escape without saving", () => {
     mocks.view = buildKnxView();
     renderSignals();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { XmlDocument } from "@/core/project-format";
-import { projectFromXml } from "@/gateway-families/knx-mbm";
+import { projectFromXml, updateSignal } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { projectFromXml as meFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
@@ -30,6 +30,41 @@ describe("signals XLSX", () => {
     const result = await applySignalsXlsx(doc, "knx-mbm", new Uint8Array(buf));
     expect(result.appended).toBe(2);
     expect(projectFromXml(doc).signals).toHaveLength(4);
+  });
+
+  it("exports and imports each listening address in its own notation", async () => {
+    const source = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    updateSignal(source, 0, { knx: {
+      additionalAddresses: [2563, 4361],
+      additionalAddressLevels: [2, 1],
+    } });
+    const buf = new Uint8Array(await buildSignalsXlsx("knx-mbm", projectFromXml(source), { now: NOW }));
+    const parsed = await parseSignalsXlsx(buf);
+    expect(parsed.rows[0]?.[5]).toBe("1/515,4361");
+    const imported = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    await applySignalsXlsx(imported, "knx-mbm", buf);
+    expect(projectFromXml(imported).signals[2].knx).toMatchObject({
+      additionalAddresses: [2563, 4361],
+      additionalAddressLevels: [2, 1],
+    });
+    expect(imported.serialize()).toContain('<Address Value="2563" String="1/515" />');
+  });
+
+  it("keeps the sending address level when importing a KNX–MBM XLSX", async () => {
+    const source = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    updateSignal(source, 0, { knx: { groupAddress: 2563, groupAddressLevel: 2 } });
+    updateSignal(source, 1, { knx: { groupAddress: 4361, groupAddressLevel: 1 } });
+    const buf = new Uint8Array(await buildSignalsXlsx("knx-mbm", projectFromXml(source), { now: NOW }));
+    const parsed = await parseSignalsXlsx(buf);
+    expect(parsed.rows.map((row) => row[4])).toEqual(["1/515", "4361"]);
+
+    const imported = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    await applySignalsXlsx(imported, "knx-mbm", buf);
+    const signals = projectFromXml(imported).signals;
+    expect(signals[2].knx).toMatchObject({ groupAddress: 2563, groupAddressLevel: 2 });
+    expect(signals[3].knx).toMatchObject({ groupAddress: 4361, groupAddressLevel: 1 });
+    expect(imported.serialize()).toContain('<SendingAddress Value="2563" String="1/515" />');
+    expect(imported.serialize()).toContain('<SendingAddress Value="4361" String="4361" />');
   });
 
   it("exports knx-mbm conversions like MAPS: Conv. Id + Conversions columns and a Conversions sheet", async () => {
