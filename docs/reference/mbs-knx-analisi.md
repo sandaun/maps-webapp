@@ -412,8 +412,39 @@ Les referències són al mateix directori (`*.maps.xbl`, amb la còpia
 La plantilla de projecte nou és ara `basembsknx.ibmaps` sense contrasenyes
 (`fixtures/maps-template.ts`).
 
-## 11. Obert
+## 11. Prova en viu (2026-09-29)
 
-- Prova en viu: cal que la unitat corri MBS–KNX (canvi de firmware amb MAPS).
-  Còpia del projecte anterior (`roundtrip-test`, KNX–MBM) a
-  `.local-data/gateway-backups/192.168.2.167-000R45700-2026-09-29-roundtrip-test.complete.bin`.
+Unitat 192.168.2.167 (IN701KNX, S/N 000R45700), passada a MBS–KNX amb MAPS
+(`APPID:7`, `APPVERSION:2.0.1.0`). Abans es va desar una còpia del projecte
+KNX–MBM `roundtrip-test` a
+`.local-data/gateway-backups/192.168.2.167-000R45700-2026-09-29-roundtrip-test.complete.bin`.
+
+1. **Capability `mbsKnxXblVerified`.** Es registra amb `verify:xbl` sobre un
+   blob complet muntat amb l'XBL que la CLI de MAPS genera per a
+   `basembsknx` (la CLI no inclou el ZIP del projecte). Resultat: MATCH.
+2. **Projecte de prova.** Es crea des de la plantilla de MAPS i es marca la
+   descripció del projecte i la del senyal 0.
+3. **Deploy des de la webapp.** Les quatre portes passen i s'envien 4102 B
+   (XBL de 1373 B). La unitat reinicia i reporta `CFGNAME` = el projecte de
+   prova, `CFGERRORS:0` i `STATUS:RUNNING`.
+4. **Recepció de tornada.**
+   - L'XML és byte a byte idèntic al que s'havia enviat, i les dues marques hi
+     són.
+   - L'XBL guardat a la unitat és idèntic, amb la data emmascarada, al que
+     genera la webapp.
+
+Observacions:
+
+- **Contrasenya.** El canvi de firmware torna la contrasenya al valor de
+  fàbrica (`admin`). Després del deploy, la unitat queda **sense
+  contrasenya**, perquè la plantilla de MAPS porta `IBOX Pwd=""` i l'XBL la
+  hi escriu.
+- Pendent de decidir: avisar o bloquejar el deploy d'un projecte amb la
+  contrasenya buida. El model no exposa la contrasenya, per disseny.
+
+## 12. Obert
+
+- La unitat es queda amb MBS–KNX per continuar provant. Si cal tornar-la a
+  KNX–MBM: canviar el firmware amb MAPS i desplegar la còpia de
+  `roundtrip-test`.
+- Contrasenya buida en desplegar (§11).
