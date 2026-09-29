@@ -4,7 +4,7 @@
  *
  * Usage:
  *   pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> \
- *     [--family knx-mbm|me-mbs] [--app-id N] [--mask-timestamp] \
+ *     [--family knx-mbm|me-mbs|mbs-knx] [--app-id N] [--mask-timestamp] \
  *     [--sw-version a.b.c.d] [--now ISO-8601]
  *
  * - `project`: the MAPS project. Either the raw .ibmaps XML or a ZIP/complete
@@ -12,7 +12,8 @@
  * - `reference`: the MAPS-generated XBL. Either a complete blob
  *   (`[4B len][XBL][4B CRC32][zip]`) or a raw XBL TLV payload.
  * - `--family`: which generator to exercise (default `knx-mbm`). The recorded
- *   capability key is per family (`knxMbmXblVerified` / `meMbsXblVerified`).
+ *   capability key is per family (`knxMbmXblVerified` / `meMbsXblVerified` /
+ *   `mbsKnxXblVerified`).
  * - `--app-id`: AppId for header tag 6 (IntesisXBL.cs:149). Default is the
  *   family's connected-device AppId (4 for KNX–MBM, 64 for ME–MBS on a 770
  *   Air). The ME–MBS project XML only carries the project CompatibilityID
@@ -42,6 +43,7 @@ import { extractIbmaps, parseCompleteBlob } from "@/core/project-format";
 import { decodeElements, type DecodedElement } from "@/core/xbl";
 import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
 import { generateMeMbsXbl } from "@/gateway-families/me-mbs";
+import { generateMbsKnxXbl } from "@/gateway-families/mbs-knx";
 
 interface FamilySpec {
   generate: (projectXml: string, options: { now: Date; swVersion: [number, number, number, number]; appId?: number }) => Uint8Array;
@@ -51,6 +53,7 @@ interface FamilySpec {
 const FAMILIES: Record<string, FamilySpec> = {
   "knx-mbm": { generate: generateKnxMbmXbl, capabilityKey: "knxMbmXblVerified" },
   "me-mbs": { generate: generateMeMbsXbl, capabilityKey: "meMbsXblVerified" },
+  "mbs-knx": { generate: generateMbsKnxXbl, capabilityKey: "mbsKnxXblVerified" },
 };
 
 interface CliOptions {
@@ -66,7 +69,7 @@ interface CliOptions {
 function usage(): never {
   console.error(
     "Usage: pnpm verify:xbl <project.(ibmaps|zip)> <reference.(bin|xbl)> " +
-      "[--family knx-mbm|me-mbs] [--app-id N] [--mask-timestamp] " +
+      "[--family knx-mbm|me-mbs|mbs-knx] [--app-id N] [--mask-timestamp] " +
       "[--sw-version a.b.c.d] [--now ISO-8601]",
   );
   process.exit(2);

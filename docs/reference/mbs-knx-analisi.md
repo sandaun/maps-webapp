@@ -6,9 +6,9 @@ Fonts: descompilat de MAPS a `temp/maps-cloud/maps-poc/decompiled/IntesisMAPS/`
 `temp/MAPS PACK/in701-mbs-knx-maps-guide-v1-0-0-en.pdf` (v1.0.2) i la
 plantilla `Templates.IN-MBS-KNX-Template.tmpl`.
 
-> Encara **no tenim cap projecte MBS–KNX desat per MAPS**. Tot el que ve a
-> continuació surt del codi i de la guia; els punts marcats **[confirmar]**
-> s'han de contrastar amb els fitxers de referència de l'§9.
+> L'anàlisi es va fer amb el codi i la guia, abans de tenir projectes desats
+> per MAPS. Els punts marcats **[confirmat, §10]** s'han contrastat després
+> amb aquests projectes (§10).
 
 ---
 
@@ -41,10 +41,10 @@ Estat de la unitat de proves (INFO? per UDP, només lectura, 2026-09-28):
 ### Claus de detecció
 
 - Arrel: `InternalProtocol="Modbus Slave"` + `ExternalProtocol="KNX"`.
-- `Platform="2"` **[confirmar]**: la plantilla és d'estil LinkBox i no porta
+- `Platform="2"` **[confirmat, §10]**: la plantilla és d'estil LinkBox i no porta
   l'atribut; MAPS l'escriu en desar.
 - Node XML intern `ProtocolType="ModBus Slave"` (amb majúscules
-  diferents a la plantilla) **[confirmar]** què escriu MAPS en desar.
+  diferents a la plantilla) **[confirmat, §10]** què escriu MAPS en desar.
 - `Header CompatibilityID="7"`.
 
 ## 2. Estructura de l'XML
@@ -174,10 +174,10 @@ amaga el mode d'adreces, el timeout de comunicació i el mode d'esclaus
   (8N1, 8E1, 8O1, 8N2) i número d'esclau (1–255);
 - TCP: port (1–65535) i keep alive (0–1440 min). La guia també hi posa un
   número d'esclau, però l'XML només en té un (`RTUConfig SlaveNumber`)
-  **[confirmar]** que és el mateix camp.
+  **[confirmat, §10]** que és el mateix camp.
 
 `CommErrorTout` no es veu, però **sí que va a l'XBL** (tag 7) si no val -1. Si
-l'XML no el porta, en llegir val 180 (`InternalMbs.cs:936`) **[confirmar]** el
+l'XML no el porta, en llegir val 180 (`InternalMbs.cs:936`) **[confirmat, §10]** el
 valor que desa MAPS.
 
 **KNX**: adreça física (per defecte 15.15.255 = 65535) i adreces esteses
@@ -379,11 +379,41 @@ confirmar que MAPS disposa del firmware MBS–KNX compatible amb la unitat
 3. Fer la prova de deploy amb la webapp.
 4. Tornar el firmware a KNX–MBM i restaurar el projecte, també amb MAPS.
 
-## 10. Obert
+## 10. Verificació XBL (2026-09-29)
 
-- `Platform`, `ProtocolType` i `CommErrorTout` reals d'un projecte desat
-  **[confirmar amb base.ibmaps]**.
-- `GetNextGA` i el format de la GA d'un senyal nou: portar-ho quan es
-  construeixi l'`addSignal`.
-- Si `UpdateProjectLicense` rep la llicència de la unitat connectada o de
-  l'order code quan no n'hi ha cap: la webapp partirà de 3000.
+Fitxers desats per MAPS a `.local-data/fixtures/mbs-knx-ref/` (fora de Git):
+`basembsknx.ibmaps` (plantilla sense canvis) i `basembsknx-variat.ibmaps`
+(plantilla + senyals importats d'ETS i dues conversions al costat KNX).
+Confirmen:
+
+- `Platform="2"`, `ProtocolType="Modbus Slave"` i `CommErrorTout` = 180.
+- Només hi ha un número d'esclau (`RTUConfig SlaveNumber`): el TCP fa servir
+  el mateix.
+- MAPS desa els senyals de la plantilla normalitzats (16 bits, bit -1).
+- La webapp els llegeix i els torna a escriure byte a byte idèntics.
+
+`generateMbsKnxXbl` reprodueix byte a byte (amb la data de la capçalera
+emmascarada, l'únic camp volàtil) l'XBL que genera la CLI de MAPS
+(`IntesisMAPS.exe -i -o -compID 7`) per a 8 projectes:
+
+- els dos de MAPS;
+- sis variants fetes amb les edicions de la webapp:
+  - TCP i base 1;
+  - RTU + TCP amb EIA-232;
+  - senyals desactivats i adreces invertides amb BitFields;
+  - conversions amb filtres als dos costats;
+  - Ri, prioritats, GA esteses i 64 bits;
+  - senyals afegits amb `addSignal` i un d'esborrat.
+
+Les referències són al mateix directori (`*.maps.xbl`, amb la còpia
+`*-pwd.ibmaps` que porta la contrasenya de prova que la CLI demana), i
+`xbl/generate.test.ts` les comprova quan hi són.
+
+La plantilla de projecte nou és ara `basembsknx.ibmaps` sense contrasenyes
+(`fixtures/maps-template.ts`).
+
+## 11. Obert
+
+- Prova en viu: cal que la unitat corri MBS–KNX (canvi de firmware amb MAPS).
+  Còpia del projecte anterior (`roundtrip-test`, KNX–MBM) a
+  `.local-data/gateway-backups/192.168.2.167-000R45700-2026-09-29-roundtrip-test.complete.bin`.
