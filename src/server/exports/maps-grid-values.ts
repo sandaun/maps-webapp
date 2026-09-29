@@ -9,7 +9,7 @@ import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
 import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
-import { formatGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
+import { formatGroupAddress, formatGroupAddressAtLevel, parseGroupAddress } from "@/protocols/knx/address";
 import type { MbmConfig, MbmRtuNode } from "@/protocols/modbus/master/nodes";
 import { nodeForPort } from "@/protocols/modbus/master";
 
@@ -276,7 +276,7 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
   const { knx, modbus } = signal;
   const ref = nodeForPort(project.mbm, modbus.port);
   const device = ref?.node.devices.find((d) => d.index === modbus.deviceIndex);
-  const sending = knx.groupAddress > 0 ? formatGroupAddress(knx.groupAddress) : "";
+  const sending = knx.groupAddress > 0 ? formatGroupAddressAtLevel(knx.groupAddress, knx.groupAddressLevel ?? 3) : "";
   const listening = knx.additionalAddresses.map(formatGroupAddress).join(",");
   return [
     String(signal.id + 1),

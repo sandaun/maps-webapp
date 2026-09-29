@@ -6,7 +6,7 @@ import {
   setText,
   type XmlElement,
 } from "@/core/project-format";
-import { formatGroupAddress } from "./address";
+import { formatGroupAddress, formatGroupAddressAtLevel, groupAddressLevelOf } from "./address";
 import { DEFAULT_DPT } from "./dpt";
 import { DEFAULT_FLAGS, type KnxFlags } from "./flags";
 import type { KnxConfig, KnxEndpoint } from "./model";
@@ -56,9 +56,13 @@ export function readKnxEndpoint(el: XmlElement): KnxEndpoint {
     (c): c is XmlElement => c.kind === "element" && c.tag === "ListeningAddresses",
   );
 
+  const sendingString = sending ? getAttr(sending, "String") ?? "" : "";
+  const addressLevel = groupAddressLevelOf(sendingString);
+
   return {
     dpt: dptEl ? parseNumber(getAttr(dptEl, "Value"), 0) : 0,
     groupAddress: sending ? parseNumber(getAttr(sending, "Value"), 0) : 0,
+    ...(sendingString && addressLevel !== 3 ? { groupAddressLevel: addressLevel } : {}),
     additionalAddresses: listening
       ? childrenOf(listening, "Address").map((a) => parseNumber(getAttr(a, "Value"), 0))
       : [],
@@ -79,9 +83,11 @@ export function setKnxExtendedAddresses(protocol: XmlElement, enabled: boolean):
 export function patchKnxEndpoint(knx: XmlElement, patch: Partial<KnxEndpoint>): void {
   if (patch.dpt !== undefined) setAttr(childEl(knx, "DPT"), "Value", String(patch.dpt ?? DEFAULT_DPT));
   if (patch.groupAddress !== undefined) {
+    const level = patch.groupAddressLevel ?? 3;
+    if (level !== 1 && level !== 2 && level !== 3) throw new Error("Invalid KNX group address level");
     const sending = childEl(knx, "SendingAddress");
     setAttr(sending, "Value", String(patch.groupAddress));
-    setAttr(sending, "String", formatGroupAddress(patch.groupAddress));
+    setAttr(sending, "String", formatGroupAddressAtLevel(patch.groupAddress, level));
   }
   if (patch.additionalAddresses !== undefined) {
     const listening = childEl(knx, "ListeningAddresses");

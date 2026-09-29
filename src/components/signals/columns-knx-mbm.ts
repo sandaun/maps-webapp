@@ -1,5 +1,10 @@
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
-import { formatGroupAddress, isValidGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
+import {
+  formatGroupAddressAtLevel,
+  groupAddressLevelOf,
+  isValidGroupAddress,
+  parseGroupAddress,
+} from "@/protocols/knx/address";
 import { COMMON_DPT_OPTIONS, formatDpt } from "@/protocols/knx/dpt";
 import type { KnxFlags } from "@/protocols/knx/flags";
 import {
@@ -121,7 +126,9 @@ export function toKnxRow(
   signal: KnxMbmSignal,
   conversions: KnxMbmProject["conversions"] = [],
 ): KnxSignalRow {
-  const groupAddress = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
+  const groupAddress = signal.knx.groupAddress > 0
+    ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3)
+    : "—";
   const dpt = formatDpt(signal.knx.dpt);
   const node = knxNodeLabel(mbm, signal.modbus.port);
   const device = knxDeviceLabel(mbm, signal);
@@ -246,9 +253,11 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
             error: `Invalid group address — expected main/middle/sub (max ${extended ? "31/7/255" : "15/7/255"})`,
           };
         }
-        return { patch: { knx: { groupAddress: ga } } };
+        return { patch: { knx: { groupAddress: ga, groupAddressLevel: groupAddressLevelOf(raw) } } };
       },
-      inverseFromText: (row) => ({ knx: { groupAddress: row.signal.knx.groupAddress } }),
+      inverseFromText: (row) => ({
+        knx: { groupAddress: row.signal.knx.groupAddress, groupAddressLevel: row.signal.knx.groupAddressLevel ?? 3 },
+      }),
     },
     {
       id: "flags",

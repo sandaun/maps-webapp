@@ -40,6 +40,19 @@ export function formatGroupAddress(value: number): string {
   return `${(value >> 11) & 0x1f}/${(value >> 8) & 0x7}/${value & 0xff}`;
 }
 
+/** Level of a GA as written ("a/b/c" → 3, "a/b" → 2, plain number → 1). */
+export function groupAddressLevelOf(text: string): 1 | 2 | 3 {
+  const parts = text.trim().split("/").length;
+  return parts === 1 ? 1 : parts === 2 ? 2 : 3;
+}
+
+/** MAPS `ConvertKNXAddressToString`: the same numeric GA at 1, 2 or 3 levels. */
+export function formatGroupAddressAtLevel(value: number, level: 1 | 2 | 3): string {
+  if (level === 1) return String(value);
+  if (level === 2) return `${(value >> 11) & 0x1f}/${value & 0x7ff}`;
+  return formatGroupAddress(value);
+}
+
 export function isValidGroupAddress(
   value: number,
   opts: { extended: boolean },

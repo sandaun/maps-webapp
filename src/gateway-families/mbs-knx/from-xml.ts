@@ -68,6 +68,7 @@ function readSignals(doc: XmlDocument): MbsKnxSignal[] {
         external: readHalfConversionRefs(textOf(k, "IdxFilters"), textOf(k, "IdxOperations")),
       },
       virtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
+      knxVirtual: parseBool(k ? attrOfChild(k, "Virtual", "Status") : undefined, false),
     };
   });
 }

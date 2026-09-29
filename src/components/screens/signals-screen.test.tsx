@@ -354,6 +354,34 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
+  it("previews numbering, saves one batch and undoes the original addresses", async () => {
+    mocks.applyPatches.mockResolvedValue(buildKnxView());
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Number addresses…" }));
+    const dialog = screen.getByRole("dialog", { name: "Number addresses" });
+    fireEvent.change(within(dialog).getByLabelText("Starting address"), { target: { value: "900" } });
+    fireEvent.change(within(dialog).getByLabelText("Increment"), { target: { value: "2" } });
+    expect(within(dialog).getByText("902")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply to 2 signals" }));
+
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(1));
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      { type: "updateSignal", id: 0, patch: { modbus: { address: 900 } } },
+      { type: "updateSignal", id: 1, patch: { modbus: { address: 902 } } },
+    ]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(2));
+    expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
+      { type: "updateSignal", id: 0, patch: { modbus: { address: mocks.view!.project.signals[0].modbus.address } } },
+      { type: "updateSignal", id: 1, patch: { modbus: { address: mocks.view!.project.signals[1].modbus.address } } },
+    ]);
+  });
+
   // Renders 102 rows: under a loaded full-suite run it can pass the 5 s default.
   it("selects the current page from the header, then all matching rows", { timeout: 15_000 }, () => {
     const view = buildKnxView();
@@ -574,6 +602,21 @@ describe("SignalsScreen (me-mbs)", () => {
     expect(screen.queryByLabelText("Edit Description signal 2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Edit Register signal 2")).not.toBeInTheDocument();
     expect(mocks.applyPatches).not.toHaveBeenCalled();
+  });
+
+  it("offers ME address numbering only in Custom mode", () => {
+    const view = buildMeView();
+    if (view.family !== "me-mbs") throw new Error("Expected ME-MBS view");
+    mocks.view = view;
+    const rendered = renderSignals();
+    fireEvent.click(screen.getByLabelText("Select signal 2"));
+    expect(screen.queryByRole("button", { name: "Number addresses…" })).not.toBeInTheDocument();
+    rendered.unmount();
+
+    view.project.mbs.addressMode = ADDRESS_MODES.CUSTOM;
+    renderSignals();
+    fireEvent.click(screen.getByLabelText("Select signal 2"));
+    expect(screen.getByRole("button", { name: "Number addresses…" })).toBeInTheDocument();
   });
 
   it("edits only the ME register when address mode is custom", async () => {

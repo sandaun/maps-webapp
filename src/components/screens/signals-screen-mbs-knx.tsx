@@ -10,6 +10,8 @@ import { parseConversionFilter, signalsHref, useSignalsTab } from "@/lib/signals
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
+import { AutoNumberDialog } from "@/components/signals/auto-number-dialog";
+import { checkMbsObjects, MBS_DEFAULT_MAX_ADDRESS } from "@/protocols/modbus/slave/rules";
 import { ConversionAssignDialog } from "@/components/signals/conversion-assign-dialog";
 import { ConversionChainCell } from "@/components/signals/conversion-chain";
 import { MBS_KNX_CONVERSION_SIDES } from "@/components/signals/conversion-sides";
@@ -61,6 +63,7 @@ export function MbsKnxSignalsView({
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [autoNumberOpen, setAutoNumberOpen] = React.useState(false);
   const [assigning, setAssigning] = React.useState<number | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
   const [assignBusy, setAssignBusy] = React.useState(false);
@@ -208,6 +211,7 @@ export function MbsKnxSignalsView({
       onDelete={removeChecked}
       onClear={clear}
       onEditField={() => setBulkOpen(true)}
+      onAutoNumber={() => setAutoNumberOpen(true)}
       onConversions={() => {
         setAssignError(null);
         setBulkConversions(true);
@@ -328,6 +332,45 @@ export function MbsKnxSignalsView({
           rowId={rowId}
           onClose={() => setBulkOpen(false)}
           onApply={(patches, inverses) => runPatch(patches, "Edit field", inverses)}
+        />
+      )}
+      {autoNumberOpen && (
+        <AutoNumberDialog
+          family="mbs-knx"
+          rows={signals.map((signal) => ({
+            id: signal.id,
+            description: signal.description,
+            virtual: signal.knxVirtual ?? signal.virtual,
+            address: signal.modbus.address,
+            groupAddress: signal.knx.groupAddress,
+            groupAddressLevel: signal.knx.groupAddressLevel,
+          }))}
+          selectedIds={checkedList}
+          registerBase={view.project.mbs.registerBase}
+          extendedAddresses={view.project.knx.extendedAddresses}
+          collisionWarning={(updates) => {
+            const objects = (useUpdates: boolean) => signals.filter((signal) => signal.active).map((signal) => ({
+              id: signal.id,
+              lenBits: signal.modbus.lenBits,
+              format: signal.modbus.format,
+              bit: signal.modbus.bit,
+              address: useUpdates ? updates.get(signal.id) ?? signal.modbus.address : signal.modbus.address,
+              stringLength: signal.modbus.stringLength,
+              slaveIndex: signal.modbus.slaveIndex,
+            }));
+            const options = { maxAddress: MBS_DEFAULT_MAX_ADDRESS, registerBase: view.project.mbs.registerBase };
+            const before = new Set(checkMbsObjects(objects(false), options).map((issue) => `${issue.code}:${issue.id}`));
+            const introduced = checkMbsObjects(objects(true), options).filter((issue) =>
+              issue.code.startsWith("MBS-ADDRESS-") && issue.code !== "MBS-ADDRESS-RANGE" && issue.code !== "MBS-ADDRESS-BASE" && !before.has(`${issue.code}:${issue.id}`),
+            );
+            return introduced.length ? `${introduced.length} Modbus address collision${introduced.length === 1 ? "" : "s"} would be introduced. Review the preview before applying.` : null;
+          }}
+          onClose={() => setAutoNumberOpen(false)}
+          onApply={async (patches, inverses) => {
+            await applyPatches(patches);
+            chrome.bumpDirty(patches.length);
+            chrome.pushUndo({ label: "Number addresses", patches: inverses });
+          }}
         />
       )}
     </SignalsWorkspace>

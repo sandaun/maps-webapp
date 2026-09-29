@@ -3,7 +3,13 @@ import { conversionCode } from "@/core/signals/conversion-code";
 import type { ConversionValues } from "@/core/conversions/rules";
 import { conversionChain, type ConversionChain } from "./conversion-chain";
 import { MBS_KNX_CONVERSION_SIDES } from "./conversion-sides";
-import { formatGroupAddress, isValidGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
+import {
+  formatGroupAddress,
+  formatGroupAddressAtLevel,
+  groupAddressLevelOf,
+  isValidGroupAddress,
+  parseGroupAddress,
+} from "@/protocols/knx/address";
 import { COMMON_DPT_OPTIONS, formatDpt } from "@/protocols/knx/dpt";
 import type { KnxFlags } from "@/protocols/knx/flags";
 import { FORMATS, MBS_DEFAULT_MAX_ADDRESS, READ_WRITE } from "@/protocols/modbus/slave";
@@ -109,7 +115,9 @@ export interface MbsKnxSignalRow {
 }
 
 export function toMbsKnxRow(signal: MbsKnxSignal, conversions: readonly ConversionValues[] = []): MbsKnxSignalRow {
-  const groupAddress = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
+  const groupAddress = signal.knx.groupAddress > 0
+    ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3)
+    : "—";
   const additionalAddresses = signal.knx.additionalAddresses.map(formatGroupAddress).join(", ");
   const dpt = formatDpt(signal.knx.dpt);
   return {
@@ -310,9 +318,11 @@ export function mbsKnxColumns(project: { knx: { extendedAddresses: boolean } }):
       parse: (_row, raw) => {
         const ga = parseGroupAddress(raw);
         if (ga === undefined || !isValidGroupAddress(ga, { extended })) return { error: gaError };
-        return { patch: { knx: { groupAddress: ga } } };
+        return { patch: { knx: { groupAddress: ga, groupAddressLevel: groupAddressLevelOf(raw) } } };
       },
-      inverseFromText: (row) => ({ knx: { groupAddress: row.signal.knx.groupAddress } }),
+      inverseFromText: (row) => ({
+        knx: { groupAddress: row.signal.knx.groupAddress, groupAddressLevel: row.signal.knx.groupAddressLevel ?? 3 },
+      }),
     },
     {
       id: "additionalAddresses",

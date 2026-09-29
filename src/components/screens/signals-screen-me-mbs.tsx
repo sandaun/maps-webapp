@@ -8,6 +8,8 @@ import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { meMbsColumns, ME_TAB_ORDER, toMeRow } from "@/components/signals/columns-me-mbs";
 import { SignalsGrid } from "@/components/signals/signals-grid";
+import { AutoNumberDialog } from "@/components/signals/auto-number-dialog";
+import { ADDRESS_MODES } from "@/protocols/modbus/slave/types";
 import {
   ColumnPicker,
   SignalsFooter,
@@ -45,6 +47,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
   const [hideDisabled, setHideDisabled] = React.useState(false);
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [autoNumberOpen, setAutoNumberOpen] = React.useState(false);
   const allColumns = React.useMemo(() => meMbsColumns(project), [project]);
   const defaultHidden = React.useMemo(
     () => allColumns.filter((col) => col.defaultHidden).map((col) => col.id),
@@ -123,6 +126,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
       onEnable={() => setActiveForChecked(true)}
       onDisable={() => setActiveForChecked(false)}
       onClear={clear}
+      onAutoNumber={project.mbs.addressMode === ADDRESS_MODES.CUSTOM ? () => setAutoNumberOpen(true) : undefined}
       onSelectAllMatching={() => selectMany(visibleIds)}
     >
       <SignalsToolbar
@@ -189,6 +193,25 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
         onPrev={() => setPage((p) => Math.max(0, p - 1))}
         onNext={() => setPage((p) => p + 1)}
       />
+      {autoNumberOpen && project.mbs.addressMode === ADDRESS_MODES.CUSTOM && (
+        <AutoNumberDialog
+          family="me-mbs"
+          rows={signals.map((signal) => ({
+            id: signal.id,
+            description: signal.description,
+            virtual: signal.virtual,
+            address: signal.modbus.address,
+          }))}
+          selectedIds={[...checkedIds]}
+          registerBase={project.mbs.registerBase}
+          onClose={() => setAutoNumberOpen(false)}
+          onApply={async (patches, inverses) => {
+            await applyPatches(patches);
+            chrome.bumpDirty(patches.length);
+            chrome.pushUndo({ label: "Number addresses", patches: inverses });
+          }}
+        />
+      )}
     </SignalsWorkspace>
   );
 }
