@@ -26,7 +26,8 @@ export interface SignalsGridProps<R> {
   rowError?: (row: R) => boolean;
   selected: Set<number>;
   pageIds: number[];
-  onToggle: (id: number) => void;
+  /** `shiftKey`: Shift+click, to select a range. */
+  onToggle: (id: number, shiftKey: boolean) => void;
   onTogglePage: () => void;
   applyPatches: (patches: ProjectPatchInput[]) => Promise<unknown>;
   tabOrder: string[];
@@ -159,6 +160,8 @@ export function SignalsGrid<R>({
   const [status, setStatus] = React.useState<Record<string, CellStatus>>({});
   const [tooltip, setTooltip] = React.useState<{ text: string; left: number; top: number } | null>(null);
   const inputRef = React.useRef<HTMLInputElement | HTMLButtonElement | null>(null);
+  // The change event has no modifier keys: the click before it records Shift.
+  const shiftToggle = React.useRef(false);
   React.useEffect(() => {
     const resetEditors = () => {
       setEditing(null);
@@ -449,8 +452,18 @@ export function SignalsGrid<R>({
           <Checkbox
             aria-label={`Select signal ${id}`}
             checked={selected.has(id)}
-            onChange={() => onToggle(id)}
-            onClick={(e) => e.stopPropagation()}
+            onChange={() => {
+              onToggle(id, shiftToggle.current);
+              shiftToggle.current = false;
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              shiftToggle.current = e.shiftKey;
+            }}
+            onMouseDown={(e) => {
+              // Shift+click would otherwise also select the text between the rows.
+              if (e.shiftKey) e.preventDefault();
+            }}
           />
         ),
       });

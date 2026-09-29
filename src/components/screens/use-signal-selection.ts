@@ -10,11 +10,27 @@ export function useSignalSelection(signalIds: number[]) {
     return new Set([...selected].filter((id) => live.has(id)));
   }, [liveKey, selected]);
 
-  const toggle = React.useCallback((id: number) => {
+  // Last row toggled with a plain click: Shift+click selects from it.
+  const anchor = React.useRef<number | null>(null);
+
+  /**
+   * Toggles one row. With `rangeOrder` (Shift+click), every row between the
+   * anchor and `id` in that order takes the new state of `id`.
+   */
+  const toggle = React.useCallback((id: number, rangeOrder?: number[]) => {
+    const from = rangeOrder && anchor.current !== null ? rangeOrder.indexOf(anchor.current) : -1;
+    const to = rangeOrder ? rangeOrder.indexOf(id) : -1;
+    const ids = rangeOrder && from >= 0 && to >= 0
+      ? rangeOrder.slice(Math.min(from, to), Math.max(from, to) + 1)
+      : [id];
+    anchor.current = id;
     setSelected((prev) => {
+      const on = !prev.has(id);
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      for (const each of ids) {
+        if (on) next.add(each);
+        else next.delete(each);
+      }
       return next;
     });
   }, []);
@@ -40,7 +56,10 @@ export function useSignalSelection(signalIds: number[]) {
     });
   }, []);
 
-  const clear = React.useCallback(() => setSelected(new Set()), []);
+  const clear = React.useCallback(() => {
+    anchor.current = null;
+    setSelected(new Set());
+  }, []);
 
   React.useEffect(() => {
     const onPatched = (event: Event) => {
@@ -54,6 +73,7 @@ export function useSignalSelection(signalIds: number[]) {
       const block = order.splice(fromIndex, move.count ?? 1);
       order.splice(move.toIndex, 0, ...block);
       const remapped = new Map(order.map((id, index) => [id, next.project.signals[index]?.id]));
+      anchor.current = anchor.current === null ? null : remapped.get(anchor.current) ?? null;
       setSelected((previous) => new Set([...previous].flatMap((id) => {
         const updated = remapped.get(id);
         return updated === undefined ? [] : [updated];

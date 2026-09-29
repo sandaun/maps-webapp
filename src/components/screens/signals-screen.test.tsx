@@ -262,6 +262,19 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
+  it("selects and clears a range with Shift+click", () => {
+    mocks.view = buildKnxView();
+    renderSignals();
+
+    fireEvent.click(screen.getByLabelText("Select signal 0"));
+    fireEvent.click(screen.getByLabelText("Select signal 1"), { shiftKey: true });
+    expect(screen.getByText("2 signals selected")).toBeInTheDocument();
+
+    // The anchor is now signal 1: Shift+click on a checked row clears the range.
+    fireEvent.click(screen.getByLabelText("Select signal 0"), { shiftKey: true });
+    expect(screen.queryByText(/signals? selected/)).not.toBeInTheDocument();
+  });
+
   it("edits a description inline on Enter and does not open the drawer", async () => {
     mocks.applyPatches.mockResolvedValue(buildKnxView());
     mocks.view = buildKnxView();

@@ -313,7 +313,7 @@ function SignalsView({
           rowError={(row) => errorIds.has(row.signal.id)}
           selected={checkedIds}
           pageIds={pageIds}
-          onToggle={toggle}
+          onToggle={(id, shiftKey) => toggle(id, shiftKey ? visibleIds : undefined)}
           onTogglePage={() => toggleAll(pageIds)}
           applyPatches={applyPatches}
           tabOrder={KNX_TAB_ORDER}
