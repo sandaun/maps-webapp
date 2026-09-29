@@ -13,6 +13,7 @@ import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
 import { MbsKnxSignalsView } from "@/components/screens/signals-screen-mbs-knx";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
+import { AutoNumberDialog } from "@/components/signals/auto-number-dialog";
 import { ConversionAssignDialog } from "@/components/signals/conversion-assign-dialog";
 import { ConversionChainCell } from "@/components/signals/conversion-chain";
 import { knxMbmConversionSides } from "@/components/signals/conversion-sides-knx-mbm";
@@ -76,6 +77,7 @@ function SignalsView({
   const [colsMenu, setColsMenu] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [autoNumberOpen, setAutoNumberOpen] = React.useState(false);
   const [assigning, setAssigning] = React.useState<number | null>(null);
   const [assignError, setAssignError] = React.useState<string | null>(null);
   const [assignBusy, setAssignBusy] = React.useState(false);
@@ -235,6 +237,7 @@ function SignalsView({
       onDelete={removeChecked}
       onClear={clear}
       onEditField={() => setBulkOpen(true)}
+      onAutoNumber={() => setAutoNumberOpen(true)}
       onConversions={() => {
         setAssignError(null);
         setBulkConversions(true);
@@ -355,6 +358,27 @@ function SignalsView({
           rowId={rowId}
           onClose={() => setBulkOpen(false)}
           onApply={(patches, inverses) => runPatch(patches, "Edit field", inverses)}
+        />
+      )}
+      {autoNumberOpen && (
+        <AutoNumberDialog
+          family="knx-mbm"
+          rows={signals.map((signal) => ({
+            id: signal.id,
+            description: signal.description,
+            virtual: signal.modbusVirtual ?? signal.virtual,
+            address: signal.modbus.address,
+            groupAddress: signal.knx.groupAddress,
+            groupAddressLevel: signal.knx.groupAddressLevel,
+          }))}
+          selectedIds={checkedList}
+          extendedAddresses={view.project.knx.extendedAddresses}
+          onClose={() => setAutoNumberOpen(false)}
+          onApply={async (patches, inverses) => {
+            await applyPatches(patches);
+            chrome.bumpDirty(patches.length);
+            chrome.pushUndo({ label: "Number addresses", patches: inverses });
+          }}
         />
       )}
     </SignalsWorkspace>

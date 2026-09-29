@@ -20,6 +20,7 @@ const knxPatchSchema = z
   .object({
     dpt: z.number().int().min(0).max(65535),
     groupAddress: z.number().int().min(0).max(65535),
+    groupAddressLevel: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     additionalAddresses: z.array(z.number().int().min(0).max(65535)),
     flags: flagsSchema,
     priority: z.number().int().min(0).max(3),

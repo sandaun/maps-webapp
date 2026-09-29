@@ -15,6 +15,7 @@ export function SignalsWorkspace({
   onDelete,
   onClear,
   onEditField,
+  onAutoNumber,
   onConversions,
   onSelectAllMatching,
   children,
@@ -27,6 +28,7 @@ export function SignalsWorkspace({
   onDelete?: () => void;
   onClear: () => void;
   onEditField?: () => void;
+  onAutoNumber?: () => void;
   /** KNX–MBM: assign conversions to the selection. */
   onConversions?: () => void;
   onSelectAllMatching: () => void;
@@ -65,6 +67,11 @@ export function SignalsWorkspace({
               onClick={onEditField}
             >
               Edit field…
+            </button>
+          ) : null}
+          {onAutoNumber ? (
+            <button type="button" className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover" onClick={onAutoNumber}>
+              Number addresses…
             </button>
           ) : null}
           {onConversions ? (

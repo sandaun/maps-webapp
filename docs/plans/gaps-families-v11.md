@@ -260,13 +260,27 @@ ja existeix i què es pot compartir.
 4. **Numeració automàtica** d'adreces Modbus i GA KNX (eina de taula
    compartida).
    - **MAPS:**
-     - Modbus: `InternalMbs.AutoEnumRegisters` / `AutoEnumModbusAddress`
-       (`InternalMbs.cs:1134`, `:1755`; inici + increment, màxim 20.000).
+     - Modbus: `ExternalMbm.AutoEnumRegisters` (`ExternalMbm.cs:2416`;
+       0–65.535) i `InternalMbs.AutoEnumRegisters` (`InternalMbs.cs:1755`;
+       màxim 20.000 al diàleg dels registres MBS). Les files seleccionades es
+       processen per ordre de taula amb adreça inicial + increment.
      - KNX: `ExternalKnx.AutoEnumGroupAddresses` (`ExternalKnx.cs:816`) i
-       `InternalKnx`. Format d'1, 2 o 3 nivells, inici + increment.
-     - Diàleg: `frmAutoEnum`.
-   - **Nosaltres:** no hi és a cap família. A ME–MBS no té sentit, perquè les
-     adreces són fixes. Referència antiga: `docs/plans/knx-mbm-mvp.md:144`.
+       `InternalKnx.AutoEnumGroupAddresses` (`InternalKnx.cs:1110`). Només
+       canvia l'adreça d'enviament; el diàleg `frmAutoEnumKNX.cs` permet
+       format d'1, 2 o 3 nivells, adreça inicial i increment.
+     - `ExternalMbm` i `ExternalKnx` salten els objectes virtuals sense avançar
+       el comptador. El diàleg KNX comprova `inici + i`, però no
+       `inici + i·increment`: és un error de MAPS que no hem de reproduir.
+     - ME–MBS també enllaça `AutoEnumRegister` i desa les adreces amb
+       `StoreUserAddress` (`IntesisProjectMbsMe_RT.cs:2949-2970`).
+   - **Nosaltres:** el model inclou `virtual` a KNX–MBM i MBS–KNX, però
+     encara no hi ha l'eina d'autoenumeració. La taula ja té selecció de files,
+     patches per lots i desfer. Cal una acció compartida amb previsualització,
+     comprovació de tota la seqüència i aplicació en un sol lot. A MBS–KNX cal
+     advertir de col·lisions de registres. Per al format KNX d'1/2/3 nivells,
+     cal escriure l'atribut XML `String` segons el nivell triat i si s'admeten
+     adreces esteses; `Value` continua sent numèric. A ME–MBS, oferir-la només
+     en mode Custom, l'únic en què la columna d'adreces és editable avui.
 5. **Reordenar files.**
    - **MAPS:** Move Up/Down (`ModifyObjectsPosition` → `MoveRowByOne` a
      `InternalMbs.cs:1013` i `ExternalKnx.cs:768`). Intercanvia les dues

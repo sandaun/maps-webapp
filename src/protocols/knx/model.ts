@@ -10,6 +10,8 @@ export interface KnxEndpoint {
   dpt: number;
   /** Numeric group address (sending). */
   groupAddress: number;
+  /** XML display format when it differs from the default three levels. */
+  groupAddressLevel?: 1 | 2 | 3;
   /** Additional (listening) group addresses. */
   additionalAddresses: number[];
   flags: KnxFlags;

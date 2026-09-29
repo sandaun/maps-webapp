@@ -35,6 +35,14 @@ describe("detect", () => {
 });
 
 describe("projectFromXml", () => {
+  it("reads the KNX virtual flag separately for auto-numbering", () => {
+    const doc = parseFixture();
+    const external = doc.find(["ExternalProtocol", { tag: "KNXObject", attr: "ID", value: "0" }, "Virtual"]);
+    setAttr(external!, "Status", "True");
+    const signal = projectFromXml(doc).signals[0];
+    expect(signal.virtual).toBe(false);
+    expect(signal.knxVirtual).toBe(true);
+  });
   it("maps both sides row by row, the state and description from the Modbus side", () => {
     const project = projectFromXml(parseFixture());
     expect(project.signals).toHaveLength(5);

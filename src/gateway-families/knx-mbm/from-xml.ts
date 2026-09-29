@@ -147,6 +147,7 @@ function readSignals(doc: XmlDocument): KnxMbmSignal[] {
         external: readHalfConversionRefs(textOf(m, "IdxFilters"), textOf(m, "IdxOperations")),
       },
       virtual: parseBool(k ? attrOfChild(k, "Virtual", "Status") : undefined, false),
+      modbusVirtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
     };
   });
 }

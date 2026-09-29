@@ -25,6 +25,8 @@ export interface MbsKnxSignal {
   /** Conversion refs per half: internal = Modbus signal, external = KNX object. */
   conversions: SignalConversionRefs;
   virtual: boolean;
+  /** External KNX object's virtual flag, used by MAPS auto-numbering. */
+  knxVirtual?: boolean;
 }
 
 export interface GatewayInfo {

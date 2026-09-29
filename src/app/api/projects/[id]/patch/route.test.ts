@@ -116,3 +116,20 @@ describe("PATCH signal conversions", () => {
     expect((await post([{ type: "updateSignal", id: 0, patch: { conversions } }])).status).toBe(400);
   });
 });
+
+describe("PATCH KNX address format", () => {
+  it("accepts a batch with explicit two-level addresses", async () => {
+    const response = await POST(new Request("http://local/api/projects/demo/patch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patches: [
+        { type: "updateSignal", id: 0, patch: { knx: { groupAddress: 2307, groupAddressLevel: 2 } } },
+        { type: "updateSignal", id: 1, patch: { knx: { groupAddress: 2308, groupAddressLevel: 2 } } },
+      ] }),
+    }), { params: Promise.resolve({ id: "demo" }) });
+    expect(response.status).toBe(200);
+    const view = await response.json();
+    expect(view.project.signals.slice(0, 2).map((signal: { knx: { groupAddress: number; groupAddressLevel?: number } }) =>
+      [signal.knx.groupAddress, signal.knx.groupAddressLevel])).toEqual([[2307, 2], [2308, 2]]);
+  });
+});

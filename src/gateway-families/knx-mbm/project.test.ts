@@ -37,6 +37,14 @@ describe("detect", () => {
 });
 
 describe("projectFromXml", () => {
+  it("reads the Modbus virtual flag separately for auto-numbering", () => {
+    const doc = parseFixture();
+    const external = doc.find(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "0" }, "Virtual"]);
+    setAttr(external!, "Status", "True");
+    const signal = projectFromXml(doc).signals[0];
+    expect(signal.virtual).toBe(false);
+    expect(signal.modbusVirtual).toBe(true);
+  });
   it("maps the synthetic fixture to the model", () => {
     const project = projectFromXml(parseFixture());
     expect(project.name).toBe("synthetic-knx-mbm.ibmaps");
@@ -137,6 +145,15 @@ describe("xml-ops", () => {
     expect(xml).toContain("<WriteFunc>16</WriteFunc>");
     // the other signal is untouched
     expect(xml).toContain("<Description>Room temperature</Description>");
+  });
+
+  it("writes the selected KNX address format and restores the prior format", () => {
+    const doc = parseFixture();
+    updateSignal(doc, 0, { knx: { groupAddress: 2307, groupAddressLevel: 2 } });
+    expect(doc.serialize()).toContain('Value="2307" String="1/259"');
+    expect(projectFromXml(doc).signals[0].knx.groupAddressLevel).toBe(2);
+    updateSignal(doc, 0, { knx: { groupAddress: 2051, groupAddressLevel: 3 } });
+    expect(doc.serialize()).toContain('Value="2051" String="1/0/3"');
   });
 
   it("addSignal appends aligned nodes with defaults and removeSignal restores", () => {
