@@ -30,12 +30,12 @@ vi.mock("next/navigation", () => ({
 function viewOf(family: FamilyId): ProjectView {
   const meta = { id: "demo", family, name: "P", description: "", source: "demo" as const, updatedAt: "", revision: 1 };
   if (family === "knx-mbm") {
-    return { family, meta, project: readKnx(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML)), issues: [], hasCompleteBlob: false };
+    return { family, meta, project: readKnx(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML)), issues: [], passwordValid: false, hasCompleteBlob: false };
   }
   if (family === "mbs-knx") {
-    return { family, meta, project: readMbsKnx(XmlDocument.parse(SYNTHETIC_MBS_KNX_XML)), issues: [], hasCompleteBlob: false };
+    return { family, meta, project: readMbsKnx(XmlDocument.parse(SYNTHETIC_MBS_KNX_XML)), issues: [], passwordValid: false, hasCompleteBlob: false };
   }
-  return { family, meta, project: readMe(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)), issues: [], hasCompleteBlob: false };
+  return { family, meta, project: readMe(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)), issues: [], passwordValid: false, hasCompleteBlob: false };
 }
 
 /** Every option of every labelled property select must read as its shared label. */

@@ -249,6 +249,11 @@ const meGroupPatchSchema = z
 
 const patchSchema = z.discriminatedUnion("type", [
   z.object({
+    type: z.literal("setProjectPassword"),
+    // Value validation lives in the shared server operation; errors never echo it.
+    password: z.string().max(8),
+  }),
+  z.object({
     type: z.literal("setGeneralInfo"),
     name: z.string().max(255).optional(),
     description: z.string().max(255).optional(),

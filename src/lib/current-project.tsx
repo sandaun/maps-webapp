@@ -195,7 +195,9 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
           },
         );
         projectViews.current.set(projectId, next);
-        window.dispatchEvent(new CustomEvent<ProjectPatchedDetail>(PROJECT_PATCHED_EVENT, { detail: { before, next, patches } }));
+        // Password input is transient: never publish it to draft/undo consumers.
+        const publicPatches = patches.filter((patch) => patch.type !== "setProjectPassword");
+        window.dispatchEvent(new CustomEvent<ProjectPatchedDetail>(PROJECT_PATCHED_EVENT, { detail: { before, next, patches: publicPatches } }));
         if (readProjectId() === projectId) setResult({ id: projectId, view: next });
         return next;
       });

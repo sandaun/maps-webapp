@@ -336,8 +336,8 @@ mateix XML i els mateixos errors abans i després.
 - **Devices**: no n'hi ha; el costat KNX són adreces de grup.
 - **Signals**: taula editable amb columnes MBS (actiu, descripció, bits,
   format, adreça, bit, R/W) i KNX (DPT, GA, GA addicionals, U/T/Ri/W/R,
-  prioritat), conversions. Afegir, esborrar i moure files.
-  Queda fora de la primera iteració: autoenumeració, import/export XLSX i
+  prioritat), conversions. Afegir i esborrar files.
+  Queda fora de la primera iteració: moure files, autoenumeració, import/export XLSX i
   import ETS/ESF.
 - **Diagnostics / Deploy**: comuns, amb l'AppId esperat = 7.
 
@@ -439,12 +439,14 @@ Observacions:
   fàbrica (`admin`). Després del deploy, la unitat queda **sense
   contrasenya**, perquè la plantilla de MAPS porta `IBOX Pwd=""` i l'XBL la
   hi escriu.
-- Pendent de decidir: avisar o bloquejar el deploy d'un projecte amb la
-  contrasenya buida. El model no exposa la contrasenya, per disseny.
+- Resolt després de la prova: el deploy bloqueja contrasenyes buides o no
+  ASCII com MAPS; Configuration → Security permet fixar-ne una sense exposar
+  l'actual. Vegeu `project-password.md`.
 
 ## 12. Obert
 
 - La unitat es queda amb MBS–KNX per continuar provant. Si cal tornar-la a
   KNX–MBM: canviar el firmware amb MAPS i desplegar la còpia de
   `roundtrip-test`.
-- Contrasenya buida en desplegar (§11).
+- Contrasenya buida en desplegar (§11): resolt amb validació comuna abans
+  d'enviar i configuració només d'escriptura. Vegeu `project-password.md`.

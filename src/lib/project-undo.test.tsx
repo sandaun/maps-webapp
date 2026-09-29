@@ -27,7 +27,7 @@ function serverView(id: string): ProjectView {
     meta: { id, family: "knx-mbm", name: "P", description: "", source: "demo", updatedAt: "", revision },
     project: projectFromXml(doc),
     issues: [],
-    hasCompleteBlob: false,
+    passwordValid: false, hasCompleteBlob: false,
   };
 }
 

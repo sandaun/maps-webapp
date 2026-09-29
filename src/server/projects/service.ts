@@ -24,6 +24,7 @@ import { buildSignalsXlsx } from "../exports/xlsx-signals";
 import { applySignalsXlsx } from "../imports/xlsx-signals";
 import { ProjectServiceError } from "./errors";
 import { withProjectLock } from "./project-lock";
+import { hasValidProjectPassword } from "./password";
 import {
   detectFamily,
   familyById,
@@ -44,6 +45,8 @@ export type {
 } from "./families";
 
 interface ProjectViewBase {
+  /** MAPS deploy integrity check; never the password itself. */
+  passwordValid: boolean;
   meta: ProjectMeta;
   issues: ValidationIssue[];
   /** Whether the original gateway "complete" blob is available for round-trip. */
@@ -81,16 +84,17 @@ async function readProjectView(id: string, { locked }: { locked: boolean }): Pro
   const doc = XmlDocument.parse(xml);
   const meta = withRevision(await withFamily(store, stored, doc, true));
   const hasCompleteBlob = await store.hasCompleteBlob(id);
+  const passwordValid = hasValidProjectPassword(doc);
   if (meta.family === "mbs-knx") {
     const project = mbsKnxProjectFromXml(doc);
-    return { family: "mbs-knx", meta, project, issues: familyById("mbs-knx").validate(project), hasCompleteBlob };
+    return { family: "mbs-knx", meta, project, issues: familyById("mbs-knx").validate(project), hasCompleteBlob, passwordValid };
   }
   if (meta.family === "me-mbs") {
     const project = meMbsProjectFromXml(doc);
-    return { family: "me-mbs", meta, project, issues: familyById("me-mbs").validate(project), hasCompleteBlob };
+    return { family: "me-mbs", meta, project, issues: familyById("me-mbs").validate(project), hasCompleteBlob, passwordValid };
   }
   const project = knxMbmProjectFromXml(doc);
-  return { family: "knx-mbm", meta, project, issues: familyById("knx-mbm").validate(project), hasCompleteBlob };
+  return { family: "knx-mbm", meta, project, issues: familyById("knx-mbm").validate(project), hasCompleteBlob, passwordValid };
 }
 
 /** Open a local .ibmaps XML text as a project. */

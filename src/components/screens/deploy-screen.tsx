@@ -188,7 +188,12 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
                   ) : (
                     <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-error" aria-hidden />
                   )}
-                  <span className="text-text-body">{check.detail}</span>
+                  <span className="text-text-body">
+                    {check.detail}
+                    {check.id === "password" && !check.ok && (
+                      <> <Link href="/configuration?section=security" className="font-medium text-hms-accent hover:underline">Set password</Link></>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

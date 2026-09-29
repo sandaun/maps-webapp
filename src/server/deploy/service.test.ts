@@ -3,11 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCompleteBlob, buildProjectZip, parseCompleteBlob, XmlDocument } from "@/core/project-format";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildCompleteBlob, buildProjectZip, extractIbmaps, parseCompleteBlob, XmlDocument } from "@/core/project-format";
+import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { decodeElements } from "@/core/xbl";
 import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
-import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
+import { SYNTHETIC_KNX_MBM_XML as EMPTY_PASSWORD_KNX_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import {
   generateMeMbsXbl,
   updateControllerAndSignals,
@@ -15,9 +16,9 @@ import {
   updateMbsConfigAndSignals,
 } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
-import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { SYNTHETIC_ME_MBS_XML as EMPTY_PASSWORD_ME_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import type { GatewaySessions, GatewaySessionStatus } from "../intesis-transport";
-import { resetProjectStoreForTests } from "../persistence";
+import { getProjectStore, resetProjectStoreForTests } from "../persistence";
 import { applyPatches, getProjectView, loadDemoProject, openCompleteBlob, openIbmaps } from "../projects/service";
 import { DEPLOY_FAMILIES, deployProject, DeployGateError, getDeployStatus } from "./service";
 
@@ -27,6 +28,14 @@ import { DEPLOY_FAMILIES, deployProject, DeployGateError, getDeployStatus } from
  * handing the blob to the session manager. No real gateway: the
  * `GatewaySessions` double only captures the upload.
  */
+
+function withPassword(xml: string, password = "test-pwd"): string {
+  const doc = XmlDocument.parse(xml);
+  doc.setAttr(["IBOX"], "Pwd", password);
+  return doc.serialize();
+}
+const SYNTHETIC_KNX_MBM_XML = withPassword(EMPTY_PASSWORD_KNX_XML);
+const SYNTHETIC_ME_MBS_XML = withPassword(EMPTY_PASSWORD_ME_XML);
 
 let dir: string;
 let capabilitiesPath: string;
@@ -70,7 +79,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function writeGenuineCapability(key: "meMbsXblVerified" | "knxMbmXblVerified" = "meMbsXblVerified"): Promise<void> {
+async function writeGenuineCapability(key: string = "meMbsXblVerified"): Promise<void> {
   const sha = "a".repeat(64);
   await writeFile(
     capabilitiesPath,
@@ -143,6 +152,69 @@ function maskTimestamp(xbl: Uint8Array): Uint8Array {
   if (ts) copy.fill(0, ts.contentOffset, ts.contentOffset + 6);
   return copy;
 }
+
+describe.each([
+  ["knx-mbm", EMPTY_PASSWORD_KNX_XML, 4, "knxMbmXblVerified"],
+  ["me-mbs", withPassword(ME_MBS_XML, ""), 64, "meMbsXblVerified"],
+  ["mbs-knx", SYNTHETIC_MBS_KNX_XML, 7, "mbsKnxXblVerified"],
+] as const)("password deploy gate (%s)", (_family, xml, appId, capability) => {
+  it.each(["", "not-ascii-é"])("blocks %j before any upload, then sends the saved password in XML and XBL", async (password) => {
+    await openIbmaps(withPassword(xml, password), { id: "password-project" });
+    await writeGenuineCapability(capability);
+    const { sessions, uploads } = fakeSessions({ appId });
+    const deps = { sessions, capabilitiesPath };
+    const blocked = await getDeployStatus("password-project", "sess-1", deps);
+    expect(blocked.deployable).toBe(false);
+    expect(blocked.checks.find((c) => c.id === "password")?.ok).toBe(false);
+    await expect(deployProject("password-project", "sess-1", deps)).rejects.toMatchObject({ gate: "password", status: 422 });
+    expect(uploads).toHaveLength(0);
+
+    const newPassword = ' A&"<>~ ';
+    await applyPatches("password-project", [{ type: "setProjectPassword", password: newPassword }]);
+    const allowed = await getDeployStatus("password-project", "sess-1", deps);
+    expect(allowed.deployable).toBe(true);
+    expect(JSON.stringify(allowed)).not.toContain(JSON.stringify(newPassword).slice(1, -1));
+    await deployProject("password-project", "sess-1", deps);
+    const blob = parseCompleteBlob(uploads[0]);
+    expect(XmlDocument.parse(extractIbmaps(blob.zip).xml).getAttr(["IBOX"], "Pwd")).toBe(newPassword);
+    const ibox = decodeElements(blob.xbl).find((node) => node.tag === 2);
+    const pwd = ibox?.children?.find((node) => node.tag === 5);
+    expect(pwd).toBeDefined();
+    expect(Array.from(blob.xbl.subarray(pwd!.contentOffset, pwd!.contentOffset + pwd!.contentLength)))
+      .toEqual([...Array.from(newPassword, (char) => char.charCodeAt(0)), 0]);
+  });
+
+  it("rechecks XML after a passing status preview", async () => {
+    await openIbmaps(withPassword(xml), { id: "p" });
+    await writeGenuineCapability(capability);
+    const { sessions, uploads } = fakeSessions({ appId });
+    expect((await getDeployStatus("p", "sess-1", { sessions, capabilitiesPath })).deployable).toBe(true);
+    await openIbmaps(withPassword(xml, ""), { id: "p" });
+    await expect(deployProject("p", "sess-1", { sessions, capabilitiesPath })).rejects.toMatchObject({ gate: "password" });
+    expect(uploads).toHaveLength(0);
+  });
+});
+
+it("compiles the same password snapshot it checked even if the stored XML changes afterwards", async () => {
+  await openKnxMbmProject();
+  await writeGenuineCapability("knxMbmXblVerified");
+  const store = getProjectStore();
+  // hasCompleteBlob is called during the initial view read, then after gates.
+  const original = store.hasCompleteBlob.bind(store);
+  let calls = 0;
+  const spy = vi.spyOn(store, "hasCompleteBlob").mockImplementation(async (id) => {
+    if (++calls === 2) await store.writeXml(id, EMPTY_PASSWORD_KNX_XML);
+    return original(id);
+  });
+  try {
+    const { sessions, uploads } = fakeSessions({ appId: 4 });
+    await deployProject("k1", "sess-1", { sessions, capabilitiesPath });
+    const sentXml = extractIbmaps(parseCompleteBlob(uploads[0]).zip).xml;
+    expect(XmlDocument.parse(sentXml).getAttr(["IBOX"], "Pwd")).toBe("test-pwd");
+  } finally {
+    spy.mockRestore();
+  }
+});
 
 describe("deploy gates", () => {
   it("deploys a me-mbs project when every gate passes, regenerating the XBL", async () => {
@@ -265,7 +337,7 @@ describe("getDeployStatus", () => {
 
     const ok = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
     expect(ok.deployable).toBe(true);
-    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid", "project"]);
+    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid", "project", "password"]);
 
     await rm(capabilitiesPath);
     const blocked = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
@@ -323,7 +395,7 @@ describe("getDeployStatus", () => {
     );
     updateMbsConfigAndSignals(doc, { slaveAddressMode: 1 });
     stale(doc);
-    await openIbmaps(doc.serialize(), { id: "p4", name: "ME project" });
+    await openIbmaps(withPassword(doc.serialize()), { id: "p4", name: "ME project" });
     await writeGenuineCapability();
     const { sessions, uploads } = fakeSessions({ appId: 64 });
     expect((await getDeployStatus("p4", "sess-1", { sessions, capabilitiesPath })).deployable).toBe(false);
@@ -361,7 +433,7 @@ describe("getDeployStatus", () => {
 
     const ok = await getDeployStatus("k1", "sess-1", { sessions, capabilitiesPath });
     expect(ok.deployable).toBe(true);
-    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid"]);
+    expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid", "password"]);
     expect(ok.checks[1].detail).toContain("knxMbmXblVerified");
     expect(ok.checks[2].detail).toContain("AppId 4");
   });

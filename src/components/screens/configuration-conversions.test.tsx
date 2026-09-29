@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
 let xml: XmlDocument;
 let revision: number;
 const meta = () => ({ id: "demo", family: "knx-mbm" as const, name: "P", description: "", source: "demo" as const, updatedAt: "", revision });
-const view = (): ProjectView => ({ family: "knx-mbm", meta: meta(), project: readKnx(xml), issues: [], hasCompleteBlob: false });
+const view = (): ProjectView => ({ family: "knx-mbm", meta: meta(), project: readKnx(xml), issues: [], passwordValid: false, hasCompleteBlob: false });
 
 /** Filters "Valid" (No-limit, In range −50…150) and "Below 50" (Less than, Param4); a LUT; operation "x0.1" used by signal 1. */
 function setup() {
@@ -221,7 +221,7 @@ describe("Configuration → Conversions", () => {
 
   it("has no Conversions section for ME–MBS, whose conversions MAPS does not expose", async () => {
     const project = readMe(XmlDocument.parse(SYNTHETIC_ME_MBS_XML));
-    const meView: ProjectView = { family: "me-mbs", meta: { ...meta(), family: "me-mbs" }, project, issues: [], hasCompleteBlob: false };
+    const meView: ProjectView = { family: "me-mbs", meta: { ...meta(), family: "me-mbs" }, project, issues: [], passwordValid: false, hasCompleteBlob: false };
     mocks.get.mockImplementation(async () => meView);
     render(
       <CurrentProjectProvider>
