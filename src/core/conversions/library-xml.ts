@@ -1,4 +1,5 @@
 import {
+  appendChildIndented,
   element,
   getAttr,
   getText,
@@ -30,8 +31,6 @@ import {
  * conversion direction, virtual rows): see `./selection.ts`.
  * Moved from `src/gateway-families/knx-mbm/xml-ops.ts`.
  */
-
-const INDENT_UNIT = "  ";
 
 /** A library entry as the project XML holds it (params as written). */
 export interface LibraryConversion {
@@ -289,27 +288,4 @@ function insertBeforeIndented(parent: XmlElement, child: XmlElement, ref: XmlEle
   const indent = before && before.kind === "text" && /^\s*$/.test(before.text) ? before.text : "";
   child.parent = parent;
   parent.children.splice(index, 0, child, text(indent));
-}
-
-/**
- * Append a child matching the surrounding indentation: inserts before the
- * closing-tag whitespace with one extra indent level.
- */
-function appendChildIndented(parent: XmlElement, child: XmlElement, childLevel: number): void {
-  // .ibmaps is always written with CRLF line endings.
-  const lineEnding = "\r\n";
-  const last = parent.children[parent.children.length - 1];
-  child.parent = parent;
-  if (last && last.kind === "text" && /^\s*$/.test(last.text)) {
-    const indent = `${lineEnding}${INDENT_UNIT.repeat(childLevel)}`;
-    parent.children.splice(parent.children.length - 1, 0, text(indent), child);
-  } else if (parent.children.length === 0) {
-    const base = `${lineEnding}${INDENT_UNIT.repeat(Math.max(0, childLevel - 1))}`;
-    parent.children = [text(`${base}${INDENT_UNIT}`), child, text(base)];
-    parent.emptyForm = undefined;
-  } else {
-    // Compact XML (no whitespace between tags): append without indentation,
-    // keeping every existing child.
-    parent.children.push(child);
-  }
 }
