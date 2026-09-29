@@ -46,6 +46,7 @@ import {
 } from "@/protocols/modbus/slave/xml";
 import { readMbsKnxEndpoint } from "./from-xml";
 import type { GatewayInfo } from "./model";
+import { moveAlignedSignal } from "@/core/signals/move-signal";
 
 /**
  * Patch operations on the preserved .ibmaps XmlDocument. Every edit keeps
@@ -178,6 +179,10 @@ export function reorderSignalIds(doc: XmlDocument): void {
     setChildTextIfPresent(el, "IdxExternal", String(i));
     setChildTextIfPresent(el, "IdxConfig", String(i));
   });
+}
+
+export function moveSignal(doc: XmlDocument, id: number, toIndex: number, count = 1): void {
+  if (moveAlignedSignal([mbsSignals(doc), knxObjects(doc)], id, toIndex, count)) reorderSignalIds(doc);
 }
 
 export interface SignalPatch {

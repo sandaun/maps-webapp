@@ -9,6 +9,7 @@ import { ApiError } from "./api";
 import { CurrentProjectProvider, useCurrentProject } from "./current-project";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
 import { useWorkspaceChrome, WorkspaceChromeProvider } from "./workspace-chrome";
+import { useSignalSelection } from "@/components/screens/use-signal-selection";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
 vi.mock("./api", async (original) => ({
@@ -61,6 +62,7 @@ beforeEach(() => {
 function Probe() {
   const { view, applyPatches, refresh, setProjectId } = useCurrentProject();
   const { undo, pushUndo } = useWorkspaceChrome();
+  const selection = useSignalSelection(view?.project.signals.map((signal) => signal.id) ?? []);
   const [error, setError] = React.useState("");
   const run = (patches: ProjectPatchInput[]) =>
     applyPatches(patches).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
@@ -75,6 +77,13 @@ function Probe() {
         disable
       </button>
       <button onClick={() => void run([{ type: "setGeneralInfo", name: "Renamed" }])}>rename</button>
+      <button onClick={() => void run([{ type: "moveSignal", id: 0, toIndex: 4 }])}>move</button>
+      <button onClick={() => void run([{ type: "moveSignal", id: 0, count: 2, toIndex: 1 }])}>move block</button>
+      <button onClick={() => void run([{ type: "moveSignal", id: 1, count: 2, toIndex: 0 }])}>undo block</button>
+      <button onClick={() => void run([{ type: "moveSignal", id: 0, count: 2, toIndex: 0 }])}>same position</button>
+      <button onClick={() => selection.toggle(0)}>select</button>
+      <button onClick={() => selection.selectMany([0, 1])}>select block</button>
+      <p data-testid="selection">{[...selection.selected].join(",")}</p>
       <button onClick={() => void refresh()}>refresh</button>
       <button onClick={() => setProjectId("other")}>switch</button>
       <button onClick={() => setProjectId("demo")}>reselect</button>
@@ -99,6 +108,51 @@ async function renderWithUndo() {
 }
 
 describe("undo across external revisions", () => {
+  it("remaps selected IDs after moving a signal", async () => {
+    await renderWithUndo();
+    fireEvent.click(screen.getByRole("button", { name: "select" }));
+    expect(screen.getByTestId("selection")).toHaveTextContent("0");
+    fireEvent.click(screen.getByRole("button", { name: "move" }));
+    await waitFor(() => expect(screen.getByTestId("revision")).toHaveTextContent("3"));
+    expect(screen.getByTestId("selection")).toHaveTextContent("4");
+    expect(screen.getByTestId("undo")).toHaveTextContent("none");
+    expect(projectFromXml(doc).signals[4].description).toBe("signal 0");
+  });
+
+  it("keeps the selection on the moved block and restores it on undo", async () => {
+    await renderWithUndo();
+    fireEvent.click(screen.getByRole("button", { name: "select block" }));
+    fireEvent.click(screen.getByRole("button", { name: "move block" }));
+    await waitFor(() => expect(screen.getByTestId("selection")).toHaveTextContent("1,2"));
+    fireEvent.click(screen.getByRole("button", { name: "undo block" }));
+    await waitFor(() => expect(screen.getByTestId("selection")).toHaveTextContent("0,1"));
+    expect(projectFromXml(doc).signals.slice(0, 2).map((signal) => signal.description)).toEqual(["signal 0", "signal 1"]);
+  });
+
+  it("does not invalidate undo or selection when a move returns the same revision", async () => {
+    await renderWithUndo();
+    mocks.patch.mockImplementationOnce(async (id: string) => serverView(id));
+    fireEvent.click(screen.getByRole("button", { name: "select block" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "same position" })));
+    expect(screen.getByTestId("undo")).toHaveTextContent("Disable signal 3");
+    expect(screen.getByTestId("selection")).toHaveTextContent("0,1");
+  });
+
+  it.each(["rename", "move"])("prevents a move from overlapping a pending %s", async (first) => {
+    await renderWithUndo();
+    const callsBefore = mocks.patch.mock.calls.length;
+    let finish!: (view: ProjectView) => void;
+    mocks.patch.mockImplementationOnce(() => new Promise<ProjectView>((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: first }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(callsBefore + 1));
+    fireEvent.click(screen.getByRole("button", { name: first === "move" ? "rename" : "move" }));
+    await waitFor(() => expect(screen.getByTestId("error")).toHaveTextContent("Wait for the current change"));
+    expect(mocks.patch).toHaveBeenCalledTimes(callsBefore + 1);
+    await act(async () => finish(serverView("demo")));
+    fireEvent.click(screen.getByRole("button", { name: "move" }));
+    await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(callsBefore + 2));
+  });
+
   it("drops the undo entry when a 409 reveals that another tab renumbered the signals", async () => {
     await renderWithUndo();
     otherTab([{ type: "removeSignal", id: 1 }]);

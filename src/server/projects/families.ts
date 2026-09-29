@@ -8,6 +8,7 @@ import {
   addSignal as knxAddSignal,
   addTcpNode as knxAddTcpNode,
   isKnxMbmProject,
+  moveSignal as knxMoveSignal,
   projectFromXml as knxMbmProjectFromXml,
   removeDevice as knxRemoveDevice,
   removeNode as knxRemoveNode,
@@ -60,6 +61,7 @@ import {
   isMbsKnxProject,
   mbsKnxRestoredRefs,
   mbsKnxSelectionRefs,
+  moveSignal as mbsKnxMoveSignal,
   projectFromXml as mbsKnxProjectFromXml,
   removeConversion as mbsKnxRemoveConversion,
   removeSignal as mbsKnxRemoveSignal,
@@ -129,6 +131,7 @@ type MeGroupPatch = Partial<
 /** Patch ops a KNX ↔ Modbus Master project accepts. */
 export type KnxMbmPatch =
   | ProjectPasswordPatch
+  | SignalMovePatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
@@ -201,6 +204,7 @@ type MbsKnxSignalPatchInput = Omit<MbsKnxSignalPatch, "conversionRefs"> & { conv
 /** Patch ops a KNX ↔ Modbus Slave project accepts. */
 export type MbsKnxPatch =
   | ProjectPasswordPatch
+  | SignalMovePatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
@@ -215,6 +219,7 @@ export type MbsKnxPatch =
 
 /** Patch operations accepted by the API (validated with zod at the edge). */
 type ProjectPasswordPatch = { type: "setProjectPassword"; password: string };
+type SignalMovePatch = { type: "moveSignal"; id: number; count?: number; toIndex: number };
 export type ProjectPatch = KnxMbmPatch | MeMbsPatch | MbsKnxPatch;
 
 // --- registry -----------------------------------------------------------------
@@ -233,6 +238,7 @@ interface FamilyEntry {
 }
 
 const KNX_MBM_TYPES = new Set([
+  "moveSignal",
   "setProjectPassword",
   "setGeneralInfo",
   "setGatewayInfo",
@@ -295,6 +301,7 @@ const ME_MBS: FamilyEntry = {
 };
 
 const MBS_KNX_TYPES = new Set([
+  "moveSignal",
   "setProjectPassword",
   "setGeneralInfo",
   "setGatewayInfo",
@@ -352,11 +359,30 @@ export function supportedFamiliesText(): string {
 
 const SIGNAL_REMOVING = new Set<KnxMbmPatch["type"]>(["removeSignal", "removeDevice", "removeNode"]);
 
+function assertSingleMove(patches: ProjectPatch[]): void {
+  if (patches.length !== 1 && patches.some((patch) => patch.type === "moveSignal")) {
+    throw new ProjectServiceError(422, "Move a signal in a separate request: moving renumbers the signal IDs.");
+  }
+}
+
+function applySignalMove(
+  doc: XmlDocument,
+  patch: SignalMovePatch,
+  move: (doc: XmlDocument, id: number, toIndex: number, count?: number) => void,
+): void {
+  try {
+    move(doc, patch.id, patch.toIndex, patch.count);
+  } catch (error) {
+    throw new ProjectServiceError(422, error instanceof Error ? error.message : "Invalid signal move.");
+  }
+}
+
 /**
  * Like MAPS, signal IDs are renumbered once after the deletions (DeleteObject
  * with `isLastObject`), so the original IDs of a multi-row delete stay valid.
  */
 function applyKnxMbmPatches(doc: XmlDocument, patches: KnxMbmPatch[]): void {
+  assertSingleMove(patches);
   const signalCount = () => doc.findAll(["InternalProtocol", "KNXObject"]).length;
   let deleted = false;
   for (const patch of patches) {
@@ -369,6 +395,9 @@ function applyKnxMbmPatches(doc: XmlDocument, patches: KnxMbmPatch[]): void {
 
 function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
   switch (patch.type) {
+    case "moveSignal":
+      applySignalMove(doc, patch, knxMoveSignal);
+      break;
     case "setProjectPassword":
       setProjectPassword(doc, patch.password);
       break;
@@ -563,6 +592,7 @@ const MBS_KNX_FORMATS = new Set([-1, 0, 1, 2, 3, 4]);
 
 /** Like MAPS, signal IDs are renumbered once after the deletions (`DeleteObject` with `isLastObject`). */
 function applyMbsKnxPatches(doc: XmlDocument, patches: MbsKnxPatch[]): void {
+  assertSingleMove(patches);
   let deleted = false;
   for (const patch of patches) {
     try {
@@ -580,6 +610,9 @@ function applyMbsKnxPatches(doc: XmlDocument, patches: MbsKnxPatch[]): void {
 /** Returns true when the patch removed a signal. */
 function applyMbsKnxPatch(doc: XmlDocument, patch: MbsKnxPatch): boolean {
   switch (patch.type) {
+    case "moveSignal":
+      applySignalMove(doc, patch, mbsKnxMoveSignal);
+      break;
     case "setProjectPassword":
       setProjectPassword(doc, patch.password);
       break;

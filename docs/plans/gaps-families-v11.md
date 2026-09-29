@@ -298,12 +298,31 @@ ja existeix i què es pot compartir.
      validació i desfer. La regla U o W ja era compartida.
    - A les dues famílies, el model conserva el nivell de cada adreça i l'XML,
      la graella i l'XLSX escriuen els formats d'1, 2 o 3 nivells.
-6. **Reordenar files.**
+6. **Reordenar files** — **[implementat 2026-09-29; validació visual pendent]**.
    - **MAPS:** Move Up/Down (`ModifyObjectsPosition` → `MoveRowByOne` a
      `InternalMbs.cs:1013` i `ExternalKnx.cs:768`). Intercanvia les dues
      files als dos costats i en renumera `ConfigID`/`ExternalID`.
-   - **Nosaltres:** no hi ha cap op `moveSignal`. Es vol arrossegar, amb
-     alternativa de teclat i desfer.
+   - **Nosaltres:** op `moveSignal` atòmica, en una petició independent,
+     amb renumeració de les dues meitats i preservació de l'XML.
+     Contracte `{ id, count, toIndex }`: `count` opcional, per defecte 1;
+     `toIndex` és la posició final de la primera fila del bloc. Els rangs
+     invàlids retornen 422; la mateixa posició no altera XML, revisió ni historial.
+     Com MAPS (`b_moveUp`/`b_moveDown`), *Move up* / *Move down* són a la barra
+     de selecció i mouen la selecció, amb un sol desfer. La selecció ha de ser
+     contigua, com `CheckObjectsSorted` de MAPS (`frmMain.cs:8873-8892`); la UI
+     rebutja seleccions discontínues sense enviar cap patch. Als límits, els
+     botons queden desactivats. Poden travessar el límit de pàgina; la selecció
+     segueix les files mogudes, també en desfer.
+   - **Extensió:** cada fila té una maneta per arrossegar-la a qualsevol posició
+     de la pàgina. L'arrossegament és individual (`count: 1`), encara que hi hagi
+     diverses files seleccionades. Sense drecera de teclat: els botons ja són
+     accessibles.
+   - Desactivat amb cerca, filtres o senyals deshabilitats ocults, i mentre
+     hi ha edicions pendents. No es barregen moviments amb altres patches;
+     la revisió del projecte protegeix dels canvis d'altres sessions.
+   - Infraestructura reutilitzable: helper XML `core/signals/move-signal.ts`
+     hook `useSignalReorder`, maneta opcional de `SignalsGrid` i botons de `SignalsWorkspace`. Cada família habilita l'operació
+     al registre i aporta la seva renumeració; no s'activa automàticament.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
 7. **XLSX a MBS–KNX.**

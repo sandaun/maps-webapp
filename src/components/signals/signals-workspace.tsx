@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import type { SignalReorder } from "./use-signal-reorder";
 
 /**
  * Viewport-filling Signals layout: the table pane scrolls; bulk actions stay
@@ -18,6 +19,7 @@ export function SignalsWorkspace({
   onAutoNumber,
   onConversions,
   onSelectAllMatching,
+  reorder,
   children,
 }: {
   selectedCount: number;
@@ -32,6 +34,8 @@ export function SignalsWorkspace({
   /** KNX–MBM: assign conversions to the selection. */
   onConversions?: () => void;
   onSelectAllMatching: () => void;
+  /** Move Up/Down of the selection (families that keep their own signal order). */
+  reorder?: SignalReorder;
   children: React.ReactNode;
 }) {
   const [confirmDeleteCount, setConfirmDeleteCount] = React.useState<number | null>(null);
@@ -97,6 +101,20 @@ export function SignalsWorkspace({
           >
             Disable
           </button>
+          {reorder
+            ? ([-1, 1] as const).map((direction) => (
+                <button
+                  key={direction}
+                  type="button"
+                  title={reorder.filtered ? "Clear filters to reorder signals" : undefined}
+                  disabled={!reorder.canMoveSelection(direction)}
+                  className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover disabled:cursor-default disabled:opacity-40 disabled:hover:text-hms-accent"
+                  onClick={() => reorder.moveSelection(direction)}
+                >
+                  {direction < 0 ? "Move up" : "Move down"}
+                </button>
+              ))
+            : null}
           {onDelete ? (
             <button
               type="button"

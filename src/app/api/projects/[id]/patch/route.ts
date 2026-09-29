@@ -273,6 +273,7 @@ const patchSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("updateMbmConfig"), patch: mbmConfigPatchSchema }),
   z.object({ type: z.literal("addSignal") }),
   z.object({ type: z.literal("removeSignal"), id: z.number().int().min(0) }),
+  z.object({ type: z.literal("moveSignal"), id: z.number().int().min(0), count: z.number().int().min(1).optional().default(1), toIndex: z.number().int().min(0) }),
   z.object({
     type: z.literal("updateSignal"),
     id: z.number().int().min(0),

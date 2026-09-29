@@ -36,6 +36,12 @@ function renderProbe() {
 }
 
 describe("workspace undo", () => {
+  it("drops an old undo entry when a move renumbers the signals", () => {
+    renderProbe();
+    patched(8, 8, [{ type: "moveSignal", id: 2, toIndex: 5 }]);
+    expect(screen.getByRole("status")).toHaveTextContent("none");
+  });
+
   it("keeps the undo entry across batches that cannot renumber signal IDs", () => {
     renderProbe();
     patched(8, 9, [{ type: "addSignal" }, { type: "updateSignal", id: 2, patch: { active: false } }]);

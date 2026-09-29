@@ -30,6 +30,7 @@ import {
 import { formatConversionIds, type SignalConversionRefs } from "@/core/signals/conversion-refs";
 import { parseBool } from "./from-xml";
 import type { GatewayInfo, KnxMbmSignal } from "./model";
+import { moveAlignedSignal } from "@/core/signals/move-signal";
 
 /**
  * Patch operations on the preserved .ibmaps XmlDocument. Every edit keeps
@@ -145,6 +146,14 @@ export function reorderSignalIds(doc: XmlDocument): void {
     setChildTextIfPresent(el, "idxConfig", String(i));
     setChildTextIfPresent(el, "idxExternal", String(i));
   });
+}
+
+export function moveSignal(doc: XmlDocument, id: number, toIndex: number, count = 1): void {
+  const moved = moveAlignedSignal([
+    doc.findAll(["InternalProtocol", "KNXObject"]),
+    doc.findAll(["ExternalProtocol", "Signals", "Signal"]),
+  ], id, toIndex, count);
+  if (moved) reorderSignalIds(doc);
 }
 
 export interface SignalPatch {

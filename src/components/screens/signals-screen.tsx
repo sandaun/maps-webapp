@@ -27,6 +27,8 @@ import { KNX_COLUMN_GROUPS, KNX_GROUP_LABELS, KNX_GROUP_LABELS_COMPACT } from "@
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
 import { useGridCompact } from "@/components/signals/use-grid-compact";
 import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
+import { PAGE_SIZE } from "@/components/signals/types";
+import { useSignalReorder } from "@/components/signals/use-signal-reorder";
 
 export function SignalsScreen() {
   return (
@@ -199,6 +201,17 @@ function SignalsView({
   const conversionSides = React.useMemo(() => knxMbmConversionSides(mbm), [mbm]);
   const [bulkConversions, setBulkConversions] = React.useState(false);
 
+  const reorder = useSignalReorder({
+    signalIds,
+    selected: checkedIds,
+    filtered: !!search.trim() || filter !== "all" || hideDisabled || !!conversionFilter,
+    applyPatches,
+    onMoved: (index) => {
+      setPage(Math.floor(index / PAGE_SIZE));
+      if (signalId !== undefined) router.replace(signalsHref("map"), { scroll: false });
+    },
+  });
+
   const checkedList = [...checkedIds];
 
   function setActiveForChecked(active: boolean) {
@@ -243,6 +256,7 @@ function SignalsView({
         setBulkConversions(true);
       }}
       onSelectAllMatching={() => selectMany(visibleIds)}
+      reorder={reorder}
     >
       <SignalsToolbar
         search={search}
@@ -299,7 +313,7 @@ function SignalsView({
           rowError={(row) => errorIds.has(row.signal.id)}
           selected={checkedIds}
           pageIds={pageIds}
-          onToggle={toggle}
+          onToggle={(id, shiftKey) => toggle(id, shiftKey ? visibleIds : undefined)}
           onTogglePage={() => toggleAll(pageIds)}
           applyPatches={applyPatches}
           tabOrder={KNX_TAB_ORDER}
@@ -308,6 +322,7 @@ function SignalsView({
           onToggleCompact={toggleCompact}
           fitRows={rows}
           focusId={signalId}
+          reorder={reorder}
         />
       </div>
       <SignalsFooter
