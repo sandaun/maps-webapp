@@ -173,6 +173,14 @@ Pendents (abans de disseny):
 
 ## 3. Transversals (afecten totes les famílies presents i futures)
 
+- **Plataformes KTS/V6, RT/S700 i RT_AIR** [falta; conversió: decidir,
+  investigat 2026-09-29]: protocols i AppId no distingeixen totes les variants.
+  KNX-MBM encara no filtra plataforma en detectar; MBS-KNX i ME-MBS sí, però
+  el desplegament compartit no compara la plataforma del projecte amb la del
+  gateway. Cal delimitar el suport actual, completar el deadband per senyal
+  KNX-MBM RT i decidir la conversió legacy explícita. Flux real de MAPS,
+  diferències per família, firmware, abast i proves pendents a
+  [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
 - **API de gateway en viu** (sessió persistent per a scans, reads i mètriques):
   desbloqueja Scan groups (ME), Poll now / estats (KNX-MBM), live values,
   comptadors d'errors. És el blocant grosso de mig V11.
