@@ -41,6 +41,10 @@ export async function getProjectView(id: string): Promise<ProjectView> {
   return request<ProjectView>(`/api/projects/${encodeURIComponent(id)}`);
 }
 
+export async function deleteProject(id: string): Promise<void> {
+  await request<void>(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 /**
  * `revision` is the `meta.revision` the patches were computed against; the
  * server rejects the batch with 409 "revision-conflict" if the project moved on.

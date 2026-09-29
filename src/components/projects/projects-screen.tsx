@@ -2,15 +2,16 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeftRight, ChevronRight, FileUp, RadioTower } from "lucide-react";
+import { ArrowLeftRight, ChevronRight, FileUp, RadioTower, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { getProjectView, listProjects, openProjectFile } from "@/lib/api";
+import { deleteProject, getProjectView, listProjects, openProjectFile } from "@/lib/api";
 import { receiveGatewayProject } from "@/lib/gateway-api";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
 import type { FamilyId, ProjectMeta, ProjectView } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 const PROTOCOLS: Record<FamilyId, readonly [string, string]> = {
@@ -45,6 +46,9 @@ export function ProjectsScreen() {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState<ProjectMeta | null>(null);
+  const [deletingBusy, setDeletingBusy] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -115,6 +119,27 @@ export function ProjectsScreen() {
     }
   }
 
+  async function handleDelete() {
+    if (!deleting || deletingBusy) return;
+    setDeletingBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteProject(deleting.id);
+      setProjects((current) => current.filter((item) => item.id !== deleting.id));
+      setViews((current) => {
+        const next = { ...current };
+        delete next[deleting.id];
+        return next;
+      });
+      if (projectId === deleting.id) setProjectId(null);
+      setDeleting(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setDeletingBusy(false);
+    }
+  }
+
   return (
     <div className="w-full max-w-[1240px]">
       <div className="mb-[18px] flex items-end justify-between gap-[14px]">
@@ -150,12 +175,13 @@ export function ProjectsScreen() {
 
       <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-[14px]">
         <section className="min-w-0 overflow-hidden rounded-[6px] border border-border bg-white">
-          <div className="grid grid-cols-[minmax(230px,1.45fr)_minmax(155px,.9fr)_92px_112px_80px] border-b border-border bg-table-header px-4 py-2 font-mono text-[10.5px] font-semibold uppercase tracking-[.06em] text-fg-muted">
+          <div className="grid grid-cols-[minmax(230px,1.45fr)_minmax(155px,.9fr)_92px_112px_80px_44px] border-b border-border bg-table-header px-4 py-2 font-mono text-[10.5px] font-semibold uppercase tracking-[.06em] text-fg-muted">
             <span>Project / gateway</span>
             <span>Protocols</span>
             <span>Signals</span>
             <span>State</span>
             <span>Updated</span>
+            <span className="sr-only">Actions</span>
           </div>
 
           {loading ? (
@@ -166,52 +192,77 @@ export function ProjectsScreen() {
               <p className="mt-1 text-xs text-fg-muted">Start from a template, a file, or a gateway.</p>
             </div>
           ) : (
-            <div>
+            <div className="max-h-[min(60vh,600px)] overflow-y-auto overscroll-contain" role="region" aria-label="Project list" tabIndex={0}>
               {projects.map((project) => {
                 const view = views[project.id];
                 const protocols = PROTOCOLS[project.family];
                 const active = project.id === projectId;
                 const localChanges = project.source !== "gateway" || (active && dirtyCount > 0);
+                const inSession = !!session && (active || session.projectId === project.id);
                 return (
-                  <button
+                  <div
                     key={project.id}
-                    type="button"
                     className={cn(
-                      "grid w-full grid-cols-[minmax(230px,1.45fr)_minmax(155px,.9fr)_92px_112px_80px] items-center border-b border-row-rule px-4 py-3 text-left last:border-b-0 hover:bg-row-hover",
+                      "grid w-full grid-cols-[minmax(230px,1.45fr)_minmax(155px,.9fr)_92px_112px_80px_44px] items-center border-b border-row-rule px-4 text-left last:border-b-0 hover:bg-row-hover",
                       active && "bg-row-selected",
                     )}
-                    onClick={() => openProject(project.id)}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-bold text-[#244f68]">
-                        {project.name}
+                    <button
+                      type="button"
+                      aria-label={`Open project ${project.name}`}
+                      className="col-span-5 grid min-w-0 grid-cols-[minmax(230px,1.45fr)_minmax(155px,.9fr)_92px_112px_80px] items-center py-3 text-left focus-visible:outline-2 focus-visible:outline-hms-accent"
+                      onClick={() => openProject(project.id)}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-bold text-[#244f68]">
+                          {project.name}
+                        </span>
+                        <span className="mt-0.5 block truncate font-mono text-[11px] text-fg-subtle">
+                          {project.fileName ?? project.id}
+                        </span>
                       </span>
-                      <span className="mt-0.5 block truncate font-mono text-[11px] text-fg-subtle">
-                        {project.fileName ?? project.id}
+                      <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-fg-muted">
+                        <span className="truncate">{protocols[0]}</span>
+                        <ArrowLeftRight className="size-3 shrink-0 text-fg-subtle" strokeWidth={1.5} />
+                        <span className="truncate">{protocols[1]}</span>
                       </span>
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-fg-muted">
-                      <span className="truncate">{protocols[0]}</span>
-                      <ArrowLeftRight className="size-3 shrink-0 text-fg-subtle" strokeWidth={1.5} />
-                      <span className="truncate">{protocols[1]}</span>
-                    </span>
-                    <span className="font-mono text-[11.5px] text-fg-muted">
-                      {view ? `${signalCount(view)} signals` : "—"}
-                    </span>
-                    <span>
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold",
-                          localChanges
-                            ? "border-warning-border bg-warning-bg text-warning-text"
-                            : "border-success-border bg-success-bg text-success",
-                        )}
-                      >
-                        {localChanges ? "local changes" : "deployed"}
+                      <span className="font-mono text-[11.5px] text-fg-muted">
+                        {view ? `${signalCount(view)} signals` : "—"}
                       </span>
-                    </span>
-                    <span className="text-[11.5px] text-fg-subtle">{relativeTime(project.updatedAt)}</span>
-                  </button>
+                      <span>
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold",
+                            localChanges
+                              ? "border-warning-border bg-warning-bg text-warning-text"
+                              : "border-success-border bg-success-bg text-success",
+                          )}
+                        >
+                          {localChanges ? "local changes" : "deployed"}
+                        </span>
+                      </span>
+                      <span className="text-[11.5px] text-fg-subtle">{relativeTime(project.updatedAt)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete project ${project.name}`}
+                      aria-disabled={inSession || deletingBusy}
+                      title={inSession ? "Disconnect the gateway or switch projects before deleting this project" : `Delete ${project.name}`}
+                      className="flex size-9 items-center justify-center rounded text-fg-subtle hover:bg-error-bg hover:text-error focus-visible:outline-2 focus-visible:outline-hms-accent"
+                      onClick={() => {
+                        if (inSession) {
+                          setError("This project is open in a gateway session. Disconnect or switch projects first.");
+                          return;
+                        }
+                        if (deletingBusy) return;
+                        setError(null);
+                        setDeleteError(null);
+                        setDeleting(project);
+                      }}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -278,6 +329,20 @@ export function ProjectsScreen() {
         aria-label="Import project file"
         onChange={handleFile}
       />
+      {deleting ? (
+        <Modal
+          title={`Delete “${deleting.name}”?`}
+          description="This deletes the project and its local history. This action cannot be undone."
+          ctaLabel={deletingBusy ? "Deleting…" : "Delete project"}
+          ctaVariant="destructive"
+          ctaDisabled={deletingBusy}
+          onConfirm={() => void handleDelete()}
+          onClose={() => { if (!deletingBusy) setDeleting(null); }}
+        >
+          {deleteError ? <p role="alert" className="text-sm text-error">{deleteError}</p> : null}
+          <p className="text-sm text-text-body">Project: <strong>{deleting.name}</strong></p>
+        </Modal>
+      ) : null}
     </div>
   );
 }

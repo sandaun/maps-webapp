@@ -26,7 +26,7 @@ export interface CurrentProjectState {
   view: ProjectView | null;
   error: string | null;
   /** Switch to another project (persisted in localStorage). */
-  setProjectId: (id: string) => void;
+  setProjectId: (id: string | null) => void;
   /** Re-fetch the current project view. */
   refresh: () => Promise<void>;
   /** POST patches and apply the returned view. Throws ApiError on failure. */
@@ -148,11 +148,11 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
   const error = current && "error" in current ? current.error : null;
 
   const setProjectId = React.useCallback(
-    (id: string) => {
+    (id: string | null) => {
       // Re-selecting the open project (e.g. after re-opening or re-loading it)
       // does not change the id, so load it explicitly instead of editing a
       // stale view until the first save hits a revision conflict.
-      if (readProjectId() === id) {
+      if (id !== null && readProjectId() === id) {
         void getProjectView(id)
           .then(adoptLoadedView)
           .catch(() => undefined);

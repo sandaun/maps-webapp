@@ -21,6 +21,8 @@ import { summarizeInfo, type GatewayInfoSummary } from "./info";
 
 export interface GatewaySessionStatus {
   id: string;
+  /** Local project selected for this session, when one is open. */
+  projectId?: string;
   host: string;
   port: number;
   connected: boolean;
@@ -117,6 +119,7 @@ type SessionEventInput =
   | { type: "progress"; receivedBytes: number; totalBytes: number };
 
 interface ManagedSession {
+  projectId?: string;
   session: GatewaySession;
   host: string;
   port: number;
@@ -194,6 +197,12 @@ export class GatewaySessionManager implements GatewaySessions {
 
   getStatus(id: string): GatewaySessionStatus {
     return this.toStatus(id, this.require(id));
+  }
+
+  setProjectId(id: string, projectId: string | null): GatewaySessionStatus {
+    const managed = this.require(id);
+    managed.projectId = projectId ?? undefined;
+    return this.toStatus(id, managed);
   }
 
   async queryInfo(id: string): Promise<GatewayInfoSummary> {
@@ -291,6 +300,7 @@ export class GatewaySessionManager implements GatewaySessions {
   private toStatus(id: string, m: ManagedSession): GatewaySessionStatus {
     return {
       id,
+      ...(m.projectId ? { projectId: m.projectId } : {}),
       host: m.host,
       port: m.port,
       connected: m.session.connected,

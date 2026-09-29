@@ -14,6 +14,7 @@ export function Modal({
   description,
   foot,
   ctaLabel,
+  ctaVariant = "default",
   ctaDisabled,
   onConfirm,
   onClose,
@@ -25,6 +26,7 @@ export function Modal({
   /** Muted note on the left of the footer. */
   foot?: string;
   ctaLabel: string;
+  ctaVariant?: "default" | "destructive";
   ctaDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -65,7 +67,7 @@ export function Modal({
           <Button variant="secondary" size="sm" className="h-8" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" className="h-8" onClick={onConfirm} disabled={ctaDisabled}>
+          <Button size="sm" variant={ctaVariant} className="h-8" onClick={onConfirm} disabled={ctaDisabled}>
             {ctaLabel}
           </Button>
         </div>
