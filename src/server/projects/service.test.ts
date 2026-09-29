@@ -8,6 +8,7 @@ import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthet
 import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import type { MbsKnxProject } from "@/gateway-families/mbs-knx";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
+import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { refsFromSelection } from "@/core/signals/conversion-refs";
 import { resetProjectStoreForTests } from "../persistence";
 import {
@@ -49,6 +50,52 @@ function knxProjectOf(view: ProjectView): KnxMbmProject {
 }
 
 describe("project service", () => {
+  it.each([SYNTHETIC_KNX_MBM_XML, SYNTHETIC_MBS_KNX_XML])("moves a block atomically and leaves no-op moves unchanged", async (xml) => {
+    const meta = await openIbmaps(xml, { id: "block-test" });
+    await applyPatches(meta.id, [{ type: "addSignal" }]);
+    const before = await getProjectView(meta.id);
+    const history = await listProjectHistory(meta.id);
+    const unchanged = await applyPatches(meta.id, [{ type: "moveSignal", id: 0, count: 2, toIndex: 0 }]);
+    expect(unchanged.meta).toEqual(before.meta);
+    expect(await listProjectHistory(meta.id)).toEqual(history);
+    const moved = await applyPatches(meta.id, [{ type: "moveSignal", id: 0, count: 2, toIndex: 1 }]);
+    expect(moved.meta.revision).toBe(before.meta.revision! + 1);
+    expect(moved.project.signals.slice(1, 3)).toEqual(before.project.signals.slice(0, 2).map((signal, index) => ({ ...signal, id: index + 1 })));
+    const restored = await applyPatches(meta.id, [{ type: "moveSignal", id: 1, count: 2, toIndex: 0 }]);
+    expect(restored.project.signals).toEqual(before.project.signals);
+    for (const patch of [
+      { type: "moveSignal", id: 0, count: 2, toIndex: -1 },
+      { type: "moveSignal", id: 0, count: 2, toIndex: before.project.signals.length - 1 },
+      { type: "moveSignal", id: 0, count: 0, toIndex: 1 },
+    ] as const) {
+      await expect(applyPatches(meta.id, [patch])).rejects.toMatchObject({ status: 422 });
+    }
+    expect((await getProjectView(meta.id)).meta.revision).toBe(restored.meta.revision);
+  });
+
+  it.each([SYNTHETIC_KNX_MBM_XML, SYNTHETIC_MBS_KNX_XML])("persists signal moves, protects revisions and supports undo", async (xml) => {
+    const meta = await openIbmaps(xml, { id: "move-test" });
+    const before = await getProjectView(meta.id);
+    const last = before.project.signals.length - 1;
+    const moved = await applyPatches(meta.id, [{ type: "moveSignal", id: 0, toIndex: last }], { expectedRevision: before.meta.revision });
+    expect(moved.project.signals[last].description).toBe(before.project.signals[0].description);
+    resetProjectStoreForTests();
+    expect((await getProjectView(meta.id)).project.signals).toEqual(moved.project.signals);
+    await expect(applyPatches(meta.id, [{ type: "moveSignal", id: last, toIndex: 0 }], { expectedRevision: before.meta.revision }))
+      .rejects.toMatchObject({ status: 409, code: "revision-conflict" });
+    const restored = await applyPatches(meta.id, [{ type: "moveSignal", id: last, toIndex: 0 }], { expectedRevision: moved.meta.revision });
+    expect(restored.project.signals).toEqual(before.project.signals);
+    await expect(applyPatches(meta.id, [{ type: "moveSignal", id: 0, toIndex: 9999 }]))
+      .rejects.toMatchObject({ status: 422 });
+    expect((await getProjectView(meta.id)).meta.revision).toBe(restored.meta.revision);
+  });
+
+  it("rejects reordering generated ME-MBS signals", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "generated" });
+    await expect(applyPatches(meta.id, [{ type: "moveSignal", id: 0, toIndex: 1 }]))
+      .rejects.toMatchObject({ status: 409 });
+  });
+
   it("loads the labelled demo project", async () => {
     const meta = await loadDemoProject();
     expect(meta.source).toBe("demo");

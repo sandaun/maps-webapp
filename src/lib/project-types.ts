@@ -118,6 +118,7 @@ export type ProjectPatchInput =
   | { type: "updateMbmConfig"; patch: MbmConfigPatchInput }
   | { type: "addSignal" }
   | { type: "removeSignal"; id: number }
+  | { type: "moveSignal"; id: number; count?: number; toIndex: number }
   | { type: "updateSignal"; id: number; patch: SignalPatchInput }
   | { type: "addRtuNode" }
   | { type: "addTcpNode" }

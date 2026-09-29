@@ -205,7 +205,8 @@ export async function applyPatches(
         "revision-conflict",
       );
     }
-    const doc = XmlDocument.parse(await store.readXml(id));
+    const originalXml = await store.readXml(id);
+    const doc = XmlDocument.parse(originalXml);
     const family = detectFamily(doc);
     if (!family) {
       throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
@@ -219,7 +220,11 @@ export async function applyPatches(
       }
     }
     family.applyPatches(doc, patches);
-    await store.writeXml(id, doc.serialize());
+    const nextXml = doc.serialize();
+    if (patches.length === 1 && patches[0].type === "moveSignal" && nextXml === originalXml) {
+      return readProjectView(id, { locked: true });
+    }
+    await store.writeXml(id, nextXml);
     await store.upsert(nextRevision(stored));
     await snapshotDraft(id, "Edited project");
     return readProjectView(id, { locked: true });

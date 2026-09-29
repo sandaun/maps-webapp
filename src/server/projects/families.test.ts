@@ -9,6 +9,39 @@ import { generateMeMbsXbl } from "@/gateway-families/me-mbs/xbl";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { generateKnxMbmXbl } from "@/gateway-families/knx-mbm/xbl";
 import { familyById, type ProjectPatch } from "./families";
+import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
+
+describe.each([
+  { id: "knx-mbm" as const, xml: SYNTHETIC_KNX_MBM_XML },
+  { id: "mbs-knx" as const, xml: SYNTHETIC_MBS_KNX_XML },
+])("$id signal moves", ({ id, xml }) => {
+  it("accepts a move and its inverse", () => {
+    const family = familyById(id);
+    const doc = XmlDocument.parse(xml);
+    const before = family.fromXml(doc).signals;
+    const patch = { type: "moveSignal", id: 0, toIndex: before.length - 1 } as const;
+    expect(family.accepts(patch)).toBe(true);
+    expect(familyById("me-mbs").accepts(patch)).toBe(false);
+    family.applyPatches(doc, [patch]);
+    expect(family.fromXml(doc).signals).toEqual(
+      [...before.slice(1), before[0]].map((signal, index) => ({ ...signal, id: index })),
+    );
+    family.applyPatches(doc, [{ type: "moveSignal", id: before.length - 1, toIndex: 0 }]);
+    expect(doc.serialize()).toBe(xml);
+  });
+
+  it("rejects mixed batches and invalid moves before mutating", () => {
+    const family = familyById(id);
+    const doc = XmlDocument.parse(xml);
+    expect(() => family.applyPatches(doc, [
+      { type: "updateSignal", id: 0, patch: { description: "changed" } },
+      { type: "moveSignal", id: 0, toIndex: 1 },
+    ])).toThrow("separate request");
+    expect(() => family.applyPatches(doc, [{ type: "moveSignal", id: 0, toIndex: 999 }]))
+      .toThrow(expect.objectContaining({ status: 422 }));
+    expect(doc.serialize()).toBe(xml);
+  });
+});
 
 const knx = familyById("knx-mbm");
 

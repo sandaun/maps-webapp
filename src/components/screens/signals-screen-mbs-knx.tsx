@@ -30,6 +30,8 @@ import { SignalsWorkspace } from "@/components/signals/signals-workspace";
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
 import { useGridCompact } from "@/components/signals/use-grid-compact";
 import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
+import { PAGE_SIZE } from "@/components/signals/types";
+import { useSignalReorder } from "@/components/signals/use-signal-reorder";
 
 function signalIdsOf(issues: ValidationIssue[], severity: ValidationIssue["severity"]): Set<number> {
   const ids = new Set<number>();
@@ -182,6 +184,17 @@ export function MbsKnxSignalsView({
   }
   const assigningSignal = assigning === null ? undefined : byId.get(assigning);
 
+  const reorder = useSignalReorder({
+    signalIds,
+    selected: checkedIds,
+    filtered: !!search.trim() || filter !== "all" || hideDisabled || !!conversionFilter,
+    applyPatches,
+    onMoved: (index) => {
+      setPage(Math.floor(index / PAGE_SIZE));
+      if (signalId !== undefined) router.replace(signalsHref("map"), { scroll: false });
+    },
+  });
+
   const checkedList = [...checkedIds];
 
   function setActiveForChecked(active: boolean) {
@@ -217,6 +230,7 @@ export function MbsKnxSignalsView({
         setBulkConversions(true);
       }}
       onSelectAllMatching={() => selectMany(visibleIds)}
+      reorder={reorder}
     >
       <SignalsToolbar
         search={search}
@@ -282,6 +296,7 @@ export function MbsKnxSignalsView({
           onToggleCompact={toggleCompact}
           fitRows={rows}
           focusId={signalId}
+          reorder={reorder}
         />
       </div>
       <SignalsFooter

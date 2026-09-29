@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { GripVertical } from "lucide-react";
+import { PROJECT_PATCHED_EVENT, PROJECT_REPLACED_EVENT, type ProjectPatchedDetail } from "@/lib/project-events";
 import { applyFlagChange } from "@/protocols/knx";
 import type { ProjectPatchInput, SignalPatchInput } from "@/lib/project-types";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
@@ -13,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { BAND_STYLE, COL_HEADER_H, GROUP_HEADER_H, ROW_HEIGHT, type BandId, type GridColumn } from "./types";
 import { createCellSaveQueue, type CellStatus } from "./cell-queue";
+import type { SignalReorder } from "./use-signal-reorder";
 
 export interface SignalsGridProps<R> {
   rows: R[];
@@ -33,6 +35,8 @@ export interface SignalsGridProps<R> {
   onToggleCompact?: () => void;
   fitRows?: R[];
   focusId?: number;
+  /** Drag handle per row; Move Up/Down of the selection lives in the bulk toolbar. */
+  reorder?: SignalReorder;
 }
 
 function editorSeed<R>(col: GridColumn<R>, row: R): string {
@@ -120,7 +124,7 @@ function writeStoredWidths(key: string, widths: Record<string, number>) {
 
 export function SignalsGrid<R>({
   rows,
-  columns,
+  columns: sourceColumns,
   groupLabels,
   compactGroupLabels,
   rowId,
@@ -137,15 +141,43 @@ export function SignalsGrid<R>({
   onToggleCompact,
   fitRows,
   focusId,
+  reorder,
 }: SignalsGridProps<R>) {
   const chrome = useWorkspaceChrome();
   const { bumpDirty, pushUndo } = chrome;
+  const reorderable = reorder !== undefined;
+  const columns = React.useMemo<GridColumn<R>[]>(() => reorderable ? [
+    { id: "move", group: "project", header: "", width: 28, resizable: false, frozen: true, kind: "none", getText: () => "" },
+    ...sourceColumns,
+  ] : sourceColumns, [sourceColumns, reorderable]);
+  const draggedId = React.useRef<number | null>(null);
+  const gridRef = React.useRef<HTMLDivElement | null>(null);
+  const [dropTarget, setDropTarget] = React.useState<number | null>(null);
 
   const [editing, setEditing] = React.useState<{ id: number; field: string } | null>(null);
   const [draft, setDraft] = React.useState("");
   const [status, setStatus] = React.useState<Record<string, CellStatus>>({});
   const [tooltip, setTooltip] = React.useState<{ text: string; left: number; top: number } | null>(null);
   const inputRef = React.useRef<HTMLInputElement | HTMLButtonElement | null>(null);
+  React.useEffect(() => {
+    const resetEditors = () => {
+      setEditing(null);
+      setDraft("");
+      setStatus({});
+      draggedId.current = null;
+      setDropTarget(null);
+    };
+    const onPatched = (event: Event) => {
+      const { patches } = (event as CustomEvent<ProjectPatchedDetail>).detail;
+      if (patches.some((patch) => patch.type === "moveSignal")) resetEditors();
+    };
+    window.addEventListener(PROJECT_PATCHED_EVENT, onPatched);
+    window.addEventListener(PROJECT_REPLACED_EVENT, resetEditors);
+    return () => {
+      window.removeEventListener(PROJECT_PATCHED_EVENT, onPatched);
+      window.removeEventListener(PROJECT_REPLACED_EVENT, resetEditors);
+    };
+  }, []);
   const widthsKey = compact ? `${widthStorageKey}:compact` : widthStorageKey;
   const widthSnapshot = React.useSyncExternalStore(
     React.useCallback((listener) => subscribeToWidths(widthsKey, listener), [widthsKey]),
@@ -153,6 +185,14 @@ export function SignalsGrid<R>({
     readWidthsServerSnapshot,
   );
   const widths = React.useMemo(() => parseStoredWidths(widthSnapshot), [widthSnapshot]);
+  const moveBlocked = !reorder || reorder.blocked || editing !== null ||
+    Object.values(status).some((cell) => cell.kind === "saving");
+
+  const movedRow = reorder?.moved;
+  React.useEffect(() => {
+    if (!movedRow) return;
+    gridRef.current?.querySelector(`[data-signal-id="${movedRow.id}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [movedRow]);
 
   const widthOf = React.useCallback(
     (col: GridColumn<R>) => widths[col.id] ?? col.width,
@@ -232,6 +272,7 @@ export function SignalsGrid<R>({
   }, [editing]);
 
   function startEdit(row: R, col: GridColumn<R>) {
+    if (reorder?.moving) return;
     if (col.kind === "none" || col.kind === "switch" || col.kind === "flags") return;
     setEditing({ id: rowId(row), field: col.id });
     setDraft(editorSeed(col, row));
@@ -372,6 +413,33 @@ export function SignalsGrid<R>({
     const key = `${id}:${col.id}`;
     const isEditing = editing?.id === id && editing.field === col.id;
     const cellPresentation = { active: presentation.active, background: presentation.background };
+
+    if (col.id === "move" && reorder) {
+      const reason = reorder.filtered ? "Clear filters to reorder signals" : "Finish the current change before reordering";
+      return cellShell(col, {
+        ...cellPresentation,
+        extra: "justify-center",
+        children: (
+          <button
+            type="button"
+            aria-label={`Move signal ${id}`}
+            title={moveBlocked ? reason : "Drag to move"}
+            disabled={moveBlocked}
+            draggable={!moveBlocked}
+            className="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-fg-subtle hover:bg-row-hover disabled:cursor-default disabled:opacity-40"
+            onDragStart={(event) => {
+              if (moveBlocked) { event.preventDefault(); return; }
+              draggedId.current = id;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", String(id));
+            }}
+            onDragEnd={() => { draggedId.current = null; setDropTarget(null); }}
+          >
+            <GripVertical className="size-3.5" aria-hidden />
+          </button>
+        ),
+      });
+    }
 
     if (col.id === "select") {
       return cellShell(col, {
@@ -704,7 +772,8 @@ export function SignalsGrid<R>({
 
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
+      {reorder?.error && <p role="alert" className="px-4 py-2 text-sm text-error">{reorder.error}</p>}
+      <div ref={gridRef} inert={reorder?.moving || undefined} aria-busy={reorder?.moving} className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
         <div className="min-w-max">
         <div className="sticky top-0 z-20 flex" style={{ height: GROUP_HEADER_H }}>
           {groups.map((g) => (
@@ -831,9 +900,23 @@ export function SignalsGrid<R>({
           return (
             <div
               key={id}
+              data-signal-id={id}
               ref={focusId === id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-              className="flex"
+              className={cn("flex", dropTarget === id && "relative outline-2 -outline-offset-2 outline-hms-accent")}
               style={{ height: ROW_HEIGHT }}
+              onDragOver={(event) => {
+                if (moveBlocked || draggedId.current === null) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTarget(id);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const source = draggedId.current;
+                draggedId.current = null;
+                setDropTarget(null);
+                if (source !== null && reorder && !moveBlocked) void reorder.move(source, reorder.signalIds.indexOf(id));
+              }}
             >
               {columns.map((col) => renderCell(row, col, rowIndex, { active, background }))}
             </div>

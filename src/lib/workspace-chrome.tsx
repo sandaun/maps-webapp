@@ -6,8 +6,8 @@ import type { ProjectPatchInput } from "./project-types";
 
 const SIDEBAR_KEY = "maps.sidebarCollapsed";
 
-/** Patches that can delete signals (and so renumber their IDs). */
-const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode"]);
+/** Patches that can renumber signal IDs. */
+const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode", "moveSignal"]);
 
 const sidebarListeners = new Set<() => void>();
 
@@ -73,10 +73,8 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
 
   const clearUndo = React.useCallback(() => setUndo(null), []);
 
-  // Both families renumber signal IDs after deleting signals (MAPS
-  // ReorderIdxConfigs), so an undo entry recorded earlier would target
-  // different signals. The signal count cannot tell (a batch may delete and
-  // add), so any batch that can delete signals drops the entry.
+  // Deleting or moving signals renumbers IDs, so an earlier undo would
+  // target different signals even when the signal count stays unchanged.
   React.useEffect(() => {
     const onPatched = (event: Event) => {
       const { patches } = (event as CustomEvent<ProjectPatchedDetail>).detail;

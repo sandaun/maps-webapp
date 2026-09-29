@@ -93,6 +93,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
   );
   const [result, setResult] = React.useState<FetchResult | null>(null);
   const mutationQueues = React.useRef(new Map<string, Promise<unknown>>());
+  const movingProjects = React.useRef(new Set<string>());
   const projectViews = React.useRef(new Map<string, ProjectView>());
   const [pendingMutations, setPendingMutations] = React.useState<Record<string, number>>({});
 
@@ -172,6 +173,11 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
   const applyPatches = React.useCallback(
     async (patches: ProjectPatchInput[]) => {
       if (projectId === null) throw new Error("No project selected");
+      const moving = patches.some((patch) => patch.type === "moveSignal");
+      if (movingProjects.current.has(projectId) || (moving && mutationQueues.current.has(projectId))) {
+        throw new Error("Wait for the current change to finish before moving or editing signals.");
+      }
+      if (moving) movingProjects.current.add(projectId);
       setPendingMutations((counts) => ({ ...counts, [projectId]: (counts[projectId] ?? 0) + 1 }));
       const previous = mutationQueues.current.get(projectId) ?? Promise.resolve();
       const pending = previous.catch(() => {}).then(async () => {
@@ -194,6 +200,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
             );
           },
         );
+        if (moving && before?.meta.revision === next.meta.revision) return next;
         projectViews.current.set(projectId, next);
         // Password input is transient: never publish it to draft/undo consumers.
         const publicPatches = patches.filter((patch) => patch.type !== "setProjectPassword");
@@ -204,6 +211,7 @@ export function CurrentProjectProvider({ children }: { children: React.ReactNode
       mutationQueues.current.set(projectId, pending);
       try { return await pending; }
       finally {
+        if (moving) movingProjects.current.delete(projectId);
         if (mutationQueues.current.get(projectId) === pending) mutationQueues.current.delete(projectId);
         setPendingMutations((counts) => ({ ...counts, [projectId]: Math.max(0, (counts[projectId] ?? 0) - 1) }));
       }
