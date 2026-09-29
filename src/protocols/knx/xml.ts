@@ -6,7 +6,7 @@ import {
   setText,
   type XmlElement,
 } from "@/core/project-format";
-import { formatGroupAddress, formatGroupAddressAtLevel } from "./address";
+import { formatGroupAddress, formatGroupAddressAtLevel, groupAddressLevelOf } from "./address";
 import { DEFAULT_DPT } from "./dpt";
 import { DEFAULT_FLAGS, type KnxFlags } from "./flags";
 import type { KnxConfig, KnxEndpoint } from "./model";
@@ -57,14 +57,12 @@ export function readKnxEndpoint(el: XmlElement): KnxEndpoint {
   );
 
   const sendingString = sending ? getAttr(sending, "String") ?? "" : "";
-  const addressLevel = sendingString.includes("/")
-    ? (sendingString.split("/").length === 2 ? 2 : 3)
-    : 1;
+  const addressLevel = groupAddressLevelOf(sendingString);
 
   return {
     dpt: dptEl ? parseNumber(getAttr(dptEl, "Value"), 0) : 0,
     groupAddress: sending ? parseNumber(getAttr(sending, "Value"), 0) : 0,
-    ...(sendingString && addressLevel !== 3 ? { groupAddressLevel: addressLevel as 1 | 2 } : {}),
+    ...(sendingString && addressLevel !== 3 ? { groupAddressLevel: addressLevel } : {}),
     additionalAddresses: listening
       ? childrenOf(listening, "Address").map((a) => parseNumber(getAttr(a, "Value"), 0))
       : [],

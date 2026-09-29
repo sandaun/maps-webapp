@@ -6,6 +6,7 @@ import {
   formatDpt,
   formatGroupAddress,
   formatPhysicalAddress,
+  groupAddressLevelOf,
   isValidDpt,
   isValidGroupAddress,
   parseDpt,
@@ -45,6 +46,12 @@ describe("group addresses", () => {
   it("formats 3-level", () => {
     expect(formatGroupAddress(2051)).toBe("1/0/3");
     expect(formatGroupAddress(65535)).toBe("31/7/255");
+  });
+
+  it("detects the level the address was written in", () => {
+    expect(groupAddressLevelOf("1/2/3")).toBe(3);
+    expect(groupAddressLevelOf(" 1/515 ")).toBe(2);
+    expect(groupAddressLevelOf("2563")).toBe(1);
   });
 
   it("enforces the extended-addresses limit", () => {

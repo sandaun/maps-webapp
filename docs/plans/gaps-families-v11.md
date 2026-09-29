@@ -161,7 +161,8 @@ Pendents (abans de disseny):
 | Poll now / estat online / mètriques per device | [blocat] | V11 ho dissenya; cal API en viu |
 | Edit poll records | [falta] | desktop: `frmPollRecords.cs`; els poll records es generen dels senyals, el desktop permet retoc manual. Decidir si hi donem suport o sempre es regeneren dels senyals |
 | **Projecte des de template real** (New project) | [falta] | avui: 2 entrades hardcoded i còpia de la fixture sintètica pre-poblada. V11: 26 templates, variants de capacitat/llicència, order code. Cal catàleg real i projecte net |
-| Auto-enumeració d'adreces de grup KNX | [falta] | documentada a `docs/plans/knx-mbm-mvp.md:144`; no és al V11 |
+| Auto-enumeració d'adreces de grup KNX | [fet 2026-09-29] | eina compartida; vegeu el §4, punt 4 |
+| Adreces addicionals (listening) a la taula | [falta] | següent PR; vegeu el §4, punt 5 |
 | Edició de conversions + RemapLUTs | [apart] | pendent de disseny (prompt local a `temp/prompt-claude-design-conversions.md`); l'API d'assignació per senyal ja hi és. Vegeu `docs/reference/conversions.md` §4 |
 | Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
 | Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [fet 2026-09-26] | model amb les dues meitats; export i import amb "Conv. Id" i el full "Conversions" com MAPS (import més estricte en els casos perillosos); patch com `SaveObjectsConfiguration`. Detall a `docs/reference/conversions.md` §5 |
@@ -258,7 +259,7 @@ ja existeix i què es pot compartir.
    contenidors buits i format MAPS.
 3. **Esborrar projectes** — **[fet 2026-09-29]**. Vegeu el punt del §3.
 4. **Numeració automàtica** d'adreces Modbus i GA KNX (eina de taula
-   compartida).
+   compartida) — **[fet 2026-09-29]**.
    - **MAPS:**
      - Modbus: `ExternalMbm.AutoEnumRegisters` (`ExternalMbm.cs:2416`;
        0–65.535) i `InternalMbs.AutoEnumRegisters` (`InternalMbs.cs:1755`;
@@ -273,15 +274,26 @@ ja existeix i què es pot compartir.
        `inici + i·increment`: és un error de MAPS que no hem de reproduir.
      - ME–MBS també enllaça `AutoEnumRegister` i desa les adreces amb
        `StoreUserAddress` (`IntesisProjectMbsMe_RT.cs:2949-2970`).
-   - **Nosaltres:** el model inclou `virtual` a KNX–MBM i MBS–KNX, però
-     encara no hi ha l'eina d'autoenumeració. La taula ja té selecció de files,
-     patches per lots i desfer. Cal una acció compartida amb previsualització,
-     comprovació de tota la seqüència i aplicació en un sol lot. A MBS–KNX cal
-     advertir de col·lisions de registres. Per al format KNX d'1/2/3 nivells,
-     cal escriure l'atribut XML `String` segons el nivell triat i si s'admeten
-     adreces esteses; `Value` continua sent numèric. A ME–MBS, oferir-la només
-     en mode Custom, l'únic en què la columna d'adreces és editable avui.
-5. **Reordenar files.**
+   - **Nosaltres:** acció compartida a la barra de selecció de KNX–MBM,
+     MBS–KNX i ME–MBS (només en mode Custom). Mostra una previsualització,
+     valida tota la seqüència, salta els objectes virtuals, a MBS–KNX avisa de
+     les col·lisions de registres noves i aplica un sol lot amb un sol desfer.
+     El nivell del GA (1, 2 o 3) es llegeix de l'atribut `String`, es mostra a
+     la taula i a l'export de graella, i l'edició manual desa el nivell escrit,
+     com MAPS (`ExternalKnx.cs:1147-1153`). `Value` continua sent numèric.
+5. **Adreces addicionals (listening) a KNX–MBM** — **[següent]**.
+   - **MAPS:** `InternalKnx` té la columna `COL_LISTENING`
+     (`InternalKnx.cs:29`), la desa amb `ExtractGroupAddress`
+     (`InternalKnx.cs:808-812`) i exigeix U o W si n'hi ha
+     (`InternalKnx.cs:1092`).
+   - **Nosaltres:** el model les llegeix (`readKnxEndpoint`) i es preserven a
+     l'XML, però la taula de KNX–MBM no té la columna. MBS–KNX sí que la té
+     (`columns-mbs-knx.ts`) i se'n pot compartir la columna, el parse i la
+     validació.
+   - A les dues famílies, el text de cada adreça addicional s'escriu sempre a
+     3 nivells. MAPS desa el text tal com s'escriu; cal guardar-ne el nivell
+     per adreça, igual que a l'adreça d'enviament.
+6. **Reordenar files.**
    - **MAPS:** Move Up/Down (`ModifyObjectsPosition` → `MoveRowByOne` a
      `InternalMbs.cs:1013` i `ExternalKnx.cs:768`). Intercanvia les dues
      files als dos costats i en renumera `ConfigID`/`ExternalID`.
@@ -289,13 +301,13 @@ ja existeix i què es pot compartir.
      alternativa de teclat i desfer.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
-6. **XLSX a MBS–KNX.**
+7. **XLSX a MBS–KNX.**
    - **Nosaltres:** KNX–MBM i ME–MBS ja el tenen (`server/exports/xlsx-signals.ts`,
      `server/imports/xlsx-signals.ts`). MBS–KNX respon amb un 422
      (`server/projects/service.ts`).
    - **MAPS:** `IntesisProjectMBSKNX_RT.AddObjectsFromExcel` /
      `CheckExcelRowIntegrity` (`:868-930`).
-7. **ETS/ESF** per a les famílies amb KNX.
+8. **ETS/ESF** per a les famílies amb KNX.
    - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta
      per a MBS–KNX, on el KNX és el costat extern.
    - **Import:** no existeix. MAPS: `KnxProjectParser` / `EsfProjectParser`
