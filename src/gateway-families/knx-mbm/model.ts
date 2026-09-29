@@ -1,5 +1,5 @@
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
-import type { KnxFlags } from "@/protocols/knx";
+import type { KnxConfig, KnxEndpoint } from "@/protocols/knx";
 import type { MbmConfig } from "@/protocols/modbus/master";
 
 /**
@@ -11,15 +11,8 @@ import type { MbmConfig } from "@/protocols/modbus/master";
  * model — the gateway password must never reach the browser.
  */
 
-export interface KnxEndpoint {
-  dpt: number;
-  /** Numeric group address (sending). */
-  groupAddress: number;
-  /** Additional (listening) group addresses. */
-  additionalAddresses: number[];
-  flags: KnxFlags;
-  priority: number;
-}
+// The KNX side is shared with MBS–KNX; it lives in `src/protocols/knx`.
+export type { KnxConfig, KnxEndpoint } from "@/protocols/knx";
 
 export interface MbmEndpoint {
   /** Node index: RTU nodes first, then TCP. -1 = unset. */
@@ -47,13 +40,6 @@ export interface KnxMbmSignal {
   /** Conversion refs per half: internal = KNX object, external = Modbus signal. */
   conversions: SignalConversionRefs;
   virtual: boolean;
-}
-
-export interface KnxConfig {
-  /** 16-bit physical address (e.g. 15.15.255 → 65535). */
-  physicalAddress: number;
-  extendedAddresses: boolean;
-  keys: [string, string, string];
 }
 
 export interface GatewayInfo {

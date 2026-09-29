@@ -10,10 +10,12 @@ import { parseConversionFilter, signalsHref, useSignalsTab } from "@/lib/signals
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { ScreenGate } from "@/components/screens/screen-gate";
 import { MeMbsSignalsView } from "@/components/screens/signals-screen-me-mbs";
+import { MbsKnxSignalsView } from "@/components/screens/signals-screen-mbs-knx";
 import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
 import { ConversionAssignDialog } from "@/components/signals/conversion-assign-dialog";
 import { ConversionChainCell } from "@/components/signals/conversion-chain";
+import { knxMbmConversionSides } from "@/components/signals/conversion-sides-knx-mbm";
 import { columnGroupsFor } from "@/components/signals/column-groups";
 import { knxMbmColumns, KNX_TAB_ORDER, toKnxRow } from "@/components/signals/columns-knx-mbm";
 import { SignalsGrid } from "@/components/signals/signals-grid";
@@ -32,6 +34,10 @@ export function SignalsScreen() {
         view.family === "me-mbs" ? (
           <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="me-mbs">
             <MeMbsSignalsView view={view} />
+          </SignalsPageChrome>
+        ) : view.family === "mbs-knx" ? (
+          <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="mbs-knx">
+            <MbsKnxSignalsView view={view} />
           </SignalsPageChrome>
         ) : (
           <SignalsPageChrome issues={view.issues} signalCount={view.project.signals.length} family="knx-mbm">
@@ -188,6 +194,7 @@ function SignalsView({
     }
   }
   const assigningSignal = assigning === null ? undefined : byId.get(assigning);
+  const conversionSides = React.useMemo(() => knxMbmConversionSides(mbm), [mbm]);
   const [bulkConversions, setBulkConversions] = React.useState(false);
 
   const checkedList = [...checkedIds];
@@ -318,6 +325,7 @@ function SignalsView({
           key={assigningSignal.id}
           signal={assigningSignal}
           project={view.project}
+          sides={conversionSides}
           busy={assignBusy}
           error={assignError}
           onClose={() => setAssigning(null)}
@@ -328,6 +336,7 @@ function SignalsView({
         <ConversionAssignDialog
           signals={checkedList.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s)}
           project={view.project}
+          sides={conversionSides}
           busy={assignBusy}
           error={assignError}
           onClose={() => setBulkConversions(false)}

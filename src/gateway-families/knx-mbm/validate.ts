@@ -1,4 +1,4 @@
-import { hasAnyFlag, isValidDpt, isValidGroupAddress } from "@/protocols/knx";
+import { checkKnxEndpoint, type KnxRuleCode } from "@/protocols/knx";
 import {
   checkMbmSignal,
   isReadFunction,
@@ -14,9 +14,7 @@ import {
   MAX_TOTAL_SIGNAL_ROWS,
 } from "@/core/signals/model";
 import type { ValidationIssue } from "@/core/validation/issue";
-import { halfSteps, libraryLists } from "@/core/conversions/assignment";
-import { conversionHasInverse, conversionSummary } from "@/core/conversions/formulas";
-import { COMPARISON, CONVERSION_TYPE, parseConversionNumber } from "@/core/conversions/rules";
+import { validateSignalConversions } from "@/core/conversions/validate";
 import { knxConversionRwMode } from "./conversions";
 import type { KnxMbmProject, KnxMbmSignal } from "./model";
 
@@ -38,103 +36,11 @@ export function validateProject(project: KnxMbmProject): ValidationIssue[] {
   return issues;
 }
 
-/**
- * Conversion library and per-signal refs. Refs are positions in the filters /
- * operations lists (`IntesisConversion.cs:233-247`); the XBL generator reads
- * `filters[index]` for each of them (`CreateConversionList`), so a position
- * outside the list cannot be deployed.
- */
+/** Conversion library and per-signal refs (`core/conversions/validate.ts`); the KNX flags set the direction. */
 function validateConversions(project: KnxMbmProject, issues: ValidationIssue[]): void {
-  const library = libraryLists(project.conversions);
-  const name = (conv: { description: string; type: number }) =>
-    conv.description || (conv.type === CONVERSION_TYPE.FILTER ? "Untitled filter" : "Untitled operation");
-  const libraryRef = (list: "filters" | "operations", index: number) => ({
-    screen: "configuration" as const,
-    entity: "project" as const,
-    id: `${list === "filters" ? "f" : "o"}${index}`,
-    field: "conversion",
-  });
-
-  for (const signal of project.signals) {
-    const halves = [signal.conversions.internal, signal.conversions.external];
-    const steps = halves.flatMap((half) => halfSteps(half));
-    if (steps.length === 0) continue;
-    const signalRef = { screen: "signals" as const, entity: "signal" as const, id: signal.id, field: "conversions" };
-    const missing = [
-      ...new Set(
-        steps
-          .filter((step) => !library[step.list][step.index])
-          .map((step) => `${step.list === "filters" ? "filter" : "operation"} ${step.index}`),
-      ),
-    ];
-    if (missing.length) {
-      issues.push({
-        code: "CONV-REF-MISSING",
-        // Only active signals reach the XBL (PreXBLActions): an inactive one does not block the deploy.
-        severity: signal.active ? "error" : "warning",
-        message: `Signal ${signal.id + 1} uses ${missing.join(" and ")}, which ${missing.length === 1 ? "is" : "are"} not in the conversion library.`,
-        ref: signalRef,
-      });
-    }
-    if (signal.virtual) {
-      // MAPS makes the cell of virtual signals read-only (IntesisProjectKnxMbm_RT.cs:709-712):
-      // only an imported file can put conversions there. No "conversions" field: the
-      // editor cannot open for them, so the issue leads to the signal row.
-      issues.push({
-        code: "CONV-VIRTUAL",
-        severity: "info",
-        message: `Virtual signal ${signal.id + 1} has conversions. MAPS does not let you assign conversions to virtual signals; they come from an imported file.`,
-        ref: { screen: "signals", entity: "signal", id: signal.id },
-      });
-      continue;
-    }
-    // The grey flow of a read + write signal runs its operations inverted: an arithmetic
-    // operation with B · 10^A = 0 or a scale with equal output ends divides by zero there.
-    if (knxConversionRwMode(signal.knx.flags) === "readwrite") {
-      const broken = steps.find((step) => {
-        const conv = library[step.list][step.index];
-        return step.inverted && !!conv && !conversionHasInverse(conv);
-      });
-      if (broken) {
-        const conv = library.operations[broken.index];
-        issues.push({
-          code: "CONV-NO-INVERSE",
-          severity: "warning",
-          message: `Signal ${signal.id + 1} runs “${name(conv)}” (${conversionSummary(conv)}) inverted, but it has no inverse: the gateway cannot convert one of its directions.`,
-          ref: signalRef,
-        });
-      }
-    }
-  }
-
-  // Ranges MAPS does not let you save (frmConversions.cs:726-766), and equal scale ends.
-  library.filters.forEach((conv, index) => {
-    const comparison = parseConversionNumber(conv.params[1]);
-    if (comparison !== COMPARISON.IN_RANGE && comparison !== COMPARISON.OUT_RANGE) return;
-    const low = parseConversionNumber(conv.params[2]);
-    const high = parseConversionNumber(conv.params[3]);
-    if (low !== undefined && high !== undefined && low > high) {
-      issues.push({
-        code: "CONV-RANGE",
-        severity: "warning",
-        message: `Filter “${name(conv)}” has Low (${low}) greater than High (${high}).`,
-        ref: libraryRef("filters", index),
-      });
-    }
-  });
-  library.operations.forEach((conv, index) => {
-    if (conv.type !== CONVERSION_TYPE.SCALE) return;
-    const [minIn, maxIn, minOut, maxOut] = conv.params.map(parseConversionNumber);
-    const bad = (min?: number, max?: number) => min !== undefined && max !== undefined && min >= max;
-    if (bad(minIn, maxIn) || bad(minOut, maxOut)) {
-      issues.push({
-        code: "CONV-RANGE",
-        severity: "warning",
-        message: `Scale “${name(conv)}” (${conversionSummary(conv)}) needs each min below its max.`,
-        ref: libraryRef("operations", index),
-      });
-    }
-  });
+  issues.push(
+    ...validateSignalConversions(project.conversions, project.signals, (signal) => knxConversionRwMode(signal.knx.flags)),
+  );
 }
 
 function validateKnxConfig(project: KnxMbmProject, issues: ValidationIssue[]): void {
@@ -263,48 +169,12 @@ function validateSignal(
   const ref = { screen: "signals" as const, entity: "signal" as const, id: signal.id };
 
   // KNX side
-  if (!isValidGroupAddress(signal.knx.groupAddress, { extended: project.knx.extendedAddresses })) {
-    const extended = project.knx.extendedAddresses;
+  for (const code of checkKnxEndpoint(signal.knx, { extended: project.knx.extendedAddresses })) {
     issues.push({
-      code: signal.knx.groupAddress > 32767 && !extended ? "KNX-GA-EXTENDED" : "KNX-GA-FORMAT",
+      code,
       severity: "error",
-      message:
-        signal.knx.groupAddress > 32767 && !extended
-          ? `Signal #${signal.id}: group address exceeds 15/7/255; enable extended addresses.`
-          : `Signal #${signal.id}: invalid KNX group address.`,
-      ref: { ...ref, field: "groupAddress" },
-    });
-  }
-  if (!isValidDpt(signal.knx.dpt)) {
-    issues.push({
-      code: "KNX-DPT-INVALID",
-      severity: "error",
-      message: `Signal #${signal.id}: DPT is not in the supported KNX–MBM selection.`,
-      ref: { ...ref, field: "dpt" },
-    });
-  }
-  if (!hasAnyFlag(signal.knx.flags)) {
-    issues.push({
-      code: "KNX-FLAGS-NONE",
-      severity: "error",
-      message: `Signal #${signal.id}: at least one KNX flag (U, T, Ri, W, R) is required.`,
-      ref: { ...ref, field: "flags" },
-    });
-  }
-  if (signal.knx.flags.ri && signal.knx.flags.r) {
-    issues.push({
-      code: "KNX-FLAGS-RI-R",
-      severity: "error",
-      message: `Signal #${signal.id}: flags Ri and R are mutually exclusive.`,
-      ref: { ...ref, field: "flags" },
-    });
-  }
-  if (signal.knx.additionalAddresses.length > 0 && !signal.knx.flags.u && !signal.knx.flags.w) {
-    issues.push({
-      code: "KNX-FLAGS-LISTEN",
-      severity: "error",
-      message: `Signal #${signal.id}: additional addresses require the U or W flag.`,
-      ref: { ...ref, field: "flags" },
+      message: knxMessage(code, signal),
+      ref: { ...ref, field: knxField(code) },
     });
   }
 
@@ -419,6 +289,37 @@ function validateRegisterOverlaps(project: KnxMbmProject, issues: ValidationIssu
     }
     list.push({ start: signal.modbus.address, end: signal.modbus.address + span - 1, id: signal.id });
     ranges.set(key, list);
+  }
+}
+
+function knxMessage(code: KnxRuleCode, signal: KnxMbmSignal): string {
+  switch (code) {
+    case "KNX-GA-EXTENDED":
+      return `Signal #${signal.id}: group address exceeds 15/7/255; enable extended addresses.`;
+    case "KNX-GA-FORMAT":
+      return `Signal #${signal.id}: invalid KNX group address.`;
+    case "KNX-DPT-INVALID":
+      return `Signal #${signal.id}: DPT is not in the supported KNX–MBM selection.`;
+    case "KNX-FLAGS-NONE":
+      return `Signal #${signal.id}: at least one KNX flag (U, T, Ri, W, R) is required.`;
+    case "KNX-FLAGS-RI-R":
+      return `Signal #${signal.id}: flags Ri and R are mutually exclusive.`;
+    case "KNX-FLAGS-LISTEN":
+      return `Signal #${signal.id}: additional addresses require the U or W flag.`;
+    case "KNX-GA-LISTEN":
+      return `Signal #${signal.id}: invalid additional group address.`;
+  }
+}
+
+function knxField(code: KnxRuleCode): string {
+  switch (code) {
+    case "KNX-GA-EXTENDED":
+    case "KNX-GA-FORMAT":
+      return "groupAddress";
+    case "KNX-DPT-INVALID":
+      return "dpt";
+    default:
+      return "flags";
   }
 }
 

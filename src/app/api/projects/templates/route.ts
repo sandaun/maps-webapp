@@ -6,7 +6,7 @@ import { errorResponse } from "@/server/projects/http";
 export const runtime = "nodejs";
 
 const bodySchema = z.object({
-  family: z.enum(["knx-mbm", "me-mbs"]),
+  family: z.enum(["knx-mbm", "me-mbs", "mbs-knx"]),
   name: z.string().trim().min(1).max(200),
 });
 

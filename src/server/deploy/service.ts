@@ -3,6 +3,7 @@ import { buildCompleteBlob, buildProjectZip, parseCompleteBlob } from "@/core/pr
 import { decodeElements, DEFAULT_SW_VERSION } from "@/core/xbl";
 import { APP_ID_KNX_MBM, generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
 import { APP_ID_ME_AC_XXX, generateMeMbsXbl, validateSlaveIndices } from "@/gateway-families/me-mbs";
+import { APP_ID_MBS_KNX, generateMbsKnxXbl } from "@/gateway-families/mbs-knx";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
 import { getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
@@ -13,7 +14,7 @@ import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
  * SENDCMPLT. Gated at every layer (docs/plans/knx-mbm-mvp.md, Pas 2.6 / 3.4):
  *
  * 1. `family` — the project's family must have a deploy descriptor below
- *    (knx-mbm and me-mbs today; anything else stays 422).
+ *    (knx-mbm, me-mbs and mbs-knx; anything else stays 422).
  * 2. `capability` — `.local-data/capabilities.json` must hold a genuine
  *    per-family entry (`knxMbmXblVerified` / `meMbsXblVerified`), written only
  *    by scripts/verify-xbl.ts after a byte-exact match against a real fixture.
@@ -123,6 +124,16 @@ export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = 
     generateXbl: generateMeMbsXbl,
     deployBlocker: (view) =>
       view.family === "me-mbs" ? validateSlaveIndices(view.project)[0]?.message : undefined,
+  },
+  "mbs-knx": {
+    family: "mbs-knx",
+    displayName: "KNX ↔ Modbus Slave",
+    capabilityKey: "mbsKnxXblVerified",
+    expectedAppId: APP_ID_MBS_KNX, // 7 — IN701KNX running the MBS–KNX application
+    unitLabel: "MBS–KNX unit",
+    generateXbl: generateMbsKnxXbl,
+    // MAPS does not send a project that fails CheckProject (IntesisProjectMBSKNX_RT.cs:633-662).
+    deployBlocker: (view) => view.issues.find((issue) => issue.severity === "error")?.message,
   },
 };
 

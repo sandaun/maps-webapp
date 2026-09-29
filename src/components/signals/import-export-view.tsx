@@ -57,8 +57,19 @@ export function ImportExportView({
     }
   }
 
+  // MBS–KNX: signals XLSX and ESF are out of the first iteration (docs/reference/mbs-knx-analisi.md §8).
+  const xlsxAvailable = family !== "mbs-knx";
   const exports =
-    family === "knx-mbm"
+    family === "mbs-knx"
+      ? [
+          {
+            kind: "PROJ",
+            label: "Whole project (.ibmaps)",
+            sub: "Configuration and signals",
+            href: exportProjectUrl(projectId),
+          },
+        ]
+      : family === "knx-mbm"
       ? [
           {
             kind: "XLSX",
@@ -124,6 +135,11 @@ export function ImportExportView({
               if (file) void handleXlsx(file);
             }}
           />
+          {!xlsxAvailable ? (
+            <p className="rounded-[6px] border border-border bg-[#FBFBFC] px-4 py-3 text-[12.5px] text-fg-muted">
+              Signal table import and export are not available yet for KNX ↔ Modbus Slave projects.
+            </p>
+          ) : (
           <button
             type="button"
             disabled={busy}
@@ -149,6 +165,7 @@ export function ImportExportView({
             <div className="text-[13px] font-bold text-hms-blue">Choose an XLSX file</div>
             <div className="mt-1 text-[11.5px] text-fg-subtle">or drop it here · max 5 000 rows</div>
           </button>
+          )}
           <div className="mt-3.5 text-[12px] text-fg-muted">
             Last import:{" "}
             {lastImport ? (

@@ -552,7 +552,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       ? "BMS protocol KNX · Device protocol Modbus Master"
       : view?.family === "me-mbs"
         ? "BMS protocol Modbus · Device protocol ME-AC"
-        : null;
+        : view?.family === "mbs-knx"
+          ? "BMS protocol Modbus · Device protocol KNX"
+          : null;
 
   return (
     <div className="flex h-full min-h-[540px] flex-col">

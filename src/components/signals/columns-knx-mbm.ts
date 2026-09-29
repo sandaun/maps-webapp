@@ -16,6 +16,7 @@ import {
 } from "@/protocols/modbus/master";
 import { conversionCode } from "@/core/signals/conversion-code";
 import { conversionChain, type ConversionChain } from "./conversion-chain";
+import { KNX_MBM_CONVERSION_DIRECTION } from "./conversion-sides";
 import type { SignalPatchInput } from "@/lib/project-types";
 import { projectColumns } from "./columns-project";
 import type { GridColumn } from "./types";
@@ -133,7 +134,7 @@ export function toKnxRow(
     deviceLabel: device,
     slaveLabel: slave,
     conversionCode: conversionCode(signal.conversions),
-    conversionChain: conversionChain(signal, conversions),
+    conversionChain: conversionChain(signal, conversions, KNX_MBM_CONVERSION_DIRECTION),
     searchText: [signal.id, signal.description, groupAddress, dpt, node, device, signal.modbus.address]
       .join(" ")
       .toLowerCase(),

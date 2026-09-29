@@ -53,8 +53,34 @@ import {
   type MeMbsProject,
   type SignalPatch as MeMbsSignalPatch,
 } from "@/gateway-families/me-mbs";
+import {
+  addConversion as mbsKnxAddConversion,
+  addSignal as mbsKnxAddSignal,
+  ConversionEditError as MbsKnxConversionEditError,
+  isMbsKnxProject,
+  mbsKnxRestoredRefs,
+  mbsKnxSelectionRefs,
+  projectFromXml as mbsKnxProjectFromXml,
+  removeConversion as mbsKnxRemoveConversion,
+  removeSignal as mbsKnxRemoveSignal,
+  reorderSignalIds as mbsKnxReorderSignalIds,
+  setGatewayInfo as mbsKnxSetGatewayInfo,
+  setGeneralInfo as mbsKnxSetGeneralInfo,
+  setKnxExtendedAddresses as mbsKnxSetKnxExtendedAddresses,
+  setKnxPhysicalAddress as mbsKnxSetKnxPhysicalAddress,
+  SignalEditError as MbsKnxSignalEditError,
+  updateConversion as mbsKnxUpdateConversion,
+  updateMbsConfig as mbsKnxUpdateMbsConfig,
+  updateRtuConfig as mbsKnxUpdateRtuConfig,
+  updateSignal as mbsKnxUpdateSignal,
+  updateTcpConfig as mbsKnxUpdateTcpConfig,
+  validateProject as validateMbsKnxProject,
+  type MbsKnxConfigPatch,
+  type MbsKnxProject,
+  type SignalPatch as MbsKnxSignalPatch,
+} from "@/gateway-families/mbs-knx";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
-import type { MbsConfig } from "@/protocols/modbus/slave";
+import { SLAVE_ID_RANGE, type MbsConfig } from "@/protocols/modbus/slave";
 import {
   MAX_RTU_NODES,
   MAX_TCP_NODES,
@@ -71,7 +97,7 @@ import { ProjectServiceError } from "./errors";
  * `src/gateway-families/<id>/`.
  */
 
-export type FamilyId = "knx-mbm" | "me-mbs";
+export type FamilyId = "knx-mbm" | "me-mbs" | "mbs-knx";
 
 // --- patch types --------------------------------------------------------------
 
@@ -166,8 +192,25 @@ export type MeMbsPatch =
   | { type: "updateGroup"; controllerIndex: number; groupIndex: number; patch: MeGroupPatch }
   | ConversionLibraryPatch;
 
+/** `updateSignal` payload of the API for MBS–KNX: conversions come as a selection. */
+type MbsKnxSignalPatchInput = Omit<MbsKnxSignalPatch, "conversionRefs"> & { conversions?: ConversionSelection };
+
+/** Patch ops a KNX ↔ Modbus Slave project accepts. */
+export type MbsKnxPatch =
+  | { type: "setGeneralInfo"; name?: string; description?: string }
+  | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
+  | { type: "setKnxPhysicalAddress"; address: number }
+  | { type: "setKnxExtendedAddresses"; enabled: boolean }
+  | { type: "updateMbsConfig"; patch: MbsKnxConfigPatch }
+  | { type: "updateRtuConfig"; patch: Partial<MbsConfig["rtu"]> }
+  | { type: "updateTcpConfig"; patch: Partial<MbsConfig["tcp"]> }
+  | { type: "addSignal" }
+  | { type: "removeSignal"; id: number }
+  | { type: "updateSignal"; id: number; patch: MbsKnxSignalPatchInput }
+  | ConversionLibraryPatch;
+
 /** Patch operations accepted by the API (validated with zod at the edge). */
-export type ProjectPatch = KnxMbmPatch | MeMbsPatch;
+export type ProjectPatch = KnxMbmPatch | MeMbsPatch | MbsKnxPatch;
 
 // --- registry -----------------------------------------------------------------
 
@@ -176,8 +219,8 @@ interface FamilyEntry {
   /** Human-readable family name for badges and error messages. */
   displayName: string;
   detect: (doc: XmlDocument) => boolean;
-  fromXml: (doc: XmlDocument) => KnxMbmProject | MeMbsProject;
-  validate: (project: KnxMbmProject | MeMbsProject) => ValidationIssue[];
+  fromXml: (doc: XmlDocument) => KnxMbmProject | MeMbsProject | MbsKnxProject;
+  validate: (project: KnxMbmProject | MeMbsProject | MbsKnxProject) => ValidationIssue[];
   /** True when this family knows how to apply the patch (payload included). */
   accepts: (patch: ProjectPatch) => boolean;
   /** Applies a whole batch; every ID in the batch refers to the document before it. */
@@ -244,7 +287,42 @@ const ME_MBS: FamilyEntry = {
   applyPatches: (doc, patches) => applyMeMbsPatches(doc, patches as MeMbsPatch[]),
 };
 
-export const FAMILIES: readonly FamilyEntry[] = [KNX_MBM, ME_MBS];
+const MBS_KNX_TYPES = new Set([
+  "setGeneralInfo",
+  "setGatewayInfo",
+  "setKnxPhysicalAddress",
+  "setKnxExtendedAddresses",
+  "updateMbsConfig",
+  "updateRtuConfig",
+  "updateTcpConfig",
+  "addSignal",
+  "removeSignal",
+  "updateSignal",
+  ...CONVERSION_LIBRARY_TYPES,
+]);
+
+/**
+ * Modbus Slave fields of an MBS–KNX row the MAPS grid lets the user edit:
+ * no string format (`stringFormatAvailable = false`) and a single slave
+ * (`SetSlaveAddressModeEnabled(false)`), so no `stringLength` / `slaveIndex`.
+ */
+const MBS_KNX_MODBUS_FIELDS = new Set(["address", "bit", "lenBits", "format", "readWrite"]);
+
+const MBS_KNX: FamilyEntry = {
+  id: "mbs-knx",
+  displayName: "KNX ↔ Modbus Slave",
+  detect: isMbsKnxProject,
+  fromXml: (doc) => mbsKnxProjectFromXml(doc),
+  validate: (project) => validateMbsKnxProject(project as MbsKnxProject),
+  accepts: (patch) =>
+    MBS_KNX_TYPES.has(patch.type) &&
+    (patch.type !== "updateSignal" ||
+      (!("me" in patch.patch) &&
+        Object.keys((patch.patch as MbsKnxSignalPatchInput).modbus ?? {}).every((key) => MBS_KNX_MODBUS_FIELDS.has(key)))),
+  applyPatches: (doc, patches) => applyMbsKnxPatches(doc, patches as MbsKnxPatch[]),
+};
+
+export const FAMILIES: readonly FamilyEntry[] = [KNX_MBM, ME_MBS, MBS_KNX];
 
 /** Detect the family of an .ibmaps document, or undefined when unsupported. */
 export function detectFamily(doc: XmlDocument): FamilyEntry | undefined {
@@ -427,9 +505,19 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
       if ("slaves" in patch.patch) throw new ProjectServiceError(409, ME_DERIVED_SLAVES_MESSAGE);
       updateMbsConfigAndSignals(doc, patch.patch);
       break;
-    case "updateRtuConfig":
+    case "updateRtuConfig": {
+      // The API takes the MAPS form range (1–255, shared with MBS–KNX); ME–MBS
+      // keeps its 1–247 slave ids (`SLAVE_ID_RANGE`).
+      const slave = patch.patch.slaveNumber;
+      if (slave !== undefined && (slave < SLAVE_ID_RANGE.min || slave > SLAVE_ID_RANGE.max)) {
+        throw new ProjectServiceError(
+          422,
+          `Mitsubishi Electric AC ↔ Modbus Slave slave number must be ${SLAVE_ID_RANGE.min}–${SLAVE_ID_RANGE.max}.`,
+        );
+      }
       updateRtuConfigAndSlaves(doc, patch.patch);
       break;
+    }
     case "updateTcpConfig":
       updateTcpConfig(doc, patch.patch);
       break;
@@ -448,4 +536,101 @@ function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
     case "restoreSignalConversions":
       throw new ProjectServiceError(409, ME_FIXED_CONVERSIONS_MESSAGE);
   }
+}
+
+// --- MBS–KNX -----------------------------------------------------------------
+
+/** Modbus Slave settings MAPS hides for this family (`frmInternalMBS`, IntesisProjectMBSKNX_RT.cs:670-676). */
+const MBS_KNX_HIDDEN_MBS_SETTINGS = ["addressMode", "slaveAddressMode", "commErrorTout", "tempSetpoint"];
+
+/** `IntesisMb.PopulateDataLengthComboBox(isInternal)` and `PopulateFormatComboBox` without String. */
+const MBS_KNX_LEN_BITS = new Set([16, 32, 64]);
+const MBS_KNX_FORMATS = new Set([-1, 0, 1, 2, 3, 4]);
+
+/** Like MAPS, signal IDs are renumbered once after the deletions (`DeleteObject` with `isLastObject`). */
+function applyMbsKnxPatches(doc: XmlDocument, patches: MbsKnxPatch[]): void {
+  let deleted = false;
+  for (const patch of patches) {
+    try {
+      if (applyMbsKnxPatch(doc, patch)) deleted = true;
+    } catch (error) {
+      if (error instanceof MbsKnxSignalEditError || error instanceof MbsKnxConversionEditError) {
+        throw new ProjectServiceError(error.status, error.message);
+      }
+      throw error;
+    }
+  }
+  if (deleted) mbsKnxReorderSignalIds(doc);
+}
+
+/** Returns true when the patch removed a signal. */
+function applyMbsKnxPatch(doc: XmlDocument, patch: MbsKnxPatch): boolean {
+  switch (patch.type) {
+    case "setGeneralInfo":
+      mbsKnxSetGeneralInfo(doc, patch);
+      break;
+    case "setGatewayInfo":
+      mbsKnxSetGatewayInfo(doc, patch);
+      break;
+    case "setKnxPhysicalAddress":
+      mbsKnxSetKnxPhysicalAddress(doc, patch.address);
+      break;
+    case "setKnxExtendedAddresses":
+      mbsKnxSetKnxExtendedAddresses(doc, patch.enabled);
+      break;
+    case "updateMbsConfig": {
+      const hidden = Object.keys(patch.patch).filter((key) => MBS_KNX_HIDDEN_MBS_SETTINGS.includes(key));
+      if (hidden.length > 0) {
+        throw new ProjectServiceError(409, `KNX ↔ Modbus Slave projects have no ${hidden.join(", ")} setting (MAPS hides it).`);
+      }
+      mbsKnxUpdateMbsConfig(doc, patch.patch);
+      break;
+    }
+    case "updateRtuConfig":
+      mbsKnxUpdateRtuConfig(doc, patch.patch);
+      break;
+    case "updateTcpConfig":
+      mbsKnxUpdateTcpConfig(doc, patch.patch);
+      break;
+    case "addSignal":
+      mbsKnxAddSignal(doc);
+      break;
+    case "removeSignal":
+      return mbsKnxRemoveSignal(doc, patch.id);
+    case "updateSignal": {
+      const { conversions, ...rest } = patch.patch;
+      const modbus = rest.modbus;
+      if (modbus?.lenBits !== undefined && !MBS_KNX_LEN_BITS.has(modbus.lenBits)) {
+        throw new ProjectServiceError(422, `Signal ${patch.id + 1}: the Modbus length must be 16, 32 or 64 bits.`);
+      }
+      if (modbus?.format !== undefined && !MBS_KNX_FORMATS.has(modbus.format)) {
+        throw new ProjectServiceError(422, `Signal ${patch.id + 1}: that Modbus format is not available for this gateway.`);
+      }
+      let conversionRefs: MbsKnxSignalPatch["conversionRefs"];
+      if (conversions) {
+        // The refs follow the read/write mode the same edit leaves.
+        const result = mbsKnxSelectionRefs(doc, patch.id, conversions, modbus?.readWrite);
+        if ("error" in result) throw new ProjectServiceError(422, result.error);
+        conversionRefs = result.refs;
+      }
+      mbsKnxUpdateSignal(doc, patch.id, { ...rest, ...(conversionRefs ? { conversionRefs } : {}) });
+      break;
+    }
+    case "restoreSignalConversions": {
+      const result = mbsKnxRestoredRefs(doc, patch.id, patch.refs);
+      if ("error" in result) throw new ProjectServiceError(422, result.error);
+      mbsKnxUpdateSignal(doc, patch.id, { conversionRefs: result.refs });
+      break;
+    }
+    case "addConversion":
+      mbsKnxAddConversion(doc, patch.conversionType, patch.values);
+      break;
+    case "updateConversion":
+      mbsKnxUpdateConversion(doc, patch, patch.patch);
+      break;
+    case "removeConversion":
+      mbsKnxRemoveConversion(doc, patch);
+      break;
+  }
+  return false;
 }

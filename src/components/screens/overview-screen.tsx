@@ -95,11 +95,19 @@ export function OverviewScreen() {
 
         {view.family === "knx-mbm" ? (
           <KnxMbmDeviceCard project={view.project} conversions={view.project.conversions.length} />
+        ) : view.family === "mbs-knx" ? (
+          <StatCard label="Modbus server">
+            <BigNumber value={String(view.project.mbs.rtu.slaveNumber)} sub="slave number" />
+            <p className="mt-[11px] text-[11.5px] text-fg-muted">
+              {MBS_MEDIA_LABELS[view.project.mbs.media] ?? "—"}
+              {view.project.mbs.media !== 0 ? ` · TCP port ${view.project.mbs.tcp.port}` : ""}
+            </p>
+          </StatCard>
         ) : (
           <MeMbsGroupCard project={view.project} />
         )}
 
-        {view.family === "knx-mbm" ? (
+        {view.family === "knx-mbm" || view.family === "mbs-knx" ? (
           <StatCard label="KNX interface">
             <BigNumber
               value={formatPhysicalAddress(view.project.knx.physicalAddress)}
@@ -173,6 +181,15 @@ export function OverviewScreen() {
                 metaA={`Phys. addr ${formatPhysicalAddress(view.project.knx.physicalAddress)}`}
                 metaB={`${project.signals.length} group addresses linked`}
               />
+            ) : view.family === "mbs-knx" ? (
+              <SideBox
+                side="bms"
+                label="BMS side"
+                titleA="Modbus"
+                titleB="server"
+                metaA={`Slave ${view.project.mbs.rtu.slaveNumber} · ${MBS_MEDIA_LABELS[view.project.mbs.media] ?? "—"}`}
+                metaB={`${project.signals.length} registers exposed`}
+              />
             ) : (
               <SideBox
                 side="bms"
@@ -214,7 +231,9 @@ export function OverviewScreen() {
               label={
                 view.family === "knx-mbm"
                   ? `${countMbmDevices(view.project)} devices`
-                  : `${countMeGroups(view.project).total} groups`
+                  : view.family === "mbs-knx"
+                    ? `${activeSignals} objects`
+                    : `${countMeGroups(view.project).total} groups`
               }
               from="gateway"
             />
@@ -229,6 +248,15 @@ export function OverviewScreen() {
                 metaB={`${view.project.mbm.rtuNodes.length} RTU · ${view.project.mbm.tcpNodes.length} TCP nodes`}
                 href="/devices"
                 linkLabel="Device list →"
+              />
+            ) : view.family === "mbs-knx" ? (
+              <SideBox
+                side="device"
+                label="Device side"
+                titleA="KNX TP"
+                titleB="interface"
+                metaA={`Phys. addr ${formatPhysicalAddress(view.project.knx.physicalAddress)}`}
+                metaB={view.project.knx.extendedAddresses ? "Extended group addresses" : "Standard group addresses"}
               />
             ) : (
               <SideBox
@@ -247,8 +275,8 @@ export function OverviewScreen() {
           <div className="mt-[18px] grid grid-cols-2 gap-[14px] border-t border-border pt-4 sm:grid-cols-4">
             <MiniStat label="Gateway IP" value={project.gateway.ip || "—"} />
             <MiniStat label="Source" value={SOURCE_LABEL[meta.source]} />
-            {view.family === "knx-mbm" && (
-              <MiniStat label="Conversions" value={String(project.conversions.length)} />
+            {(view.family === "knx-mbm" || view.family === "mbs-knx") && (
+              <MiniStat label="Conversions" value={String(view.project.conversions.length)} />
             )}
             <MiniStat label="Last updated" value={formatUpdatedAt(meta.updatedAt)} />
           </div>
@@ -538,6 +566,9 @@ function NextSteps({
 }
 
 /* ---------- per-family helpers ---------- */
+
+/** `<Media>` of the Modbus Slave side. */
+const MBS_MEDIA_LABELS: Record<number, string> = { 0: "RTU", 1: "TCP", 2: "RTU + TCP" };
 
 function countMbmDevices(project: {
   mbm: { rtuNodes: { devices: unknown[] }[]; tcpNodes: { devices: unknown[] }[] };

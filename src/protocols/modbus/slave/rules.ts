@@ -57,3 +57,80 @@ export function findAddressCollisions(
 export function isValidSlaveId(id: number): boolean {
   return id >= SLAVE_ID_RANGE.min && id <= SLAVE_ID_RANGE.max;
 }
+
+/** Highest register address when the family passes none (`InternalMbs` default `maxAddress`, InternalMbs.cs:405). */
+export const MBS_DEFAULT_MAX_ADDRESS = 20000;
+
+export type MbsObjectRuleCode =
+  | "MBS-FORMAT-NONE"
+  | "MBS-STRING-LEN"
+  | "MBS-ADDRESS-DUP"
+  | "MBS-BIT-DUP"
+  | "MBS-ADDRESS-USED"
+  | "MBS-ADDRESS-RANGE"
+  | "MBS-ADDRESS-BASE";
+
+export interface MbsObjectShape {
+  id: number;
+  lenBits: number;
+  format: number;
+  bit: number;
+  address: number;
+  stringLength: number;
+  slaveIndex: number;
+}
+
+/**
+ * Literal port of `InternalMbs.CheckProjectObjects` (InternalMbs.cs:1528-1597)
+ * over the active signals. MAPS stops at the first error; here every signal
+ * gets at most one violation, the first MAPS would report for it, and `id` is
+ * the signal MAPS points at (for a repeat, the OTHER signal). Kept as MAPS
+ * has it — see docs/reference/mbs-knx-analisi.md §5:
+ * - a 16-bit register compares with the CURRENT signal's format, so it also
+ *   collides with a BitFields at the same address, and skips only the 32-bit
+ *   ones (a 64-bit one at the same address collides);
+ * - 32/64-bit registers only look at `address` and `address + 1`.
+ */
+export function checkMbsObjects(
+  active: MbsObjectShape[],
+  options: { maxAddress: number; registerBase: number },
+): Array<{ code: MbsObjectRuleCode; id: number }> {
+  const out: Array<{ code: MbsObjectRuleCode; id: number }> = [];
+  for (const obj of active) {
+    const others = active.filter((x) => x.id !== obj.id && x.slaveIndex === obj.slaveIndex);
+    if (obj.format === FORMATS.NO_FORMAT) {
+      out.push({ code: "MBS-FORMAT-NONE", id: obj.id });
+      continue;
+    }
+    if (obj.format === FORMATS.STRING && obj.stringLength === -1) {
+      out.push({ code: "MBS-STRING-LEN", id: obj.id });
+      continue;
+    }
+    let clash: MbsObjectShape | undefined;
+    let clashCode: MbsObjectRuleCode = "MBS-ADDRESS-DUP";
+    if (obj.lenBits === 16 && obj.format !== FORMATS.BITFIELDS) {
+      clash = others.find((x) => x.lenBits !== 32 && x.address === obj.address);
+    } else if ((obj.lenBits === 32 || obj.lenBits === 64) && obj.format !== FORMATS.BITFIELDS) {
+      clash = others.find((x) => x.address === obj.address || x.address === obj.address + 1);
+    } else if (obj.format === FORMATS.BITFIELDS) {
+      clashCode = "MBS-BIT-DUP";
+      clash = others.find((x) => x.format === obj.format && x.address === obj.address && x.bit === obj.bit);
+    } else if (obj.format === FORMATS.STRING) {
+      clashCode = "MBS-ADDRESS-USED";
+      const end = obj.address + Math.trunc(obj.stringLength / 2);
+      clash = others.find((x) => x.address >= obj.address && x.address < end);
+    }
+    if (clash) {
+      out.push({ code: clashCode, id: clash.id });
+      continue;
+    }
+    if (obj.address > options.maxAddress) {
+      out.push({ code: "MBS-ADDRESS-RANGE", id: obj.id });
+      continue;
+    }
+    if (obj.address === 0 && options.registerBase === 1) {
+      out.push({ code: "MBS-ADDRESS-BASE", id: obj.id });
+    }
+  }
+  return out;
+}

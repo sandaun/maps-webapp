@@ -43,9 +43,16 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { SectionHeader } from "./configuration-blocks";
 
-type KnxMbmView = Extract<ProjectView, { family: "knx-mbm" }>;
-type Conversion = KnxMbmView["project"]["conversions"][number];
-type Signal = KnxMbmView["project"]["signals"][number];
+/** Families with a conversion library (MAPS hides it for ME–MBS). */
+type ConversionsView = Extract<ProjectView, { family: "knx-mbm" | "mbs-knx" }>;
+type Conversion = ConversionsView["project"]["conversions"][number];
+type Signal = Pick<ConversionsView["project"]["signals"][number], "id" | "description" | "conversions">;
+
+/** The slot order of `frmSelectConversion`: the internal half's filter first. */
+const SLOTS_DESC: Record<ConversionsView["family"], string> = {
+  "knx-mbm": "a filter on the KNX side, two operations and a filter on the Modbus side",
+  "mbs-knx": "a filter on the Modbus side, two operations and a filter on the KNX side",
+};
 
 /** A library entry addressed as signal refs and the API address it: list + position. */
 interface Entry {
@@ -101,8 +108,9 @@ function useEntryDraft(entry: Entry) {
 }
 
 /** Configuration → Conversions: the project's filters and operations (MAPS Conversions Manager). */
-export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?: { id: string; seq: number } }) {
+export function ConversionsSection({ view, reveal }: { view: ConversionsView; reveal?: { id: string; seq: number } }) {
   const entries = React.useMemo(() => libraryEntries(view.project.conversions), [view.project.conversions]);
+  const signals: readonly Signal[] = view.project.signals;
   const [selected, setSelected] = React.useState<Selection | null>(null);
   const [query, setQuery] = React.useState("");
   const [deleting, setDeleting] = React.useState<Entry | null>(null);
@@ -170,7 +178,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
     <>
       <SectionHeader
         title="Conversions"
-        desc="The filters and operations signals can use between KNX and Modbus. Every signal has four slots: a filter on the KNX side, two operations and a filter on the Modbus side. Edits are saved with the bar below; adding and deleting apply at once."
+        desc={`The filters and operations signals can use between KNX and Modbus. Every signal has four slots: ${SLOTS_DESC[view.family]}. Edits are saved with the bar below; adding and deleting apply at once.`}
       />
       {error && (
         <p role="alert" className="mb-3 rounded-lg border border-error/30 bg-error-bg px-4 py-2 text-[12.5px] text-error">
@@ -210,7 +218,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
                     <EntryRow
                       key={`${entry.list}-${entry.index}`}
                       entry={entry}
-                      used={signalsUsingConversion(view.project.signals, entry.list, entry.index).length}
+                      used={signalsUsingConversion(signals, entry.list, entry.index).length}
                       selected={!!current && sameEntry(current, entry)}
                       onSelect={() => setSelected({ list: entry.list, index: entry.index })}
                     />
@@ -228,7 +236,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
             <EntryEditor
               key={`${current.list}-${current.index}`}
               entry={current}
-              signals={signalsUsingConversion(view.project.signals, current.list, current.index)}
+              signals={signalsUsingConversion(signals, current.list, current.index)}
               busy={busy}
               onDuplicate={(values) => void duplicate(current, values)}
               onDelete={() => setDeleting(current)}
@@ -236,7 +244,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
           ) : (
             <SystemEntry
               entry={current}
-              used={signalsUsingConversion(view.project.signals, current.list, current.index).length}
+              used={signalsUsingConversion(signals, current.list, current.index).length}
             />
           )}
         </div>
@@ -245,7 +253,7 @@ export function ConversionsSection({ view, reveal }: { view: KnxMbmView; reveal?
       {deleting && (
         <DeleteConversionModal
           entry={deleting}
-          signals={signalsUsingConversion(view.project.signals, deleting.list, deleting.index)}
+          signals={signalsUsingConversion(signals, deleting.list, deleting.index)}
           busy={busy}
           onClose={() => setDeleting(null)}
           onConfirm={() => void remove(deleting)}

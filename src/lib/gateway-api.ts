@@ -92,6 +92,8 @@ export type SessionEvent =
 export const KNX_MBM_APP_ID = 4;
 /** ME AC ↔ Modbus Slave unit AppId (`ME_AC_XXX = 64` — 770 Air, see docs/reference/ac-me-mbs-analisi.md §1). */
 export const ME_MBS_APP_ID = 64;
+/** KNX ↔ Modbus Slave AppId (`IBOX_MBS_KNX = 7`, see docs/reference/mbs-knx-analisi.md §1). */
+export const MBS_KNX_APP_ID = 7;
 
 /**
  * Family of a discovered/session gateway, or null when unsupported.
@@ -100,14 +102,16 @@ export const ME_MBS_APP_ID = 64;
 export function gatewayFamily(
   info: GatewayInfoSummary,
   raw?: Record<string, string>,
-): "knx-mbm" | "me-mbs" | null {
+): "knx-mbm" | "me-mbs" | "mbs-knx" | null {
   if (info.appId === KNX_MBM_APP_ID) return "knx-mbm";
   if (info.appId === ME_MBS_APP_ID) return "me-mbs";
+  if (info.appId === MBS_KNX_APP_ID) return "mbs-knx";
   const haystack = [info.appName, info.platform, ...Object.values(raw ?? {})]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
   if (/IN-KNX-MBM|KNXMBM/i.test(haystack)) return "knx-mbm";
   if (/IN770AIR|IN770MIT|IN-ME-AC-MBS/i.test(haystack)) return "me-mbs";
+  if (/IN-MBS-KNX|MBSKNX/i.test(haystack)) return "mbs-knx";
   return null;
 }
 

@@ -48,6 +48,16 @@ const TEMPLATES: Template[] = [
     gateway: "IN770AIR…",
     capacity: "700 indoor units",
   },
+  {
+    // Starts from the stock template as MAPS saves it (mbs-knx/fixtures/maps-template.ts).
+    family: "mbs-knx",
+    code: "IN-MBS-KNX",
+    title: "KNX → Modbus Server",
+    bms: "Modbus Server",
+    device: "KNX TP",
+    gateway: "IN701KNX…",
+    capacity: "3,000 signals",
+  },
 ];
 
 export function NewProjectScreen() {
@@ -452,7 +462,9 @@ export function NewProjectScreen() {
                         ? "KNX TP ↔ MODBUS MASTER"
                         : family === "me-mbs"
                           ? "MITSUBISHI ELECTRIC ↔ MODBUS SERVER"
-                          : "not configured"}
+                          : family === "mbs-knx"
+                            ? "KNX TP ↔ MODBUS SERVER"
+                            : "not configured"}
                     </span>
                     <span className="font-mono text-[11.5px] text-text-body">{gateway.address}</span>
                     <span>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight, CircleDot, Wifi, WifiOff } from "lucide-react";
-import { NAV_SECTIONS, navLabelFor } from "@/lib/nav";
+import { navLabelFor, navSectionsFor } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
@@ -78,7 +78,7 @@ export function Sidebar() {
       ) : null}
 
       <nav className="flex-1 space-y-0.5 px-2" aria-label="Workspace navigation">
-        {NAV_SECTIONS.map((section) => {
+        {navSectionsFor(view?.family).map((section) => {
           const active = pathname.startsWith(section.href);
           const Icon = section.icon;
           const label = navLabelFor(section, view?.family);

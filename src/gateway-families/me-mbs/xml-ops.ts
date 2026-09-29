@@ -10,6 +10,14 @@ import {
 } from "@/core/project-format";
 import type { MeControllerInfo, MeGroupInfo } from "@/protocols/me";
 import type { MbsConfig } from "@/protocols/modbus/slave";
+import {
+  buildMbsSignal,
+  patchMbsConfig,
+  patchMbsEndpoint,
+  patchMbsRtuConfig,
+  patchMbsTcpConfig,
+  type MbsConfigPatch,
+} from "@/protocols/modbus/slave/xml";
 import type { GatewayInfo, MeMbsSignal } from "./model";
 
 /**
@@ -45,47 +53,16 @@ export function setGatewayInfo(doc: XmlDocument, patch: Partial<GatewayInfo>): v
 
 // --- Modbus Slave config -------------------------------------------------------
 
-export function updateMbsConfig(
-  doc: XmlDocument,
-  patch: Partial<
-    Pick<
-      MbsConfig,
-      "media" | "byteOrder" | "updateCOV" | "addressMode" | "slaveAddressMode" | "commErrorTout" | "registerBase"
-    >
-  >,
-): void {
-  const internal = mustFind(doc, ["InternalProtocol"]);
-  if (patch.media !== undefined) setText(childEl(internal, "Media"), String(patch.media));
-  if (patch.byteOrder !== undefined) setText(childEl(internal, "ByteOrder"), String(patch.byteOrder));
-  if (patch.updateCOV !== undefined) setText(childEl(internal, "UpdateCOV"), boolText(patch.updateCOV));
-  if (patch.addressMode !== undefined) setText(childEl(internal, "AddressMode"), String(patch.addressMode));
-  if (patch.slaveAddressMode !== undefined) {
-    setText(childEl(internal, "SlaveAddressMode"), String(patch.slaveAddressMode));
-  }
-  if (patch.commErrorTout !== undefined) setText(childEl(internal, "CommErrorTout"), String(patch.commErrorTout));
-  if (patch.registerBase !== undefined) setText(childEl(internal, "RegisterBase"), String(patch.registerBase));
+export function updateMbsConfig(doc: XmlDocument, patch: MbsConfigPatch): void {
+  patchMbsConfig(mustFind(doc, ["InternalProtocol"]), patch);
 }
 
 export function updateRtuConfig(doc: XmlDocument, patch: Partial<MbsConfig["rtu"]>): void {
-  const rtu = mustFind(doc, ["InternalProtocol", "RTUConfig"]);
-  const map: Record<string, keyof MbsConfig["rtu"]> = {
-    ConnectionType: "connectionType",
-    Baudrate: "baudrate",
-    DataBits: "dataBits",
-    Parity: "parity",
-    StopBits: "stopBits",
-    SlaveNumber: "slaveNumber",
-  };
-  for (const [attr, key] of Object.entries(map)) {
-    const value = patch[key];
-    if (value !== undefined) setAttr(rtu, attr, String(value));
-  }
+  patchMbsRtuConfig(mustFind(doc, ["InternalProtocol"]), patch);
 }
 
 export function updateTcpConfig(doc: XmlDocument, patch: Partial<MbsConfig["tcp"]>): void {
-  const tcp = mustFind(doc, ["InternalProtocol", "TCPConfig"]);
-  if (patch.port !== undefined) setAttr(tcp, "Port", String(patch.port));
-  if (patch.keepAlive !== undefined) setAttr(tcp, "KeepAlive", String(patch.keepAlive));
+  patchMbsTcpConfig(mustFind(doc, ["InternalProtocol"]), patch);
 }
 
 // --- ME config (controllers / groups) ------------------------------------------
@@ -164,7 +141,7 @@ export function addSignal(doc: XmlDocument): number {
   const id = nextSignalId(doc);
   const internalSignals = mustFind(doc, ["InternalProtocol", "Signals"]);
   const externalSignals = mustFind(doc, ["ExternalProtocol", "Signals"]);
-  appendChildIndented(internalSignals, buildMbsSignal(id), 3);
+  appendChildIndented(internalSignals, buildMbsSignal(id, { enabled: true }), 3);
   appendChildIndented(externalSignals, buildMeSignal(id), 3);
   return id;
 }
@@ -234,44 +211,10 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
     setNumberText(me, "SignalSpecIndex", e.signalSpecIndex);
   }
 
-  const m = patch.modbus;
-  if (m) {
-    setNumberText(mbs, "Address", m.address);
-    setNumberText(mbs, "Bit", m.bit);
-    setNumberText(mbs, "LenBits", m.lenBits);
-    setNumberText(mbs, "Format", m.format);
-    setNumberText(mbs, "ReadWrite", m.readWrite);
-    setNumberText(mbs, "StringLength", m.stringLength);
-    setNumberText(mbs, "SlaveIndex", m.slaveIndex);
-  }
+  if (patch.modbus) patchMbsEndpoint(mbs, patch.modbus);
 }
 
 // --- XML builders (desktop-tool default shapes) ------------------------------
-
-function buildMbsSignal(id: number): XmlElement {
-  return element("Signal", [["ID", String(id)]], [
-    element("isEnabled", [], [text("True")]),
-    element("idxConfig", [], [text(String(id))]),
-    element("idxExternal", [], [text(String(id))]),
-    pairElement("IdxOperations"),
-    pairElement("IdxFilters"),
-    element("Description", [], [text("")]),
-    element("LenBits", [], [text("16")]),
-    element("Format", [], [text("0")]),
-    element("Bit", [], [text("255")]),
-    element("Address", [], [text("0")]),
-    element("ReadWrite", [], [text("2")]),
-    element("StringLength", [], [text("-1")]),
-    element("SlaveIndex", [], [text("-1")]),
-    element("GatewayIndex", [], [text("-1")]),
-    element("Virtual", [
-      ["Status", "False"],
-      ["Fixed", "False"],
-      ["General", "False"],
-    ]),
-    element("ProtocolIndex", [], [text("-1")]),
-  ]);
-}
 
 function buildMeSignal(id: number): XmlElement {
   return element("Signal", [["ID", String(id)]], [

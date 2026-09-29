@@ -29,7 +29,7 @@ import {
   type XblElementSpec,
 } from "@/core/xbl";
 import { isKnxMbmProject } from "../detect";
-import { buildKnxNode } from "./nodes-knx";
+import { buildKnxNode } from "@/protocols/knx/xbl";
 import { buildMbmNode } from "./nodes-mbm";
 import { runXblPipeline } from "./pipeline";
 

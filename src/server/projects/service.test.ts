@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
+import type { MbsKnxProject } from "@/gateway-families/mbs-knx";
+import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
+import { refsFromSelection } from "@/core/signals/conversion-refs";
 import { resetProjectStoreForTests } from "../persistence";
 import {
   applyPatches,
+  createTemplateProject,
   exportEsf,
   exportSignalsXlsx,
   getProjectView,
@@ -396,6 +400,18 @@ describe("project service — me-mbs family", () => {
     });
   });
 
+  it("keeps refusing me-mbs slave numbers past 247 with 422, writing nothing", async () => {
+    const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
+    const error = await applyPatches(meta.id, [{ type: "updateRtuConfig", patch: { slaveNumber: 248 } }]).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(ProjectServiceError);
+    expect((error as ProjectServiceError).status).toBe(422);
+    const view = await getProjectView(meta.id);
+    if (view.family !== "me-mbs") throw new Error("unreachable");
+    expect(view.project.mbs.rtu.slaveNumber).toBe(3);
+  });
+
   it("rejects knx-mbm patches on a me-mbs project with 409", async () => {
     const meta = await openIbmaps(SYNTHETIC_ME_MBS_XML, { id: "me" });
     const nodePatch = await applyPatches(meta.id, [{ type: "addRtuNode" }]).catch((e: unknown) => e);
@@ -454,6 +470,122 @@ describe("project service — me-mbs family", () => {
     const meta = await loadDemoProject();
     const file = await exportEsf(meta.id);
     expect(file.body).toContain("1.0.3\tHeat pump on/off\t1.001");
+  });
+});
+
+function mbsKnxProjectOf(view: ProjectView): MbsKnxProject {
+  if (view.family !== "mbs-knx") throw new Error(`expected mbs-knx, got ${view.family}`);
+  return view.project;
+}
+
+async function rejection(promise: Promise<unknown>): Promise<ProjectServiceError> {
+  const error = await promise.catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ProjectServiceError);
+  return error as ProjectServiceError;
+}
+
+describe("project service — mbs-knx family", () => {
+  it("opens an MBS–KNX .ibmaps and a new project from its template", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk", name: "MBS-KNX test" });
+    expect(meta.family).toBe("mbs-knx");
+    const view = await getProjectView(meta.id);
+    expect(mbsKnxProjectOf(view).signals).toHaveLength(5);
+    expect(view.issues).toEqual([]);
+    const created = await createTemplateProject("mbs-knx", "New MBS-KNX");
+    expect(created.family).toBe("mbs-knx");
+    // The stock template as MAPS saves it: 12 signals, no issues.
+    const fresh = await getProjectView(created.id);
+    expect(mbsKnxProjectOf(fresh).signals).toHaveLength(12);
+    expect(fresh.issues).toEqual([]);
+  });
+
+  it("applies mbs-knx patches, renumbers once per batch and persists them", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const view = await applyPatches(meta.id, [
+      { type: "updateMbsConfig", patch: { byteOrder: 2, registerBase: 1 } },
+      { type: "updateRtuConfig", patch: { slaveNumber: 255 } },
+      { type: "updateTcpConfig", patch: { keepAlive: 20 } },
+      { type: "setKnxPhysicalAddress", address: 4353 },
+      { type: "setKnxExtendedAddresses", enabled: true },
+      { type: "removeSignal", id: 1 },
+      { type: "removeSignal", id: 3 },
+      { type: "updateSignal", id: 2, patch: { description: "Alarm (edited)" } },
+      { type: "addSignal" },
+    ]);
+    const project = mbsKnxProjectOf(view);
+    expect(project.mbs).toMatchObject({ byteOrder: 2, registerBase: 1 });
+    expect(project.mbs.rtu.slaveNumber).toBe(255);
+    expect(project.mbs.tcp.keepAlive).toBe(20);
+    expect(project.knx).toMatchObject({ physicalAddress: 4353, extendedAddresses: true });
+    expect(project.signals.map((s) => [s.id, s.description])).toEqual([
+      [0, "Setpoint"],
+      [1, "Alarm (edited)"],
+      [2, "Spare"],
+      [3, ""],
+    ]);
+    resetProjectStoreForTests();
+    expect(mbsKnxProjectOf(await getProjectView(meta.id)).signals[1].description).toBe("Alarm (edited)");
+  });
+
+  it("computes the conversion refs with the read/write mode the same edit sets", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const selection = { internalFilter: null, externalFilter: null, operations: [0], master: "internal" as const };
+    // Signal 1 is Read; the edit makes it a Trigger (conversion direction "write").
+    const view = await applyPatches(meta.id, [
+      { type: "updateSignal", id: 1, patch: { modbus: { readWrite: 1 }, conversions: selection } },
+    ]);
+    expect(mbsKnxProjectOf(view).signals[1].conversions).toEqual(refsFromSelection(selection, "write"));
+  });
+
+  it("edits the conversion library and restores refs exactly", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const refs = {
+      internal: { filters: [{ index: 0, inverted: false }], operations: [] },
+      external: { filters: [], operations: [{ index: 0, inverted: true }] },
+    };
+    let view = await applyPatches(meta.id, [
+      { type: "addConversion", conversionType: 0 },
+      { type: "restoreSignalConversions", id: 1, refs },
+    ]);
+    expect(mbsKnxProjectOf(view).signals[1].conversions).toEqual(refs);
+    view = await applyPatches(meta.id, [{ type: "removeConversion", list: "filters", index: 0 }]);
+    expect(mbsKnxProjectOf(view).signals[1].conversions.internal.filters).toEqual([]);
+    const missing = await rejection(
+      applyPatches(meta.id, [{ type: "updateConversion", list: "operations", index: 5, patch: { description: "x" } }]),
+    );
+    expect(missing.status).toBe(422);
+  });
+
+  it("rejects what MAPS does not offer for this family, writing nothing", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const before = (await getProjectView(meta.id)).meta.revision;
+    // Hidden Modbus Slave settings.
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateMbsConfig", patch: { commErrorTout: 60 } }]))).status).toBe(409);
+    // KNX–MBM and ME–MBS operations and fields.
+    expect((await rejection(applyPatches(meta.id, [{ type: "addRtuNode" }]))).status).toBe(409);
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { modbus: { port: 0 } } }]))).status).toBe(409);
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { modbus: { stringLength: 20 } } }]))).status).toBe(409);
+    // Values outside the MAPS combos.
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { modbus: { lenBits: 48 } } }]))).status).toBe(422);
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { modbus: { format: 5 } } }]))).status).toBe(422);
+    expect((await getProjectView(meta.id)).meta.revision).toBe(before);
+  });
+
+  it("maps fixed-row edits to 409", async () => {
+    const xml = SYNTHETIC_MBS_KNX_XML.replace(
+      '<Virtual Status="False" Fixed="False" General="False" />',
+      '<Virtual Status="False" Fixed="True" General="False" />',
+    );
+    const meta = await openIbmaps(xml, { id: "mk" });
+    expect((await rejection(applyPatches(meta.id, [{ type: "removeSignal", id: 0 }]))).status).toBe(409);
+    expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { description: "x" } }]))).status).toBe(409);
+  });
+
+  it("refuses the XLSX and ESF exports for now with 422", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    expect((await rejection(exportSignalsXlsx(meta.id))).status).toBe(422);
+    expect((await rejection(importSignalsXlsx(meta.id, new Uint8Array(), "x.xlsx"))).status).toBe(422);
+    expect((await rejection(exportEsf(meta.id))).status).toBe(422);
   });
 });
 

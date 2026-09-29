@@ -27,6 +27,9 @@ Dues categories, en carpetes separades:
   (770 Air): format del projecte, adreces, particularitats.
 - `adding-a-gateway-family.md` — recepta pas a pas per afegir una nova família
   de passarel·la, contrastada dues vegades amb hardware real.
+- `mbs-knx-analisi.md` — anàlisi de KNX ↔ Modbus Slave (IN701KNX, AppId 7)
+  des del descompilat: XML, senyals, acoblament R/W ↔ flags, validació, XBL
+  i què es comparteix amb KNX–MBM i ME–MBS.
 - `conversions.md` — sistema de conversions (filtres, operacions, RemapLUTs):
   com ho fa el desktop (manager + assignació per senyal amb refs invertides),
   l'editor de KNX–MBM i les divergències volgudes amb MAPS. Per a famílies

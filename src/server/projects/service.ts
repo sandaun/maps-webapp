@@ -12,6 +12,9 @@ import type { MeMbsProject } from "@/gateway-families/me-mbs";
 import { projectFromXml as meMbsProjectFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import type { MbsKnxProject } from "@/gateway-families/mbs-knx";
+import { projectFromXml as mbsKnxProjectFromXml } from "@/gateway-families/mbs-knx";
+import { MAPS_MBS_KNX_TEMPLATE_XML } from "@/gateway-families/mbs-knx/fixtures/maps-template";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { getProjectStore } from "../persistence";
 import type { ProjectHistoryEntry, ProjectMeta, ProjectSource } from "../persistence/types";
@@ -50,7 +53,8 @@ interface ProjectViewBase {
 /** Family-discriminated project view: `family` selects the model type. */
 export type ProjectView =
   | (ProjectViewBase & { family: "knx-mbm"; project: KnxMbmProject })
-  | (ProjectViewBase & { family: "me-mbs"; project: MeMbsProject });
+  | (ProjectViewBase & { family: "me-mbs"; project: MeMbsProject })
+  | (ProjectViewBase & { family: "mbs-knx"; project: MbsKnxProject });
 
 export async function listProjects(): Promise<ProjectMeta[]> {
   const store = getProjectStore();
@@ -77,6 +81,10 @@ async function readProjectView(id: string, { locked }: { locked: boolean }): Pro
   const doc = XmlDocument.parse(xml);
   const meta = withRevision(await withFamily(store, stored, doc, true));
   const hasCompleteBlob = await store.hasCompleteBlob(id);
+  if (meta.family === "mbs-knx") {
+    const project = mbsKnxProjectFromXml(doc);
+    return { family: "mbs-knx", meta, project, issues: familyById("mbs-knx").validate(project), hasCompleteBlob };
+  }
   if (meta.family === "me-mbs") {
     const project = meMbsProjectFromXml(doc);
     return { family: "me-mbs", meta, project, issues: familyById("me-mbs").validate(project), hasCompleteBlob };
@@ -129,7 +137,8 @@ export async function createTemplateProject(
   name: string,
 ): Promise<ProjectMeta> {
   const id = `project-${Date.now().toString(36)}`;
-  const xml = family === "me-mbs" ? SYNTHETIC_ME_MBS_XML : SYNTHETIC_KNX_MBM_XML;
+  const xml =
+    family === "me-mbs" ? SYNTHETIC_ME_MBS_XML : family === "mbs-knx" ? MAPS_MBS_KNX_TEMPLATE_XML : SYNTHETIC_KNX_MBM_XML;
   return persistNewProject(id, xml, family, { name, source: "template" });
 }
 
@@ -250,10 +259,14 @@ function nextRevision(meta: ProjectMeta, changes: Partial<ProjectMeta> = {}): Pr
   return { ...meta, ...changes, updatedAt: new Date().toISOString(), revision: revisionOf(meta) + 1 };
 }
 
+/** Signals XLSX for MBS–KNX is out of the first iteration (docs/reference/mbs-knx-analisi.md §8). */
+const MBS_KNX_NO_XLSX_MESSAGE = "Signals XLSX import and export are not available yet for KNX ↔ Modbus Slave projects.";
+
 export async function exportSignalsXlsx(
   id: string,
 ): Promise<{ filename: string; body: Buffer; contentType: string }> {
   const view = await getProjectView(id);
+  if (view.family === "mbs-knx") throw new ProjectServiceError(422, MBS_KNX_NO_XLSX_MESSAGE);
   const body = await buildSignalsXlsx(view.family, view.project);
   return {
     filename: `${safeDownloadName(view.meta.name)} signals.xlsx`,
@@ -296,6 +309,7 @@ export async function importSignalsXlsx(id: string, data: Uint8Array, fileName: 
     const doc = XmlDocument.parse(xml);
     const family = detectFamily(doc);
     if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+    if (family.id === "mbs-knx") throw new ProjectServiceError(422, MBS_KNX_NO_XLSX_MESSAGE);
     const result = await applySignalsXlsx(doc, family.id, data);
     await store.writeXml(id, doc.serialize());
     const now = new Date().toISOString();

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 const PROTOCOLS: Record<FamilyId, readonly [string, string]> = {
   "knx-mbm": ["KNX", "Modbus Master"],
   "me-mbs": ["Mitsubishi Electric", "Modbus Server"],
+  "mbs-knx": ["KNX", "Modbus Server"],
 };
 
 function signalCount(view: ProjectView): number {

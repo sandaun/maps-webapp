@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 const PROTOCOL_LABELS: Record<FamilyId, readonly [string, string]> = {
   "knx-mbm": ["KNX TP", "MODBUS MASTER"],
   "me-mbs": ["MITSUBISHI ELECTRIC AC", "MODBUS SLAVE"],
+  "mbs-knx": ["KNX TP", "MODBUS SLAVE"],
 };
 
 const CHIP =

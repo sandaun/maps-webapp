@@ -193,7 +193,9 @@ const mbsRtuConfigPatchSchema = z
     dataBits: z.number().int().min(5).max(8),
     parity: z.union([z.literal(0), z.literal(1), z.literal(2)]),
     stopBits: z.union([z.literal(1), z.literal(2)]),
-    slaveNumber: z.number().int().min(1).max(247),
+    // The MAPS form range (`nb_slaveNumber`, frmInternalMBS.cs:941-942); ME–MBS
+    // refuses 248–255 with a 422 in its family dispatch.
+    slaveNumber: z.number().int().min(1).max(255),
   })
   .partial()
   .strict();

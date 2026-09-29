@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { ValidationIssue } from "@/core/validation/issue";
+import type { FamilyId } from "@/lib/project-types";
 import { cn } from "@/lib/utils";
 
 type IssueTab = "all" | "error" | "warning" | "info";
@@ -48,7 +49,7 @@ export function ValidationView({
   onOpenConversions,
 }: {
   issues: ValidationIssue[];
-  family: "knx-mbm" | "me-mbs";
+  family: FamilyId;
   onGoToSignal: (id: number) => void;
   /** KNX–MBM: open the conversions editor of a signal. */
   onOpenConversions?: (id: number) => void;
@@ -60,7 +61,9 @@ export function ValidationView({
   const subtitle =
     family === "knx-mbm"
       ? "signal table, group addresses and poll records"
-      : "register map, group list and unit types";
+      : family === "mbs-knx"
+        ? "register map, group addresses and licence limits"
+        : "register map, group list and unit types";
 
   return (
     <div className="max-w-[1080px] px-6 py-[18px] pb-9">

@@ -12,6 +12,7 @@ import {
   parseConversionNumber,
   type ConversionField,
 } from "@/core/conversions/rules";
+import { BAUD_RATES } from "@/protocols/modbus/slave";
 import type { ProjectPatchInput, ProjectView } from "./project-types";
 import { OPTION_LABELS, type OptionLabels } from "./property-option-labels";
 
@@ -131,15 +132,16 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       ["dhcp", "dhcp", "DHCP", toggle],
     ],
   );
-  if (view.family === "knx-mbm") {
+  // KNX interface: the BMS side of KNX–MBM, the device side of MBS–KNX.
+  const knxFields = (knx: { physicalAddress: number; extendedAddresses: boolean }, section: string) => {
     fields.push({
       id: "cfg-knx-address",
       group: "knx",
       key: "address",
       label: "Physical address",
       screen: config,
-      section: "bms",
-      base: formatPhysicalAddress(view.project.knx.physicalAddress),
+      section,
+      base: formatPhysicalAddress(knx.physicalAddress),
       address: true,
       patch: (value) => ({
         type: "setKnxPhysicalAddress",
@@ -152,14 +154,17 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       key: "extendedAddresses",
       label: "Extended addresses",
       screen: config,
-      section: "bms",
-      base: view.project.knx.extendedAddresses,
+      section,
+      base: knx.extendedAddresses,
       immediate: true,
       patch: (value) => ({
         type: "setKnxExtendedAddresses",
         enabled: Boolean(value),
       }),
     });
+  };
+  if (view.family === "knx-mbm") {
+    knxFields(view.project.knx, "bms");
     const mbm = view.project.mbm;
     const pollKeys: Record<string, string> = {
       pollEnabled: "enabled",
@@ -303,6 +308,64 @@ export function propertyFields(view: ProjectView): PropertyField[] {
         });
       });
     }
+  } else if (view.family === "mbs-knx") {
+    const { mbs } = view.project;
+    // The Modbus Slave settings MAPS shows for this family (frmInternalMBS with
+    // the address mode, the comm. timeout and the slave addressing hidden).
+    add(
+      "mbs",
+      "bms",
+      config,
+      "cfg-mbs-",
+      mbs,
+      (key, value) => ({ type: "updateMbsConfig", patch: { [key]: value } }),
+      [
+        ["media", "media", "Type", labelled(choices(0, 1, 2), L.media)],
+        ["byteOrder", "byteorder", "Byte order", labelled(choices(0, 1, 2, 3), L.byteOrder)],
+        ["updateCOV", "updateCOV", "Notification on Modbus write", labelled(choices(false, true), MBS_KNX_NOTIFICATION_LABELS)],
+        ["registerBase", "regbase", "Register base", labelled(choices(0, 1), L.registerBase)],
+      ],
+    );
+    const dataType = mbsDataTypeIndex(mbs.rtu);
+    add(
+      "mbs",
+      "bms",
+      config,
+      "cfg-mbs-",
+      { ...mbs.rtu, dataType },
+      (key, value) => ({
+        type: "updateRtuConfig",
+        // "Other" (-1) is only the unsaved current value: nothing to send.
+        patch: key === "dataType" ? { ...MBS_DATA_TYPES[Number(value)]?.rtu } : { [key]: value },
+      }),
+      [
+        ["connectionType", "contype", "Connection type", labelled(choices(0, 1), MBS_CONNECTION_TYPE_LABELS)],
+        ["baudrate", "baud", "Baudrate", choices(...BAUD_RATES)],
+        [
+          "dataType",
+          "datatype",
+          "Data type",
+          labelled(choices(...MBS_DATA_TYPES.map((_, i) => i), ...(dataType === -1 ? [-1] : [])), MBS_DATA_TYPE_LABELS),
+        ],
+        ["slaveNumber", "slave", "Slave number", integer(1, 255)],
+      ],
+    );
+    add(
+      "mbs",
+      "bms",
+      config,
+      "cfg-mbs-",
+      { tcpPort: mbs.tcp.port, keepAlive: mbs.tcp.keepAlive },
+      (key, value) => ({
+        type: "updateTcpConfig",
+        patch: { [key === "tcpPort" ? "port" : key]: value },
+      }),
+      [
+        ["tcpPort", "tcpport", "TCP port", integer(1, 65535)],
+        ["keepAlive", "keepalive", "Keep alive", integer(0, 1440)],
+      ],
+    );
+    knxFields(view.project.knx, "device");
   } else {
     const { mbs, me } = view.project;
     add(
@@ -455,8 +518,37 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       });
     });
   }
-  if (view.family === "knx-mbm") fields.push(...conversionFields(view.project.conversions));
+  if (view.family === "knx-mbm" || view.family === "mbs-knx") fields.push(...conversionFields(view.project.conversions));
   return fields;
+}
+
+/** `cb_conType` of frmInternalMBS: index = `ConnectionType`. */
+export const MBS_CONNECTION_TYPE_LABELS: OptionLabels = { "0": "EIA-232", "1": "EIA-485" };
+
+/** `rb_updateAlways` / `rb_updateCOV` of frmInternalMBS (`UpdateCOV`). */
+export const MBS_KNX_NOTIFICATION_LABELS: OptionLabels = { "0": "Always", "1": "On change of value" };
+
+/**
+ * `cb_dataType` of frmInternalMBS: one choice sets data bits, parity and stop
+ * bits together (InternalMbs.UpdateInfoInternal, InternalMbs.cs:1382-1410).
+ */
+export const MBS_DATA_TYPES: { label: string; rtu: { dataBits: number; parity: 0 | 1 | 2; stopBits: 1 | 2 } }[] = [
+  { label: "8 bit / None / 1", rtu: { dataBits: 8, parity: 0, stopBits: 1 } },
+  { label: "8 bit / Even / 1", rtu: { dataBits: 8, parity: 2, stopBits: 1 } },
+  { label: "8 bit / Odd / 1", rtu: { dataBits: 8, parity: 1, stopBits: 1 } },
+  { label: "8 bit / None / 2", rtu: { dataBits: 8, parity: 0, stopBits: 2 } },
+];
+
+export const MBS_DATA_TYPE_LABELS: OptionLabels = {
+  ...Object.fromEntries(MBS_DATA_TYPES.map((type, i) => [String(i), type.label])),
+  "-1": "Other (not offered by MAPS)",
+};
+
+/** Index in `MBS_DATA_TYPES`, or -1 when the frame format is none of them (MAPS leaves the combo empty). */
+export function mbsDataTypeIndex(rtu: { dataBits: number; parity: number; stopBits: number }): number {
+  return MBS_DATA_TYPES.findIndex(
+    ({ rtu: t }) => t.dataBits === rtu.dataBits && t.parity === rtu.parity && t.stopBits === rtu.stopBits,
+  );
 }
 
 export const FILTER_TYPE_LABELS: OptionLabels = { "0": "Comparison", "1": "No-limit filter", "2": "Limited filter" };
@@ -485,12 +577,14 @@ export const conversionFieldId = (list: "filters" | "operations", index: number,
 const CONVERSION_KEYS = ["description", "type", "param1", "param2", "param3", "param4"] as const;
 
 /**
- * KNX–MBM conversion library: one positional group per filter, scale and
+ * Conversion library (KNX–MBM, MBS–KNX): one positional group per filter, scale and
  * arithmetic operation (LUT remaps and logical operations are read-only).
  * The MAPS rules (`conversionErrors`) run across the group's fields, only for
  * the fields with pending values.
  */
-function conversionFields(conversions: Extract<ProjectView, { family: "knx-mbm" }>["project"]["conversions"]): PropertyField[] {
+function conversionFields(
+  conversions: Extract<ProjectView, { family: "knx-mbm" | "mbs-knx" }>["project"]["conversions"],
+): PropertyField[] {
   const fields: PropertyField[] = [];
   const positions = { filters: 0, operations: 0 };
   for (const conv of conversions) {
