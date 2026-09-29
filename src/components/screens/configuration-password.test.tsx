@@ -11,21 +11,27 @@ import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthet
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { ConfigurationScreen } from "./configuration-screen";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), search: "section=security" }));
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()), getProjectView: mocks.get, patchProject: mocks.patch,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("section=security"),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
+
+function TestApp() {
+  return <CurrentProjectProvider><PropertyDraftProvider><SwitchProject /><ConfigurationScreen /></PropertyDraftProvider></CurrentProjectProvider>;
+}
+
+let rerenderConfiguration: (() => void) | undefined;
 
 function SwitchProject() {
   const { setProjectId } = useCurrentProject();
   return <button onClick={() => setProjectId("other")}>Switch project</button>;
 }
 
-beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); mocks.search = "section=security"; });
 
 async function setup(family: FamilyId, fixture: string) {
   const doc = XmlDocument.parse(fixture);
@@ -41,7 +47,8 @@ async function setup(family: FamilyId, fixture: string) {
     revision++;
     return view(id);
   });
-  render(<CurrentProjectProvider><PropertyDraftProvider><SwitchProject /><ConfigurationScreen /></PropertyDraftProvider></CurrentProjectProvider>);
+  const mounted = render(<TestApp />);
+  rerenderConfiguration = () => mounted.rerender(<TestApp />);
   await screen.findByLabelText("New password");
   return doc;
 }
@@ -112,4 +119,15 @@ it("discards secret inputs on section changes, project changes, and external rep
   await waitFor(() => expect(mocks.get).toHaveBeenCalledWith("other"));
   expect(await screen.findByLabelText("New password")).toHaveValue("");
   expect(mocks.patch).not.toHaveBeenCalled();
+});
+
+it("follows a section query change while Configuration remains mounted", async () => {
+  await setup("knx-mbm", SYNTHETIC_KNX_MBM_XML);
+  fill("secret1");
+  mocks.search = "section=network";
+  rerenderConfiguration?.();
+  expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+  mocks.search = "section=security";
+  rerenderConfiguration?.();
+  expect(await screen.findByLabelText("New password")).toHaveValue("");
 });

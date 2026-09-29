@@ -30,12 +30,12 @@ import { PasswordSection } from "./configuration-password";
 type SectionKey = "general" | "network" | "bms" | "device" | "conv" | "security";
 
 const SECTION_LABELS: Record<SectionKey, string> = {
-  security: "Security",
   general: "General",
   network: "Network & time",
   bms: "BMS",
   device: "Device",
   conv: "Conversions",
+  security: "Security",
 };
 
 function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
@@ -63,7 +63,15 @@ export function ConfigurationScreen() {
 function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   const sections = sectionsFor(view.family);
   const searchParams = useSearchParams();
-  const [section, setSection] = React.useState<SectionKey>(() => searchParams.get("section") === "security" ? "security" : "general");
+  const sectionParam = searchParams.get("section");
+  const requestedSection = sections.find((candidate) => candidate.key === sectionParam)?.key;
+  const [section, setSection] = React.useState<SectionKey>(requestedSection ?? "general");
+  const [lastSectionParam, setLastSectionParam] = React.useState(sectionParam);
+  // Next's client navigation can change the query while Configuration stays mounted.
+  if (sectionParam !== lastSectionParam) {
+    setLastSectionParam(sectionParam);
+    if (requestedSection) setSection(requestedSection);
+  }
   const [reveal, setReveal] = React.useState<{ id: string; seq: number }>();
   // "Open conversion" of a validation issue: /configuration?conversion=f0 selects that library entry.
   const conversionParam = searchParams.get("conversion");
