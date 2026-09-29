@@ -49,8 +49,7 @@ const TEMPLATES: Template[] = [
     capacity: "700 indoor units",
   },
   {
-    // UNVERIFIED: starts from a synthetic project until a MAPS-saved template
-    // replaces it (docs/reference/mbs-knx-analisi.md §9).
+    // Starts from the stock template as MAPS saves it (mbs-knx/fixtures/maps-template.ts).
     family: "mbs-knx",
     code: "IN-MBS-KNX",
     title: "KNX → Modbus Server",

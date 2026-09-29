@@ -493,6 +493,10 @@ describe("project service — mbs-knx family", () => {
     expect(view.issues).toEqual([]);
     const created = await createTemplateProject("mbs-knx", "New MBS-KNX");
     expect(created.family).toBe("mbs-knx");
+    // The stock template as MAPS saves it: 12 signals, no issues.
+    const fresh = await getProjectView(created.id);
+    expect(mbsKnxProjectOf(fresh).signals).toHaveLength(12);
+    expect(fresh.issues).toEqual([]);
   });
 
   it("applies mbs-knx patches, renumbers once per batch and persists them", async () => {

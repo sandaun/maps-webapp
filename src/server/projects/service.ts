@@ -14,7 +14,7 @@ import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synth
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import type { MbsKnxProject } from "@/gateway-families/mbs-knx";
 import { projectFromXml as mbsKnxProjectFromXml } from "@/gateway-families/mbs-knx";
-import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
+import { MAPS_MBS_KNX_TEMPLATE_XML } from "@/gateway-families/mbs-knx/fixtures/maps-template";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { getProjectStore } from "../persistence";
 import type { ProjectHistoryEntry, ProjectMeta, ProjectSource } from "../persistence/types";
@@ -137,10 +137,8 @@ export async function createTemplateProject(
   name: string,
 ): Promise<ProjectMeta> {
   const id = `project-${Date.now().toString(36)}`;
-  // UNVERIFIED for mbs-knx: a synthetic project until a MAPS-saved template
-  // replaces it (docs/reference/mbs-knx-analisi.md §9).
   const xml =
-    family === "me-mbs" ? SYNTHETIC_ME_MBS_XML : family === "mbs-knx" ? SYNTHETIC_MBS_KNX_XML : SYNTHETIC_KNX_MBM_XML;
+    family === "me-mbs" ? SYNTHETIC_ME_MBS_XML : family === "mbs-knx" ? MAPS_MBS_KNX_TEMPLATE_XML : SYNTHETIC_KNX_MBM_XML;
   return persistNewProject(id, xml, family, { name, source: "template" });
 }
 

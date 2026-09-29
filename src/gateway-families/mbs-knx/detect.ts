@@ -5,8 +5,7 @@ import { XmlDocument } from "@/core/project-format";
  * `IntesisProjectMBSKNX_RT`) when the root declares InternalProtocol
  * "Modbus Slave" + ExternalProtocol "KNX" on Platform 2 (RT). The plain
  * `IntesisProjectMBSKNX` (KTS, `INMBSKNX…`) is not supported.
- * UNVERIFIED: the Platform value, until a project saved by MAPS confirms it
- * (docs/reference/mbs-knx-analisi.md §1).
+ * Confirmed with projects saved by MAPS (docs/reference/mbs-knx-analisi.md §1).
  */
 export function isMbsKnxProject(doc: XmlDocument): boolean {
   if (doc.root.tag !== "Project") return false;
