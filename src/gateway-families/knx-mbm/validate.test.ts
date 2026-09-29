@@ -62,6 +62,15 @@ describe("validateProject", () => {
     expect(codes(project)).toContain("KNX-FLAGS-LISTEN");
   });
 
+  it("rejects invalid listening addresses on KNX–MBM", () => {
+    const project = validProject();
+    project.signals[0].knx.additionalAddresses = [40000];
+    expect(validateProject(project)).toContainEqual(expect.objectContaining({
+      code: "KNX-GA-LISTEN",
+      ref: expect.objectContaining({ field: "additionalAddresses" }),
+    }));
+  });
+
   it("flags group address above 15/7/255 without extended addresses", () => {
     const project = validProject();
     project.signals[0].knx.groupAddress = parseGroupAddress("16/0/1")!;

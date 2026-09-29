@@ -4,7 +4,7 @@ import type { ConversionValues } from "@/core/conversions/rules";
 import { conversionChain, type ConversionChain } from "./conversion-chain";
 import { MBS_KNX_CONVERSION_SIDES } from "./conversion-sides";
 import {
-  formatGroupAddress,
+  formatListeningAddresses,
   formatGroupAddressAtLevel,
   groupAddressLevelOf,
   isValidGroupAddress,
@@ -118,7 +118,7 @@ export function toMbsKnxRow(signal: MbsKnxSignal, conversions: readonly Conversi
   const groupAddress = signal.knx.groupAddress > 0
     ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3)
     : "—";
-  const additionalAddresses = signal.knx.additionalAddresses.map(formatGroupAddress).join(", ");
+  const additionalAddresses = formatListeningAddresses(signal.knx.additionalAddresses, signal.knx.additionalAddressLevels);
   const dpt = formatDpt(signal.knx.dpt);
   return {
     signal,
@@ -340,14 +340,19 @@ export function mbsKnxColumns(project: { knx: { extendedAddresses: boolean } }):
       parse: (_row, raw) => {
         const parts = raw.split(",").map((part) => part.trim()).filter((part) => part !== "");
         const addresses: number[] = [];
+        const levels: (1 | 2 | 3)[] = [];
         for (const part of parts) {
           const ga = parseGroupAddress(part);
           if (ga === undefined || !isValidGroupAddress(ga, { extended })) return { error: `${gaError}: “${part}”` };
           addresses.push(ga);
+          levels.push(groupAddressLevelOf(part));
         }
-        return { patch: { knx: { additionalAddresses: addresses } } };
+        return { patch: { knx: { additionalAddresses: addresses, additionalAddressLevels: levels } } };
       },
-      inverseFromText: (row) => ({ knx: { additionalAddresses: [...row.signal.knx.additionalAddresses] } }),
+      inverseFromText: (row) => ({ knx: {
+        additionalAddresses: [...row.signal.knx.additionalAddresses],
+        additionalAddressLevels: row.signal.knx.additionalAddresses.map((_, index) => row.signal.knx.additionalAddressLevels?.[index] ?? 3),
+      } }),
     },
     {
       id: "flags",

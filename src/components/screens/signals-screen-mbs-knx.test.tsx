@@ -127,11 +127,11 @@ describe("SignalsScreen (mbs-knx)", () => {
     renderSignals();
     fireEvent.click(screen.getByText("1/0/4"));
     const editor = screen.getByLabelText("Edit Additional addresses signal 2");
-    fireEvent.change(editor, { target: { value: "1/0/4, 2/1/9" } });
+    fireEvent.change(editor, { target: { value: "1/515, 4361" } });
     fireEvent.keyDown(editor, { key: "Enter" });
     await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(1));
     expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
-      { type: "updateSignal", id: 2, patch: { knx: { additionalAddresses: [2052, 4361] } } },
+      { type: "updateSignal", id: 2, patch: { knx: { additionalAddresses: [2563, 4361], additionalAddressLevels: [2, 1] } } },
     ]);
   });
 

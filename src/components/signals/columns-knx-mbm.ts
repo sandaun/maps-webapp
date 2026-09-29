@@ -1,6 +1,7 @@
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import {
   formatGroupAddressAtLevel,
+  formatListeningAddresses,
   groupAddressLevelOf,
   isValidGroupAddress,
   parseGroupAddress,
@@ -88,6 +89,7 @@ function knxDirection(signal: KnxMbmSignal): { arrow: string; title: string } {
 export interface KnxSignalRow {
   signal: KnxMbmSignal;
   groupAddress: string;
+  additionalAddresses: string;
   dpt: string;
   nodeLabel: string;
   deviceLabel: string;
@@ -130,19 +132,21 @@ export function toKnxRow(
     ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3)
     : "—";
   const dpt = formatDpt(signal.knx.dpt);
+  const additionalAddresses = formatListeningAddresses(signal.knx.additionalAddresses, signal.knx.additionalAddressLevels);
   const node = knxNodeLabel(mbm, signal.modbus.port);
   const device = knxDeviceLabel(mbm, signal);
   const slave = knxSlaveLabel(mbm, signal);
   return {
     signal,
     groupAddress,
+    additionalAddresses,
     dpt,
     nodeLabel: node,
     deviceLabel: device,
     slaveLabel: slave,
     conversionCode: conversionCode(signal.conversions),
     conversionChain: conversionChain(signal, conversions, KNX_MBM_CONVERSION_DIRECTION),
-    searchText: [signal.id, signal.description, groupAddress, dpt, node, device, signal.modbus.address]
+    searchText: [signal.id, signal.description, groupAddress, additionalAddresses, dpt, node, device, signal.modbus.address]
       .join(" ")
       .toLowerCase(),
   };
@@ -193,6 +197,7 @@ export const KNX_TAB_ORDER = [
   "description",
   "dpt",
   "groupAddress",
+  "additionalAddresses",
   "node",
   "device",
   "readFunc",
@@ -258,6 +263,38 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
       inverseFromText: (row) => ({
         knx: { groupAddress: row.signal.knx.groupAddress, groupAddressLevel: row.signal.knx.groupAddressLevel ?? 3 },
       }),
+    },
+    {
+      id: "additionalAddresses",
+      group: "bms",
+      header: "Additional addresses",
+      headerShort: "Add. GA",
+      headerHint: "Additional (listening) group addresses, comma separated · they need the U or W flag",
+      width: 184,
+      minWidth: 100,
+      maxWidth: 360,
+      kind: "text",
+      mono: true,
+      getText: (row) => row.additionalAddresses || "—",
+      getEditorValue: (row) => row.additionalAddresses,
+      parse: (_row, raw) => {
+        const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+        const addresses: number[] = [];
+        const levels: (1 | 2 | 3)[] = [];
+        for (const part of parts) {
+          const ga = parseGroupAddress(part);
+          if (ga === undefined || !isValidGroupAddress(ga, { extended })) {
+            return { error: `Invalid group address: “${part}”` };
+          }
+          addresses.push(ga);
+          levels.push(groupAddressLevelOf(part));
+        }
+        return { patch: { knx: { additionalAddresses: addresses, additionalAddressLevels: levels } } };
+      },
+      inverseFromText: (row) => ({ knx: {
+        additionalAddresses: [...row.signal.knx.additionalAddresses],
+        additionalAddressLevels: row.signal.knx.additionalAddresses.map((_, index) => row.signal.knx.additionalAddressLevels?.[index] ?? 3),
+      } }),
     },
     {
       id: "flags",

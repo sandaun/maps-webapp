@@ -249,6 +249,7 @@ function assertFixedRowPatch(id: number, patch: SignalPatch): void {
     m.stringLength !== undefined ||
     k.dpt !== undefined ||
     k.additionalAddresses !== undefined ||
+    k.additionalAddressLevels !== undefined ||
     k.flags !== undefined;
   if (locked) {
     throw new SignalEditError(409, `Signal ${id + 1} is fixed by the template: only its address, group address, priority, state and conversions can change.`);

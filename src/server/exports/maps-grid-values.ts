@@ -9,7 +9,7 @@ import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
 import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
-import { formatGroupAddress, formatGroupAddressAtLevel, parseGroupAddress } from "@/protocols/knx/address";
+import { formatGroupAddress, formatGroupAddressAtLevel, formatListeningAddresses, groupAddressLevelOf, parseGroupAddress } from "@/protocols/knx/address";
 import type { MbmConfig, MbmRtuNode } from "@/protocols/modbus/master/nodes";
 import { nodeForPort } from "@/protocols/modbus/master";
 
@@ -277,7 +277,7 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
   const ref = nodeForPort(project.mbm, modbus.port);
   const device = ref?.node.devices.find((d) => d.index === modbus.deviceIndex);
   const sending = knx.groupAddress > 0 ? formatGroupAddressAtLevel(knx.groupAddress, knx.groupAddressLevel ?? 3) : "";
-  const listening = knx.additionalAddresses.map(formatGroupAddress).join(",");
+  const listening = formatListeningAddresses(knx.additionalAddresses, knx.additionalAddressLevels, ",");
   return [
     String(signal.id + 1),
     boolCell(signal.active),
@@ -328,12 +328,16 @@ export function meSignalRow(project: MeMbsProject, signal: MeMbsSignal): string[
   ];
 }
 
-export function parseListening(raw: string): number[] {
-  if (!raw.trim()) return [];
-  return raw
-    .split(",")
-    .map((part) => parseGroupAddress(part.trim()))
-    .filter((n): n is number => n !== undefined && n > 0);
+export function parseListening(raw: string): { addresses: number[]; levels: (1 | 2 | 3)[] } {
+  const addresses: number[] = [];
+  const levels: (1 | 2 | 3)[] = [];
+  for (const part of raw.split(",").map((value) => value.trim()).filter(Boolean)) {
+    const address = parseGroupAddress(part);
+    if (address === undefined || address <= 0) continue;
+    addresses.push(address);
+    levels.push(groupAddressLevelOf(part));
+  }
+  return { addresses, levels };
 }
 
 export { formatDpt, formatGroupAddress, parseGroupAddress };

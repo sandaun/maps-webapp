@@ -6,7 +6,7 @@ import {
   setText,
   type XmlElement,
 } from "@/core/project-format";
-import { formatGroupAddress, formatGroupAddressAtLevel, groupAddressLevelOf } from "./address";
+import { formatGroupAddressAtLevel, groupAddressLevelOf } from "./address";
 import { DEFAULT_DPT } from "./dpt";
 import { DEFAULT_FLAGS, type KnxFlags } from "./flags";
 import type { KnxConfig, KnxEndpoint } from "./model";
@@ -58,14 +58,18 @@ export function readKnxEndpoint(el: XmlElement): KnxEndpoint {
 
   const sendingString = sending ? getAttr(sending, "String") ?? "" : "";
   const addressLevel = groupAddressLevelOf(sendingString);
+  const listeningAddresses = listening ? childrenOf(listening, "Address") : [];
+  const listeningLevels = listeningAddresses.map((a) => {
+    const text = getAttr(a, "String");
+    return text ? groupAddressLevelOf(text) : 3;
+  });
 
   return {
     dpt: dptEl ? parseNumber(getAttr(dptEl, "Value"), 0) : 0,
     groupAddress: sending ? parseNumber(getAttr(sending, "Value"), 0) : 0,
     ...(sendingString && addressLevel !== 3 ? { groupAddressLevel: addressLevel } : {}),
-    additionalAddresses: listening
-      ? childrenOf(listening, "Address").map((a) => parseNumber(getAttr(a, "Value"), 0))
-      : [],
+    additionalAddresses: listeningAddresses.map((a) => parseNumber(getAttr(a, "Value"), 0)),
+    ...(listeningLevels.some((level) => level !== 3) ? { additionalAddressLevels: listeningLevels } : {}),
     flags,
     priority: parseNumber(textOf(el, "Priority"), 3),
   };
@@ -90,13 +94,20 @@ export function patchKnxEndpoint(knx: XmlElement, patch: Partial<KnxEndpoint>): 
     setAttr(sending, "String", formatGroupAddressAtLevel(patch.groupAddress, level));
   }
   if (patch.additionalAddresses !== undefined) {
+    if (patch.additionalAddressLevels && patch.additionalAddressLevels.length !== patch.additionalAddresses.length) {
+      throw new Error("KNX listening address levels must match the addresses");
+    }
+    if (patch.additionalAddressLevels?.some((level) => level !== 1 && level !== 2 && level !== 3)) {
+      throw new Error("Invalid KNX listening address level");
+    }
     const listening = childEl(knx, "ListeningAddresses");
     listening.children = [];
-    for (const address of patch.additionalAddresses) {
+    for (const [index, address] of patch.additionalAddresses.entries()) {
+      const level = patch.additionalAddressLevels?.[index] ?? 3;
       listening.children.push(
         element("Address", [
           ["Value", String(address)],
-          ["String", formatGroupAddress(address)],
+          ["String", formatGroupAddressAtLevel(address, level)],
         ]),
       );
     }

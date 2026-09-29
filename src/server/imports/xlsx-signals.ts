@@ -75,6 +75,7 @@ function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResul
     const project = knxFromXml(doc);
     const device = parseDeviceCell(project.mbm, row.Device ?? "");
     const sending = parseGroupAddress(row.Sending ?? "") ?? 0;
+    const listening = parseListening(row.Listening ?? "");
     const dpt = parseDptCell(row.DPT ?? "");
     const patch = {
       active: parseBoolCell(row.Active ?? "True"),
@@ -82,7 +83,8 @@ function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResul
       knx: {
         ...(dpt !== undefined ? { dpt } : {}),
         groupAddress: sending,
-        additionalAddresses: parseListening(row.Listening ?? ""),
+        additionalAddresses: listening.addresses,
+        additionalAddressLevels: listening.levels,
         flags: {
           u: parseFlagCell(row.U ?? "", "U"),
           t: parseFlagCell(row.T ?? "", "T"),

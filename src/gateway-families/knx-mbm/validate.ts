@@ -169,7 +169,7 @@ function validateSignal(
   const ref = { screen: "signals" as const, entity: "signal" as const, id: signal.id };
 
   // KNX side
-  for (const code of checkKnxEndpoint(signal.knx, { extended: project.knx.extendedAddresses })) {
+  for (const code of checkKnxEndpoint(signal.knx, { extended: project.knx.extendedAddresses, checkListening: true })) {
     issues.push({
       code,
       severity: "error",
@@ -318,6 +318,8 @@ function knxField(code: KnxRuleCode): string {
       return "groupAddress";
     case "KNX-DPT-INVALID":
       return "dpt";
+    case "KNX-GA-LISTEN":
+      return "additionalAddresses";
     default:
       return "flags";
   }
