@@ -192,7 +192,7 @@ Pendents (abans de disseny):
   l'API ni botó a la llista de projectes. Cal la ruta, que ha de refusar un
   projecte obert en una sessió o amb una pujada en curs, i un botó amb
   confirmació. Branca pròpia.
-- **Afegir elements a un XML compacte esborra els germans** [falta]:
+- **Afegir elements a un XML compacte esborra els germans** [fet 2026-09-29]:
   `appendChildIndented` de `knx-mbm/xml-ops.ts` i `me-mbs/xml-ops.ts`
   substitueix tots els fills quan el pare no acaba en espai en blanc (XML
   sense indentació). Reproduït el 2026-09-28: `addSignal` en un KNX–MBM
@@ -201,8 +201,12 @@ Pendents (abans de disseny):
   en porta la correcció (afegeix sense indentació), i també les operacions
   de la biblioteca de conversions, que des del 2026-09-28 són a
   `core/conversions/library-xml.ts` i les fan servir totes les famílies.
-  Falta a la resta d'operacions de KNX–MBM (senyals, nodes, devices) i de
-  ME–MBS. El millor seria compartir el helper.
+  Corregit amb `core/project-format/xml/append-indented.ts`, compartit per
+  KNX–MBM, ME–MBS, MBS–KNX i la biblioteca de conversions. Regressions amb
+  XML compacte i amb el format MAPS (dos espais i CRLF) a
+  `gateway-families/compact-xml.test.ts` i
+  `core/project-format/xml/append-indented.test.ts`. Format contrastat amb
+  `IntesisBoxMAPS/IntesisXML.cs:353-359`.
 - **Pre-comandes de pujada sense prefix** [fet i validat en viu 2026-09-25: re-pujada del mateix blob, pre-comandes en 0,03 s, projecte idèntic]: `SEND_PRE_COMMANDS` envia
   `0:SPONS=0`…; el MAPS les envia amb prefix (`frmSendSingle.cs:303`,
   `0KX:SPONS=0`) i el firmware ignora la variant sense prefix en silenci
@@ -245,10 +249,9 @@ ja existeix i què es pot compartir.
      el control d'enviament només comprova no buida + ASCII. Es mantenen
      les dues regles. Recerca i verificacions a
      `docs/reference/project-password.md`.
-2. **Integritat de l'XML compacte** (KNX–MBM, ME–MBS). Vegeu el punt del §3.
-   El helper corregit és a `mbs-knx/xml-ops.ts` i
-   `core/conversions/library-xml.ts`. Cal compartir-lo i afegir tests de
-   regressió.
+2. **Integritat de l'XML compacte** (KNX–MBM, ME–MBS) — **[fet]**. Vegeu el
+   punt del §3. Helper compartit i regressions per als fills existents,
+   contenidors buits i format MAPS.
 3. **Esborrar projectes.** Vegeu el punt del §3.
 4. **Numeració automàtica** d'adreces Modbus i GA KNX (eina de taula
    compartida).

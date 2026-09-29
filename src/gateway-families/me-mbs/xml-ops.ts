@@ -1,4 +1,5 @@
 import {
+  appendChildIndented,
   element,
   getAttr,
   getText,
@@ -26,8 +27,6 @@ import type { GatewayInfo, MeMbsSignal } from "./model";
  * row-aligned (internal Signal ID == external Signal ID), so signal
  * operations touch both.
  */
-
-const INDENT_UNIT = "  ";
 
 // --- general / gateway -------------------------------------------------------
 
@@ -296,23 +295,4 @@ function removeElement(el: XmlElement): boolean {
   }
   el.parent = undefined;
   return true;
-}
-
-/**
- * Append a child matching the surrounding indentation: inserts before the
- * closing-tag whitespace with one extra indent level.
- */
-function appendChildIndented(parent: XmlElement, child: XmlElement, childLevel: number): void {
-  // .ibmaps is always written with CRLF line endings.
-  const lineEnding = "\r\n";
-  const last = parent.children[parent.children.length - 1];
-  child.parent = parent;
-  if (last && last.kind === "text" && /^\s*$/.test(last.text)) {
-    const indent = `${lineEnding}${INDENT_UNIT.repeat(childLevel)}`;
-    parent.children.splice(parent.children.length - 1, 0, text(indent), child);
-  } else {
-    const base = `${lineEnding}${INDENT_UNIT.repeat(Math.max(0, childLevel - 1))}`;
-    parent.children = [text(`${base}${INDENT_UNIT}`), child, text(base)];
-    parent.emptyForm = undefined;
-  }
 }
