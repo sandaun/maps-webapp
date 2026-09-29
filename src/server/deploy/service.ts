@@ -6,7 +6,7 @@ import { APP_ID_ME_AC_XXX, generateMeMbsXbl, validateSlaveIndices } from "@/gate
 import { APP_ID_MBS_KNX, generateMbsKnxXbl } from "@/gateway-families/mbs-knx";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
-import { getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
+import { beginProjectDeploy, getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
 import { hasValidProjectPassword } from "../projects/password";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 
@@ -253,43 +253,48 @@ export async function deployProject(
   deps: DeployDeps = {},
 ): Promise<DeployResult> {
   const sessions = deps.sessions ?? getGatewaySessionManager();
-  const { checks, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
-  for (const check of checks) {
-    if (check.ok) continue;
-    const status =
-      check.id === "capability" ? 403 : check.id === "session-appid" ? 409 : 422;
-    throw new DeployGateError(status, check.id, check.detail);
+  const finishDeploy = await beginProjectDeploy(projectId);
+  try {
+    const { checks, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
+    for (const check of checks) {
+      if (check.ok) continue;
+      const status =
+        check.id === "capability" ? 403 : check.id === "session-appid" ? 409 : 422;
+      throw new DeployGateError(status, check.id, check.detail);
+    }
+    // All gates passed, so the family gate passed: the descriptor exists.
+    if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
+
+    const store = getProjectStore();
+
+    let swVersion: readonly [number, number, number, number] = DEFAULT_SW_VERSION;
+    if (await store.hasCompleteBlob(projectId)) {
+      const original = parseCompleteBlob(await store.readCompleteBlob(projectId));
+      swVersion = swVersionFromOriginalBlob(original.xbl) ?? DEFAULT_SW_VERSION;
+    }
+
+    const xbl = descriptor.generateXbl(xml, { appId, swVersion });
+    const zip = buildProjectZip(`${projectId}.ibmaps`, xml);
+    const blob = buildCompleteBlob(xbl, zip);
+
+    const view = await getProjectView(projectId);
+    await sessions.sendComplete(sessionId, blob, {
+      name: view.meta.name,
+      comments: "maps-webapp deploy",
+    });
+
+    await snapshotDeploy(projectId);
+
+    return {
+      projectId,
+      sessionId,
+      bytes: blob.length,
+      xblBytes: xbl.length,
+      zipBytes: zip.length,
+      appId: appId ?? descriptor.expectedAppId,
+      swVersion: swVersion.join("."),
+    };
+  } finally {
+    finishDeploy();
   }
-  // All gates passed, so the family gate passed: the descriptor exists.
-  if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
-
-  const store = getProjectStore();
-
-  let swVersion: readonly [number, number, number, number] = DEFAULT_SW_VERSION;
-  if (await store.hasCompleteBlob(projectId)) {
-    const original = parseCompleteBlob(await store.readCompleteBlob(projectId));
-    swVersion = swVersionFromOriginalBlob(original.xbl) ?? DEFAULT_SW_VERSION;
-  }
-
-  const xbl = descriptor.generateXbl(xml, { appId, swVersion });
-  const zip = buildProjectZip(`${projectId}.ibmaps`, xml);
-  const blob = buildCompleteBlob(xbl, zip);
-
-  const view = await getProjectView(projectId);
-  await sessions.sendComplete(sessionId, blob, {
-    name: view.meta.name,
-    comments: "maps-webapp deploy",
-  });
-
-  await snapshotDeploy(projectId);
-
-  return {
-    projectId,
-    sessionId,
-    bytes: blob.length,
-    xblBytes: xbl.length,
-    zipBytes: zip.length,
-    appId: appId ?? descriptor.expectedAppId,
-    swVersion: swVersion.join("."),
-  };
 }

@@ -17,6 +17,7 @@ import { projectFromXml as mbsKnxProjectFromXml } from "@/gateway-families/mbs-k
 import { MAPS_MBS_KNX_TEMPLATE_XML } from "@/gateway-families/mbs-knx/fixtures/maps-template";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { getProjectStore } from "../persistence";
+import { getGatewaySessionManager } from "../intesis-transport";
 import type { ProjectHistoryEntry, ProjectMeta, ProjectSource } from "../persistence/types";
 import { buildKnxEsf } from "../exports/esf-knx";
 import { buildPollPlanXlsx } from "../exports/xlsx-poll-plan";
@@ -64,6 +65,43 @@ export async function listProjects(): Promise<ProjectMeta[]> {
   const metas = await store.list();
   // Backfill the family field for projects stored before it existed.
   return Promise.all(metas.map(async (meta) => withRevision(await withFamily(store, meta))));
+}
+
+// Like live gateway sessions, deploy claims must survive Next.js route reloads.
+const globalForDeploys = globalThis as unknown as {
+  __mapsActiveProjectDeploys?: Set<string>;
+};
+const activeDeploys = globalForDeploys.__mapsActiveProjectDeploys ??= new Set<string>();
+
+/** Claim the project before deploy gates/read/upload so deletion cannot race it. */
+export async function beginProjectDeploy(id: string): Promise<() => void> {
+  const store = getProjectStore();
+  const key = store.storageId(id);
+  await withProjectLock(key, async () => {
+    if (!await store.get(id)) throw new ProjectServiceError(404, `Project "${id}" not found`);
+    if (activeDeploys.has(key)) {
+      throw new ProjectServiceError(409, "This project is already being uploaded.", "project-uploading");
+    }
+    activeDeploys.add(key);
+  });
+  return () => { activeDeploys.delete(key); };
+}
+
+/** Remove the complete local project, including its history and received blob. */
+export async function deleteProject(id: string): Promise<void> {
+  const store = getProjectStore();
+  const key = store.storageId(id);
+  await withProjectLock(key, async () => {
+    if (!await store.get(id)) throw new ProjectServiceError(404, `Project "${id}" not found`);
+    if (activeDeploys.has(key)) {
+      throw new ProjectServiceError(409, "This project is being uploaded. Wait for the upload to finish.", "project-uploading");
+    }
+    if (getGatewaySessionManager().list().some((session) =>
+      session.projectId && store.storageId(session.projectId) === key)) {
+      throw new ProjectServiceError(409, "This project is open in a gateway session. Disconnect or switch projects first.", "project-in-session");
+    }
+    await store.deleteProject(id);
+  });
 }
 
 export async function getProjectView(id: string): Promise<ProjectView> {

@@ -31,6 +31,16 @@ describe("GatewaySessionManager", () => {
     expect(() => manager.getStatus(status.id)).toThrow(GatewayRequestError);
   });
 
+  it("tracks the local project selected in a session and clears it on disconnect", async () => {
+    const manager = makeManager({ "10.0.0.8": { password: "admin" } });
+    const { id } = await manager.connect({ host: "10.0.0.8", password: "admin" });
+    expect(manager.setProjectId(id, "project-a").projectId).toBe("project-a");
+    expect(manager.list()[0].projectId).toBe("project-a");
+    expect(manager.setProjectId(id, null).projectId).toBeUndefined();
+    manager.disconnect(id);
+    expect(manager.list()).toEqual([]);
+  });
+
   it("queries INFO? and receives a project blob", async () => {
     const blob = makeTestBlob();
     const manager = makeManager({ "10.0.0.2": { password: "admin", projectBlob: blob } });

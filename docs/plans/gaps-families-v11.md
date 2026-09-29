@@ -186,12 +186,16 @@ Pendents (abans de disseny):
   conversions); la resta de seccions, no.
 - **Banner d'issues amb accions** (V11): generalitzar `ScreenIssues` amb
   navegació al camp/secció afectada.
-- **Esborrar projectes** [falta, prioritari]: no es pot fer des de la webapp
+- **Esborrar projectes** [fet 2026-09-29]: no es podia fer des de la webapp
   (2026-09-28). El magatzem ja té `deleteProject`
-  (`src/server/persistence/local-store.ts`), però no hi ha ruta `DELETE` a
-  l'API ni botó a la llista de projectes. Cal la ruta, que ha de refusar un
-  projecte obert en una sessió o amb una pujada en curs, i un botó amb
-  confirmació. Branca pròpia.
+  (`src/server/persistence/local-store.ts`). S'ha afegit `DELETE` a
+  l'API, botó i confirmació a `/projects`, associació entre sessió i projecte,
+  i bloqueig si el projecte està obert en una sessió o en una pujada.
+  L'associació la comunica el navegador: si dues pestanyes seleccionen
+  projectes diferents sobre la mateixa sessió, preval l'última escriptura.
+  Tancar una pestanya no allibera l'associació; cal canviar de projecte o
+  desconnectar la sessió. La protecció de les pujades és independent i
+  es conserva a `globalThis` durant les recompilacions de Next.js.
 - **Afegir elements a un XML compacte esborra els germans** [fet 2026-09-29]:
   `appendChildIndented` de `knx-mbm/xml-ops.ts` i `me-mbs/xml-ops.ts`
   substitueix tots els fills quan el pare no acaba en espai en blanc (XML
@@ -252,7 +256,7 @@ ja existeix i què es pot compartir.
 2. **Integritat de l'XML compacte** (KNX–MBM, ME–MBS) — **[fet]**. Vegeu el
    punt del §3. Helper compartit i regressions per als fills existents,
    contenidors buits i format MAPS.
-3. **Esborrar projectes.** Vegeu el punt del §3.
+3. **Esborrar projectes** — **[fet 2026-09-29]**. Vegeu el punt del §3.
 4. **Numeració automàtica** d'adreces Modbus i GA KNX (eina de taula
    compartida).
    - **MAPS:**

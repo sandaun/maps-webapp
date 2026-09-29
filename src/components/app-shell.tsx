@@ -6,13 +6,29 @@ import { Sidebar } from "@/components/sidebar";
 import { UndoToast } from "@/components/signals/undo-toast";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
+import { bindGatewayProject } from "@/lib/gateway-api";
+import { useCurrentProject } from "@/lib/current-project";
+import { useGatewaySession } from "@/lib/gateway-session";
 import type { ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { sidebarCollapsed } = useWorkspaceChrome();
+  const { projectId, loading: projectLoading } = useCurrentProject();
+  const { session } = useGatewaySession();
+  const sessionId = session?.id;
+  const bindingQueue = useRef<Promise<unknown>>(Promise.resolve());
   const pathname = usePathname();
   const projectsArea = pathname.startsWith("/projects");
+
+  useEffect(() => {
+    if (!sessionId || projectLoading) return;
+    bindingQueue.current = bindingQueue.current
+      .catch(() => undefined)
+      .then(() => bindGatewayProject(sessionId, projectId))
+      .catch(() => undefined);
+  }, [sessionId, projectId, projectLoading]);
 
   return (
     <div className="h-screen overflow-hidden">

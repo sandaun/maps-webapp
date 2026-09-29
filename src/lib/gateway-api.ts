@@ -60,6 +60,7 @@ export interface GatewayInfoSummary {
 /** Mirror of `GatewaySessionStatus` in `src/server/intesis-transport/manager.ts`. */
 export interface GatewaySessionStatus {
   id: string;
+  projectId?: string;
   host: string;
   port: number;
   connected: boolean;
@@ -157,6 +158,14 @@ export async function getGatewaySession(id: string): Promise<GatewaySessionStatu
       `/api/gateway/sessions/${encodeURIComponent(id)}`,
     ),
   );
+  return data.session;
+}
+
+export async function bindGatewayProject(id: string, projectId: string | null): Promise<GatewaySessionStatus> {
+  const data = await sessionScoped(id, request<{ session: GatewaySessionStatus }>(
+    `/api/gateway/sessions/${encodeURIComponent(id)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId }) },
+  ));
   return data.session;
 }
 

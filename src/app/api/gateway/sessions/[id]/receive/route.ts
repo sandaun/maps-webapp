@@ -30,6 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       name: body?.name ?? gatewayName ?? projectId,
       source: "gateway",
     });
+    manager.setProjectId(id, meta.id);
     return NextResponse.json({ project: meta }, { status: 201 });
   } catch (error) {
     return errorResponse(error);
