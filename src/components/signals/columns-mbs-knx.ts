@@ -1,5 +1,8 @@
 import type { MbsKnxSignal } from "@/gateway-families/mbs-knx/model";
 import { conversionCode } from "@/core/signals/conversion-code";
+import type { ConversionValues } from "@/core/conversions/rules";
+import { conversionChain, type ConversionChain } from "./conversion-chain";
+import { MBS_KNX_CONVERSION_SIDES } from "./conversion-sides";
 import { formatGroupAddress, isValidGroupAddress, parseGroupAddress } from "@/protocols/knx/address";
 import { COMMON_DPT_OPTIONS, formatDpt } from "@/protocols/knx/dpt";
 import type { KnxFlags } from "@/protocols/knx/flags";
@@ -101,10 +104,11 @@ export interface MbsKnxSignalRow {
   additionalAddresses: string;
   dpt: string;
   conversionCode: string;
+  conversionChain: ConversionChain;
   searchText: string;
 }
 
-export function toMbsKnxRow(signal: MbsKnxSignal): MbsKnxSignalRow {
+export function toMbsKnxRow(signal: MbsKnxSignal, conversions: readonly ConversionValues[] = []): MbsKnxSignalRow {
   const groupAddress = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
   const additionalAddresses = signal.knx.additionalAddresses.map(formatGroupAddress).join(", ");
   const dpt = formatDpt(signal.knx.dpt);
@@ -114,6 +118,7 @@ export function toMbsKnxRow(signal: MbsKnxSignal): MbsKnxSignalRow {
     additionalAddresses,
     dpt,
     conversionCode: conversionCode(signal.conversions),
+    conversionChain: conversionChain(signal, [...conversions], MBS_KNX_CONVERSION_SIDES),
     searchText: [signal.id, signal.description, signal.modbus.address, groupAddress, additionalAddresses, dpt]
       .join(" ")
       .toLowerCase(),
@@ -241,6 +246,20 @@ export function mbsKnxColumns(project: { knx: { extendedAddresses: boolean } }):
       mono: true,
       getText: (row) => DIRECTION[row.signal.modbus.readWrite]?.arrow ?? "—",
       getTitle: (row) => DIRECTION[row.signal.modbus.readWrite]?.title ?? "",
+    },
+    {
+      // Visible by default, as in KNX–MBM: the grid is where conversions are assigned.
+      id: "conversionChain",
+      group: "gateway",
+      header: "Conversions",
+      headerShort: "Conv",
+      headerHint: "Filters and operations between Modbus and KNX · click to assign",
+      width: 220,
+      minWidth: 110,
+      maxWidth: 420,
+      kind: "none",
+      getText: (row) => row.conversionChain.text,
+      getTitle: (row) => row.conversionChain.title,
     },
     {
       id: "conversions",

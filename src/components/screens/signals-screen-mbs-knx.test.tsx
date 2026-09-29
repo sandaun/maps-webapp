@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { projectFromXml, validateProject } from "@/gateway-families/mbs-knx";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { familyById } from "@/server/projects/families";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
+import { refsFromSelection } from "@/core/signals/conversion-refs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
 import { UndoToast } from "@/components/signals/undo-toast";
@@ -151,5 +152,43 @@ describe("SignalsScreen (mbs-knx)", () => {
     expect(mocks.applyPatches.mock.calls[0][0]).toEqual([{ type: "addSignal" }]);
     const added = applySent().at(-1)!;
     expect(added).toMatchObject({ active: false, modbus: { lenBits: 16, readWrite: 2 }, knx: { groupAddress: 2055 } });
+  });
+
+  it("shows the conversion chain and opens the editor with the Modbus side as the internal half", async () => {
+    renderSignals();
+    // Signal 0 (read/write) has "x 10" on its Modbus half.
+    expect(screen.getByRole("button", { name: /^Conversions signal 0:/ }).textContent).not.toBe("—");
+    fireEvent.click(screen.getByRole("button", { name: "Conversions signal 1: —" }));
+    const dialog = screen.getByRole("dialog", { name: "Conversions · #2 Room temperature" });
+    // Read: the BMS reads the register, so values only travel from KNX to Modbus.
+    expect(within(dialog).getByText("Read only")).toBeInTheDocument();
+    expect(within(dialog).getByText(/values only travel from KNX to Modbus/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "Read · KNX → Modbus" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Operation next to Modbus/ }));
+    fireEvent.click(within(dialog).getByRole("option", { name: /x 10/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const selection = { internalFilter: null, operations: [0], externalFilter: null, master: "internal" as const };
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([
+      { type: "updateSignal", id: 1, patch: { conversions: selection } },
+    ]);
+    expect(applySent()[1].conversions).toEqual(refsFromSelection(selection, "read"));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(2));
+    expect(mocks.applyPatches.mock.calls[1][0]).toEqual([
+      {
+        type: "restoreSignalConversions",
+        id: 1,
+        refs: { internal: { filters: [], operations: [] }, external: { filters: [], operations: [] } },
+      },
+    ]);
+  });
+
+  it("takes a trigger as write only (Modbus → KNX)", () => {
+    renderSignals();
+    fireEvent.click(screen.getByRole("button", { name: "Conversions signal 3: —" }));
+    const dialog = screen.getByRole("dialog", { name: "Conversions · #4 Reset" });
+    expect(within(dialog).getByText("Write only")).toBeInTheDocument();
+    expect(within(dialog).getByRole("region", { name: "Write · Modbus → KNX" })).toBeInTheDocument();
   });
 });

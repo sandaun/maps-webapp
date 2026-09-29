@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { setAttr, XmlDocument } from "@/core/project-format";
 import { refsFromSelection, type ConversionSelection } from "@/core/signals/conversion-refs";
+import { refsRoundTrip } from "@/core/conversions/assignment";
+import { mbsConversionRwMode } from "@/protocols/modbus/slave";
 import { SYNTHETIC_MBS_KNX_XML } from "./fixtures/synthetic-project";
 import { mbsKnxRestoredRefs, mbsKnxSelectionRefs } from "./conversions";
 import { projectFromXml } from "./from-xml";
@@ -11,6 +13,14 @@ function parseFixture() {
 }
 
 const SELECTION: ConversionSelection = { internalFilter: null, externalFilter: null, operations: [0], master: "internal" };
+
+describe("synthetic fixture", () => {
+  it("stores its conversions the way MAPS does (a new project shows no non-standard refs)", () => {
+    for (const signal of projectFromXml(parseFixture()).signals) {
+      expect(refsRoundTrip(signal.conversions, mbsConversionRwMode(signal.modbus.readWrite))).toBe(true);
+    }
+  });
+});
 
 describe("mbsKnxSelectionRefs", () => {
   it("takes the direction from the Modbus read/write mode (ConversionObject(MbsObject))", () => {

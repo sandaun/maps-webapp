@@ -1,7 +1,13 @@
+import { validateSignalConversions } from "@/core/conversions/validate";
 import { MAX_ACTIVE_SIGNALS, MAX_TOTAL_SIGNAL_ROWS } from "@/core/signals/model";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { checkKnxEndpoint, type KnxRuleCode } from "@/protocols/knx";
-import { checkMbsObjects, MBS_DEFAULT_MAX_ADDRESS, type MbsObjectRuleCode } from "@/protocols/modbus/slave";
+import {
+  checkMbsObjects,
+  MBS_DEFAULT_MAX_ADDRESS,
+  mbsConversionRwMode,
+  type MbsObjectRuleCode,
+} from "@/protocols/modbus/slave";
 import type { MbsKnxProject, MbsKnxSignal } from "./model";
 
 /**
@@ -52,6 +58,12 @@ export function validateProject(project: MbsKnxProject): ValidationIssue[] {
       ref: { screen: "signals", entity: "signal", id, field: mbsField(code) },
     });
   }
+  // The Modbus object is the internal half: its read/write mode sets the direction.
+  issues.push(
+    ...validateSignalConversions(project.conversions, project.signals, (signal) =>
+      mbsConversionRwMode(signal.modbus.readWrite),
+    ),
+  );
   return issues;
 }
 

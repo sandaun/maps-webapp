@@ -23,8 +23,9 @@ interface SyntheticSignal {
 }
 
 const SIGNALS: SyntheticSignal[] = [
-  // 0: read/write setpoint ×10 on the Modbus side (operation 0).
-  { enabled: true, description: "Setpoint", lenBits: 16, format: 0, bit: 255, address: 0, readWrite: 2, mbsOperations: "0,0", dpt: 2305, ga: [2049, "1/0/1"], flags: "UTWR" },
+  // 0: read/write setpoint ×10, stored as MAPS does for both directions
+  // (`refsFromSelection`): the Modbus half runs it, the KNX half inverted.
+  { enabled: true, description: "Setpoint", lenBits: 16, format: 0, bit: 255, address: 0, readWrite: 2, mbsOperations: "0,0", knxOperations: "0,1", dpt: 2305, ga: [2049, "1/0/1"], flags: "UTWR" },
   // 1: 32-bit float the BMS reads (mode "write": no R, no T).
   { enabled: true, description: "Room temperature", lenBits: 32, format: 3, bit: 255, address: 1, readWrite: 0, dpt: 2305, ga: [2050, "1/0/2"], flags: "UW" },
   // 2: BitFields bit 3, with an additional (listening) address.

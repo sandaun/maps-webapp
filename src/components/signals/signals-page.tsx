@@ -94,7 +94,9 @@ export function SignalsPageChrome({
             family={family}
             onGoToSignal={(id) => setTab("map", { signal: id })}
             onOpenConversions={
-              family === "knx-mbm" ? (id) => setTab("map", { signal: id, editConversions: true }) : undefined
+              family === "knx-mbm" || family === "mbs-knx"
+                ? (id) => setTab("map", { signal: id, editConversions: true })
+                : undefined
             }
           />
         </div>

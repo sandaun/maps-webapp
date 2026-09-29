@@ -129,6 +129,21 @@ describe("validateProject", () => {
     });
   });
 
+  it("checks the conversion refs with the Modbus read/write direction", () => {
+    const p = project();
+    const refs = (index: number, inverted: boolean) => ({
+      internal: { filters: [], operations: [{ index, inverted: false }] },
+      external: { filters: [], operations: [{ index, inverted }] },
+    });
+    // Operation 5 is not in the library.
+    expect(codes({ ...p, signals: [{ ...p.signals[0], conversions: refs(5, true) }] })).toEqual(["CONV-REF-MISSING"]);
+    // "x 10" with B = 0 has no inverse: a read/write signal runs it inverted on one flow.
+    const noInverse = { ...p, conversions: [{ ...p.conversions[0], params: ["1", "0", "0", "0"] as [string, string, string, string] }] };
+    expect(codes({ ...noInverse, signals: [{ ...p.signals[0], conversions: refs(0, true) }] })).toEqual(["CONV-NO-INVERSE"]);
+    // A Read signal is one-way: nothing runs inverted.
+    expect(codes({ ...noInverse, signals: [{ ...p.signals[1], conversions: refs(0, false) }] })).toEqual([]);
+  });
+
   it("counts group addresses and associations of the active signals for the licence", () => {
     const many = Array.from({ length: 3001 }, (_, i) => signal(i, { address: i }, { groupAddress: i + 1 }));
     const result = codes(withSignals(many));
