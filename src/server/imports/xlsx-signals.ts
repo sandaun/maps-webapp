@@ -11,7 +11,7 @@ import {
   projectFromXml as meFromXml,
   updateSignal as meUpdateSignal,
 } from "@/gateway-families/me-mbs";
-import { parseGroupAddress } from "@/protocols/knx/address";
+import { groupAddressLevelOf, parseGroupAddress } from "@/protocols/knx/address";
 import { ProjectServiceError } from "../projects/errors";
 import {
   expectedProtocols,
@@ -74,7 +74,8 @@ function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResul
     const virtual = dataLength === "-";
     const project = knxFromXml(doc);
     const device = parseDeviceCell(project.mbm, row.Device ?? "");
-    const sending = parseGroupAddress(row.Sending ?? "") ?? 0;
+    const sendingText = (row.Sending ?? "").trim();
+    const sending = parseGroupAddress(sendingText) ?? 0;
     const listening = parseListening(row.Listening ?? "");
     const dpt = parseDptCell(row.DPT ?? "");
     const patch = {
@@ -83,6 +84,7 @@ function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResul
       knx: {
         ...(dpt !== undefined ? { dpt } : {}),
         groupAddress: sending,
+        ...(sending > 0 ? { groupAddressLevel: groupAddressLevelOf(sendingText) } : {}),
         additionalAddresses: listening.addresses,
         additionalAddressLevels: listening.levels,
         flags: {

@@ -281,7 +281,7 @@ ja existeix i què es pot compartir.
      El nivell del GA (1, 2 o 3) es llegeix de l'atribut `String`, es mostra a
      la taula i a l'export de graella, i l'edició manual desa el nivell escrit,
      com MAPS (`ExternalKnx.cs:1147-1153`). `Value` continua sent numèric.
-5. **Adreces addicionals (listening) a KNX–MBM** — **FET**.
+5. **Adreces addicionals (listening) a KNX–MBM** — **[fet 2026-09-29]**.
    - **MAPS:** `InternalKnx` té la columna `COL_LISTENING`
      (`InternalKnx.cs:29`), la desa amb `ExtractGroupAddress`
      (`InternalKnx.cs:808-812`) i exigeix U o W si n'hi ha
