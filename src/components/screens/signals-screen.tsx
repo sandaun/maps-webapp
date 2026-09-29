@@ -15,6 +15,7 @@ import { useSignalSelection } from "@/components/screens/use-signal-selection";
 import { BulkEditDialog } from "@/components/signals/bulk-edit";
 import { ConversionAssignDialog } from "@/components/signals/conversion-assign-dialog";
 import { ConversionChainCell } from "@/components/signals/conversion-chain";
+import { knxMbmConversionSides } from "@/components/signals/conversion-sides-knx-mbm";
 import { columnGroupsFor } from "@/components/signals/column-groups";
 import { knxMbmColumns, KNX_TAB_ORDER, toKnxRow } from "@/components/signals/columns-knx-mbm";
 import { SignalsGrid } from "@/components/signals/signals-grid";
@@ -193,6 +194,7 @@ function SignalsView({
     }
   }
   const assigningSignal = assigning === null ? undefined : byId.get(assigning);
+  const conversionSides = React.useMemo(() => knxMbmConversionSides(mbm), [mbm]);
   const [bulkConversions, setBulkConversions] = React.useState(false);
 
   const checkedList = [...checkedIds];
@@ -323,6 +325,7 @@ function SignalsView({
           key={assigningSignal.id}
           signal={assigningSignal}
           project={view.project}
+          sides={conversionSides}
           busy={assignBusy}
           error={assignError}
           onClose={() => setAssigning(null)}
@@ -333,6 +336,7 @@ function SignalsView({
         <ConversionAssignDialog
           signals={checkedList.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s)}
           project={view.project}
+          sides={conversionSides}
           busy={assignBusy}
           error={assignError}
           onClose={() => setBulkConversions(false)}

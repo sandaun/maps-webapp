@@ -6,6 +6,7 @@ import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synth
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxFlags } from "@/protocols/knx";
 import { ConversionAssignDialog } from "./conversion-assign-dialog";
+import { knxMbmConversionSides } from "./conversion-sides-knx-mbm";
 
 const ref = (index: number, inverted = false) => ({ index, inverted });
 const READ_WRITE: KnxFlags = { u: true, t: true, ri: false, w: true, r: true };
@@ -31,7 +32,7 @@ const onApply = vi.fn();
 const onClose = vi.fn();
 
 function open(p = project()) {
-  render(<ConversionAssignDialog signal={p.signals[1]} project={p} onClose={onClose} onApply={onApply} />);
+  render(<ConversionAssignDialog signal={p.signals[1]} project={p} sides={knxMbmConversionSides(p.mbm)} onClose={onClose} onApply={onApply} />);
   return p;
 }
 const slot = (lane: string, caption: RegExp) =>
@@ -140,7 +141,7 @@ describe("ConversionAssignDialog", () => {
   it("warns when the stored refs are not the MAPS layout, shows them and restores them on undo", async () => {
     // The fixture's read-only signal carries the operation on both halves.
     const p = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
-    render(<ConversionAssignDialog signal={p.signals[1]} project={p} onClose={onClose} onApply={onApply} />);
+    render(<ConversionAssignDialog signal={p.signals[1]} project={p} sides={knxMbmConversionSides(p.mbm)} onClose={onClose} onApply={onApply} />);
     expect(screen.getByText(/not stored the way MAPS stores them/)).toBeTruthy();
     expect(screen.getByText("Read · Modbus → KNX: 0…1000 → 0…100")).toBeTruthy();
     fireEvent.click(slot("Read · Modbus → KNX", /^Operation next to KNX/));
@@ -244,7 +245,7 @@ describe("ConversionAssignDialog · bulk", () => {
     return projectFromXml(doc);
   }
   function openBulk(p = selection()) {
-    render(<ConversionAssignDialog signals={p.signals} project={p} onClose={onClose} onApply={onApply} />);
+    render(<ConversionAssignDialog signals={p.signals} project={p} sides={knxMbmConversionSides(p.mbm)} onClose={onClose} onApply={onApply} />);
     return p;
   }
 

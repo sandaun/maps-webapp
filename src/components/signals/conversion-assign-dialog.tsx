@@ -36,39 +36,34 @@ import {
   parseConversionNumber,
   type ConversionValues,
 } from "@/core/conversions/rules";
-import { knxConversionRwMode } from "@/gateway-families/knx-mbm/conversions";
-import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { ConversionRwMode } from "@/core/signals/conversion-refs";
-import { formatGroupAddress } from "@/protocols/knx/address";
-import { formatDpt } from "@/protocols/knx/dpt";
-import { FORMAT_LABELS } from "@/protocols/modbus/master";
 import type { ProjectPatchInput } from "@/lib/project-types";
 import { FILTER_CONDITION_LABELS, FILTER_TYPE_LABELS, OPERATION_TYPE_LABELS } from "@/lib/property-fields";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { conversionName, FLOW_LABELS, storedFlowLines } from "./conversion-chain";
-import { knxDeviceLabel, knxSlaveLabel } from "./columns-knx-mbm";
+import { conversionName, flowLabel, storedFlowLines } from "./conversion-chain";
+import type { ConversionSides, ConversionSignal } from "./conversion-sides";
 
-type Conversion = KnxMbmProject["conversions"][number];
+type Conversion = ConversionValues;
 /** An entry created from the picker; it joins the library when the dialog is applied. */
 type NewEntry = { type: 0 | 1 | 2; description: string; params: [string, string, string, string] };
 
 const SLOT_ORDER: SlotKey[] = ["internalFilter", "op1", "op2", "externalFilter"];
-const SLOT_CAPTIONS: Record<SlotKey, string> = {
-  internalFilter: "KNX side · filter",
-  op1: "Operation",
-  op2: "Operation",
-  externalFilter: "Modbus side · filter",
-};
+/** Slot caption: the filters are named after their side ("KNX side · filter"). */
+function slotCaption(slot: SlotKey, names: { internal: string; external: string }): string {
+  if (slot === "internalFilter") return `${names.internal} side · filter`;
+  if (slot === "externalFilter") return `${names.external} side · filter`;
+  return "Operation";
+}
 const isFilterSlot = (slot: SlotKey) => slot === "internalFilter" || slot === "externalFilter";
 
-function flagsText(signal: KnxMbmSignal): string {
-  const f = signal.knx.flags;
-  return (["u", "t", "ri", "w", "r"] as const)
-    .filter((k) => f[k])
-    .map((k) => (k === "ri" ? "Ri" : k.toUpperCase()))
-    .join(" ");
+/** "Write (KNX → Modbus)" / "Read (Modbus → KNX)": which flow the operations are defined for. */
+function masterOptions(names: { internal: string; external: string }): Array<["internal" | "external", string]> {
+  return [
+    ["internal", `Write (${names.internal} → ${names.external})`],
+    ["external", `Read (${names.external} → ${names.internal})`],
+  ];
 }
 
 const MODE_LABELS: Record<ConversionRwMode, string> = {
@@ -77,27 +72,30 @@ const MODE_LABELS: Record<ConversionRwMode, string> = {
   readwrite: "Read + write",
 };
 const MODE_ORDER: ConversionRwMode[] = ["read", "write", "readwrite"];
-const hasStoredRefs = (signal: KnxMbmSignal) =>
+const hasStoredRefs = (signal: ConversionSignal) =>
   halfSteps(signal.conversions.internal).length > 0 || halfSteps(signal.conversions.external).length > 0;
 
 /**
- * Assignment editor (MAPS `frmSelectConversion`, V15 layout): one KNX–MBM
- * signal, or — with `signals` — the bulk mode of a selection. In bulk the
+ * Assignment editor (MAPS `frmSelectConversion`, V15 layout): one signal,
+ * or — with `signals` — the bulk mode of a selection. `sides` describes the
+ * family (which half is internal, the direction of a signal, its two ends). In bulk the
  * slots apply to the signals of one direction (the operations mean something
  * different on each); the rest are listed as skipped with the reason.
  */
-export function ConversionAssignDialog({
+export function ConversionAssignDialog<S extends ConversionSignal>({
   signal: single,
   signals: selection,
   project,
+  sides,
   busy,
   error,
   onClose,
   onApply,
 }: {
-  signal?: KnxMbmSignal;
-  signals?: KnxMbmSignal[];
-  project: KnxMbmProject;
+  signal?: S;
+  signals?: S[];
+  project: { conversions: Conversion[] };
+  sides: ConversionSides<S>;
   busy?: boolean;
   error?: string | null;
   onClose: () => void;
@@ -109,25 +107,23 @@ export function ConversionAssignDialog({
   const signal = targets[0];
   const modeCounts = React.useMemo(() => {
     const counts: Record<ConversionRwMode, number> = { read: 0, write: 0, readwrite: 0 };
-    for (const s of targets) if (!s.virtual) counts[knxConversionRwMode(s.knx.flags)]++;
+    for (const s of targets) if (!s.virtual) counts[sides.rwMode(s)]++;
     return counts;
-  }, [targets]);
+  }, [targets, sides]);
   // The majority direction; the user can pick another one present in the selection.
   const [groupMode, setGroupMode] = React.useState<ConversionRwMode>(() =>
     MODE_ORDER.reduce((best, mode) => (modeCounts[mode] > modeCounts[best] ? mode : best), MODE_ORDER[0]),
   );
-  const rwMode = bulk ? groupMode : knxConversionRwMode(signal.knx.flags);
-  const applies = bulk
-    ? targets.filter((s) => !s.virtual && knxConversionRwMode(s.knx.flags) === groupMode)
-    : targets;
+  const rwMode = bulk ? groupMode : sides.rwMode(signal);
+  const applies = bulk ? targets.filter((s) => !s.virtual && sides.rwMode(s) === groupMode) : targets;
   const skipped = bulk
     ? targets
         .filter((s) => !applies.includes(s))
         .map((s) => ({
           signal: s,
           reason: s.virtual
-            ? "Virtual signal · it has no Modbus side, so it cannot have conversions."
-            : `${MODE_LABELS[knxConversionRwMode(s.knx.flags)]} · the operations would run in the other direction.`,
+            ? sides.virtualReason
+            : `${MODE_LABELS[sides.rwMode(s)]} · the operations would run in the other direction.`,
         }))
     : [];
   const clearable = bulk ? targets.filter((s) => !s.virtual && hasStoredRefs(s)) : [];
@@ -224,7 +220,7 @@ export function ConversionAssignDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, confirmDiscard, onClose]);
 
-  const restoreAll = (list: KnxMbmSignal[]): ProjectPatchInput[] =>
+  const restoreAll = (list: S[]): ProjectPatchInput[] =>
     list.map((s) => ({ type: "restoreSignalConversions", id: s.id, refs: s.conversions }));
   const clear = async () => {
     const patches: ProjectPatchInput[] = clearable.map((s) => ({
@@ -273,7 +269,6 @@ export function ConversionAssignDialog({
     if (await onApply(patches, inverses)) onClose();
   };
 
-  const { modbus } = signal;
   const virtualCount = targets.filter((s) => s.virtual).length;
   const meta = bulk
     ? [
@@ -281,10 +276,7 @@ export function ConversionAssignDialog({
         ...MODE_ORDER.filter((mode) => modeCounts[mode] > 0).map((mode) => `${modeCounts[mode]} ${MODE_LABELS[mode].toLowerCase()}`),
         ...(virtualCount ? [`${virtualCount} virtual`] : []),
       ].join(" · ")
-    : [
-        `KNX ${signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—"} · ${formatDpt(signal.knx.dpt)} · flags ${flagsText(signal) || "none"}`,
-        `Modbus ${knxDeviceLabel(project.mbm, signal)} · slave ${knxSlaveLabel(project.mbm, signal)} · register ${modbus.address} · ${FORMAT_LABELS[modbus.format] ?? "?"} ${modbus.lenBits} bit`,
-      ].join("   ·   ");
+    : sides.meta(signal);
   const dirLabel = MODE_LABELS[rwMode];
   const title = bulk
     ? `Conversions · ${targets.length} selected signals`
@@ -338,10 +330,12 @@ export function ConversionAssignDialog({
               }}
               master={slots.master}
               onMaster={(master) => setSlots((s) => ({ ...s, master }))}
+              names={sides}
             />
           ) : (
             <DirectionLine
-              signal={signal}
+              note={sides.directionNote(signal, rwMode)}
+              names={sides}
               rwMode={rwMode}
               master={slots.master}
               onMaster={(master) => setSlots((s) => ({ ...s, master }))}
@@ -354,7 +348,7 @@ export function ConversionAssignDialog({
               editable={flow === defined}
               derived={flows.length === 2 && flow !== defined}
               signal={bulk ? undefined : signal}
-              project={project}
+              sides={sides}
               rwMode={rwMode}
               slots={slots}
               library={library}
@@ -440,7 +434,7 @@ export function ConversionAssignDialog({
                           Its current conversions are not stored the way MAPS stores them: applying rewrites both
                           halves (Undo puts them back). Stored now:
                         </p>
-                        {storedFlowLines(signal, project.conversions).map((line) => (
+                        {storedFlowLines(signal, project.conversions, sides).map((line) => (
                           <p key={line} className="font-mono text-[11px]">
                             {line}
                           </p>
@@ -492,35 +486,25 @@ export function ConversionAssignDialog({
 }
 
 function DirectionLine({
-  signal,
+  note,
+  names,
   rwMode,
   master,
   onMaster,
 }: {
-  signal: KnxMbmSignal;
-  rwMode: ReturnType<typeof knxConversionRwMode>;
+  /** Why the signal has the flows it has (`ConversionSides.directionNote`). */
+  note: string;
+  names: { internal: string; external: string };
+  rwMode: ConversionRwMode;
   master: ConversionSlots["master"];
   onMaster: (master: ConversionSlots["master"]) => void;
 }) {
-  const flags = flagsText(signal);
-  if (rwMode !== "readwrite")
-    return (
-      <p className="mb-3 text-[12.5px] text-fg-muted">
-        {rwMode === "read"
-          ? `Read only — the KNX flags (${flags}) only send status to KNX, so values only travel from Modbus to KNX.`
-          : `Write only — without the R or T flag (${flags || "none"}) KNX only writes, so values only travel from KNX to Modbus.`}
-      </p>
-    );
+  if (rwMode !== "readwrite") return <p className="mb-3 text-[12.5px] text-fg-muted">{note}</p>;
   return (
     <div className="mb-3 flex flex-wrap items-center gap-[10px]">
       <span className="text-[12.5px] font-bold text-text-body">Define for</span>
       <div role="radiogroup" aria-label="Define the operations for" className="flex gap-1">
-        {(
-          [
-            ["internal", "Write (KNX → Modbus)"],
-            ["external", "Read (Modbus → KNX)"],
-          ] as const
-        ).map(([value, label]) => (
+        {masterOptions(names).map(([value, label]) => (
           <button
             key={value}
             type="button"
@@ -538,10 +522,7 @@ function DirectionLine({
           </button>
         ))}
       </div>
-      <span className="text-[11.5px] text-fg-subtle">
-        Read + write — the flags ({flags}) move values both ways. The other direction runs the operations inverted, in
-        reverse order.
-      </span>
+      <span className="text-[11.5px] text-fg-subtle">{note}</span>
     </div>
   );
 }
@@ -586,12 +567,14 @@ function BulkDirectionLine({
   onMode,
   master,
   onMaster,
+  names,
 }: {
   counts: Record<ConversionRwMode, number>;
   mode: ConversionRwMode;
   onMode: (mode: ConversionRwMode) => void;
   master: ConversionSlots["master"];
   onMaster: (master: ConversionSlots["master"]) => void;
+  names: { internal: string; external: string };
 }) {
   const present = MODE_ORDER.filter((m) => counts[m] > 0);
   return (
@@ -616,10 +599,7 @@ function BulkDirectionLine({
           <span className="text-[12.5px] font-bold text-text-body">Define for</span>
           <Segmented
             label="Define the operations for"
-            options={[
-              ["internal", "Write (KNX → Modbus)"],
-              ["external", "Read (Modbus → KNX)"],
-            ]}
+            options={masterOptions(names)}
             value={master}
             onChange={onMaster}
           />
@@ -634,11 +614,11 @@ function BulkLists({
   skipped,
   mode,
 }: {
-  applies: KnxMbmSignal[];
-  skipped: { signal: KnxMbmSignal; reason: string }[];
+  applies: ConversionSignal[];
+  skipped: { signal: ConversionSignal; reason: string }[];
   mode: ConversionRwMode;
 }) {
-  const name = (s: KnxMbmSignal) => s.description || `Signal ${s.id + 1}`;
+  const name = (s: ConversionSignal) => s.description || `Signal ${s.id + 1}`;
   return (
     <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
       <section aria-label="Signals it applies to" className="overflow-hidden rounded-[6px] border border-border">
@@ -690,12 +670,12 @@ function describeOutcome(outcome: StepOutcome): string {
   }
 }
 
-function Lane({
+function Lane<S extends ConversionSignal>({
   flow,
   editable,
   derived,
   signal,
-  project,
+  sides,
   rwMode,
   slots,
   library,
@@ -717,9 +697,9 @@ function Lane({
   editable: boolean;
   derived: boolean;
   /** Undefined in bulk: the end nodes stand for every signal. */
-  signal?: KnxMbmSignal;
-  project: KnxMbmProject;
-  rwMode: ReturnType<typeof knxConversionRwMode>;
+  signal?: S;
+  sides: ConversionSides<S>;
+  rwMode: ConversionRwMode;
   slots: ConversionSlots;
   library: ReturnType<typeof libraryLists<ConversionValues>>;
   picking: SlotKey | null;
@@ -749,12 +729,13 @@ function Lane({
     return index === null ? null : (library[isFilterSlot(slot) ? "filters" : "operations"][index] ?? undefined);
   };
   const stopName = stop ? (entry(stop.slot) ? conversionName(entry(stop.slot)!) : "A missing entry") : "";
-  const target = flow === "write" ? "Modbus" : "KNX";
+  // The write flow runs internal → external.
+  const target = flow === "write" ? sides.external : sides.internal;
   const result =
     input === undefined
       ? "Type a value to follow it through the slots."
       : !stop
-        ? `${flow === "write" ? "The Modbus register receives" : "KNX receives"} ${output}`
+        ? `${flow === "write" ? sides.receives.external : sides.receives.internal} ${output}`
         : stop.outcome.kind === "discarded"
           ? `Discarded by “${stopName}”. Nothing is sent to ${target}.`
           : stop.outcome.kind === "not-simulated"
@@ -763,33 +744,19 @@ function Lane({
               ? "The slot points at a conversion that is not in the project."
               : `“${stopName}” gives no result for this value.`;
 
-  const endNode = (side: "knx" | "modbus") => {
-    const isInput = (side === "knx") === (flow === "write");
+  // The internal end is on the left, as in the signal table.
+  const endNode = (side: "internal" | "external") => {
+    const isInput = (side === "internal") === (flow === "write");
     const value = input === undefined ? "" : isInput ? formatConversionValue(input) : output;
+    const end = sides.end(signal, side);
     return (
-      <div key={side} className={cn("flex items-start", side === "knx" ? "w-[104px] shrink-0" : "w-[152px] shrink-0")}>
-        {side === "modbus" && <Arrow text={arrow} />}
+      <div key={side} className="flex shrink-0 items-start" style={{ width: sides.endWidth[side] }}>
+        {side === "external" && <Arrow text={arrow} />}
         <div className="min-w-0 flex-1">
-          <Caption>{side === "knx" ? "KNX" : "Modbus"}</Caption>
+          <Caption>{sides[side]}</Caption>
           <div className="min-h-[50px] rounded-[6px] bg-hms-blue px-[10px] py-2">
-            <div className="truncate font-mono text-[12px] font-semibold text-white">
-              {!signal
-                ? side === "knx"
-                  ? "Group address"
-                  : "Register"
-                : side === "knx"
-                  ? signal.knx.groupAddress > 0
-                    ? formatGroupAddress(signal.knx.groupAddress)
-                    : "—"
-                  : `Slave ${knxSlaveLabel(project.mbm, signal)} · ${signal.modbus.address}`}
-            </div>
-            <div className="mt-[2px] truncate font-mono text-[10.5px] text-white/60">
-              {!signal
-                ? "per signal"
-                : side === "knx"
-                  ? formatDpt(signal.knx.dpt)
-                  : `${FORMAT_LABELS[signal.modbus.format] ?? "?"} · ${signal.modbus.lenBits} bit`}
-            </div>
+            <div className="truncate font-mono text-[12px] font-semibold text-white">{end.main}</div>
+            <div className="mt-[2px] truncate font-mono text-[10.5px] text-white/60">{end.sub}</div>
           </div>
           <Value text={value} />
         </div>
@@ -799,12 +766,12 @@ function Lane({
 
   return (
     <section
-      aria-label={FLOW_LABELS[flow]}
+      aria-label={flowLabel(flow, sides)}
       className="mb-3 rounded-[6px] border border-border"
     >
       <header className="flex items-center gap-[9px] rounded-t-[6px] border-b border-border bg-card-foot px-[14px] py-[9px]">
         <span className="font-mono text-[10.5px] font-semibold tracking-[.07em] text-hms-blue">
-          {FLOW_LABELS[flow].toUpperCase()}
+          {flowLabel(flow, sides).toUpperCase()}
         </span>
         {derived ? (
           <span className="rounded-full border border-border bg-[#F1F3F5] px-[7px] py-[2px] text-[11px] font-bold text-fg-muted">
@@ -823,7 +790,7 @@ function Lane({
         </span>
       </header>
       <div className="flex flex-wrap items-start gap-y-3 px-[14px] pb-[10px] pt-[14px]">
-        {endNode("knx")}
+        {endNode("internal")}
         {SLOT_ORDER.map((slot) => {
           const conv = entry(slot);
           const filter = isFilterSlot(slot);
@@ -836,12 +803,12 @@ function Lane({
             <div key={slot} className="flex min-w-[154px] flex-1 items-start">
               <Arrow text={arrow} />
               <div className="min-w-0 flex-1">
-                <Caption>{SLOT_CAPTIONS[slot]}</Caption>
+                <Caption>{slotCaption(slot, sides)}</Caption>
                 <button
                   type="button"
                   disabled={!editable}
                   aria-expanded={editable ? open : undefined}
-                  aria-label={`${SLOT_CAPTIONS[slot]}${slot === "op1" ? " next to KNX" : slot === "op2" ? " next to Modbus" : ""}: ${conv ? conversionName(conv) : "empty"}`}
+                  aria-label={`${slotCaption(slot, sides)}${slot === "op1" ? ` next to ${sides.internal}` : slot === "op2" ? ` next to ${sides.external}` : ""}: ${conv ? conversionName(conv) : "empty"}`}
                   onClick={() => onPick(slot)}
                   className={cn(
                     "block min-h-[50px] w-full rounded-[6px] border px-[10px] py-2 text-left disabled:cursor-default",
@@ -889,12 +856,13 @@ function Lane({
             </div>
           );
         })}
-        {endNode("modbus")}
+        {endNode("external")}
       </div>
       {editable && picking && (
         <Picker
           key={picking}
           slot={picking}
+          names={sides}
           current={slots[picking]}
           library={library}
           draft={draft}
@@ -922,20 +890,20 @@ function Lane({
       )}
       <div className="flex flex-wrap items-center gap-[10px] rounded-b-[6px] border-t border-border bg-card-foot px-[14px] py-[9px]">
         <span className="font-mono text-[10px] font-semibold tracking-[.08em] text-fg-subtle">
-          {flow === "write" ? "TEST · KNX VALUE" : "TEST · MODBUS VALUE"}
+          {`TEST · ${(flow === "write" ? sides.internal : sides.external).toUpperCase()} VALUE`}
         </span>
         <Input
           type="number"
           size="sm"
-          aria-label={flow === "write" ? "Test KNX value" : "Test Modbus value"}
-          placeholder={flow === "write" ? "e.g. 21.5" : "e.g. 215"}
+          aria-label={`Test ${flow === "write" ? sides.internal : sides.external} value`}
+          placeholder={flow === "write" ? sides.testPlaceholder.internal : sides.testPlaceholder.external}
           value={test}
           onChange={(e) => setTest(e.target.value)}
           style={{ width: 100 }}
         />
         <span
           role="status"
-          aria-label={`${FLOW_LABELS[flow]} test result`}
+          aria-label={`${flowLabel(flow, sides)} test result`}
           className={cn(
             "text-[12px]",
             input === undefined ? "text-fg-subtle" : stop ? "font-bold text-error" : "font-bold text-success",
@@ -988,6 +956,7 @@ function LaneError({ children }: { children: React.ReactNode }) {
 
 function Picker({
   slot,
+  names,
   current,
   library,
   draft,
@@ -1002,6 +971,7 @@ function Picker({
   onClose,
 }: {
   slot: SlotKey;
+  names: { internal: string; external: string };
   current: number | null;
   library: ReturnType<typeof libraryLists<ConversionValues>>;
   draft: NewEntry | null;
@@ -1047,7 +1017,7 @@ function Picker({
     <div className="mx-[14px] mb-3 max-w-[440px] rounded-[6px] border border-hms-accent bg-white p-[10px] shadow-[0_0_0_3px_rgba(18,104,179,.10)]">
       <div className="mb-2 flex items-center">
         <span className="flex-1 font-mono text-[10px] font-semibold tracking-[.08em] text-hms-blue">
-          CHOOSE {SLOT_CAPTIONS[slot].toUpperCase()}
+          CHOOSE {slotCaption(slot, names).toUpperCase()}
         </span>
         <button type="button" onClick={onClose} className="cursor-pointer text-[12px] font-bold text-fg-muted">
           Close

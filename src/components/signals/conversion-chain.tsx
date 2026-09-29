@@ -12,16 +12,17 @@ import {
 } from "@/core/conversions/assignment";
 import { conversionSummary } from "@/core/conversions/formulas";
 import { CONVERSION_TYPE, isEditableConversionType, type ConversionValues } from "@/core/conversions/rules";
-import { knxConversionRwMode } from "@/gateway-families/knx-mbm/conversions";
-import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import { cn } from "@/lib/utils";
+import type { ConversionDirection, ConversionSignal } from "./conversion-sides";
 
-type Conversion = KnxMbmProject["conversions"][number];
+type Conversion = ConversionValues;
 
-export const FLOW_LABELS: Record<ConversionFlow, string> = {
-  write: "Write · KNX → Modbus",
-  read: "Read · Modbus → KNX",
-};
+/** "Write · KNX → Modbus": the write flow runs internal → external. */
+export function flowLabel<S extends ConversionSignal>(flow: ConversionFlow, sides: ConversionDirection<S>): string {
+  return flow === "write"
+    ? `Write · ${sides.internal} → ${sides.external}`
+    : `Read · ${sides.external} → ${sides.internal}`;
+}
 
 export function conversionName(conv: Pick<ConversionValues, "type" | "description">): string {
   return conv.description || (conv.type === CONVERSION_TYPE.FILTER ? "Untitled filter" : "Untitled operation");
@@ -38,7 +39,7 @@ interface ChainPart {
  * for that half, as cell parts: filters and system entries by name, operations
  * by formula.
  */
-export function storedFlowParts(signal: KnxMbmSignal, library: LibraryLists<Conversion>, flow: ConversionFlow): ChainPart[] {
+export function storedFlowParts(signal: ConversionSignal, library: LibraryLists<Conversion>, flow: ConversionFlow): ChainPart[] {
   return halfSteps(halfOfFlow(signal.conversions, flow)).map((step, i) => {
     const conv = library[step.list][step.index];
     const key = `${i}`;
@@ -50,10 +51,14 @@ export function storedFlowParts(signal: KnxMbmSignal, library: LibraryLists<Conv
 }
 
 /** One line per active flow, as the gateway runs the stored refs. */
-export function storedFlowLines(signal: KnxMbmSignal, conversions: Conversion[]): string[] {
+export function storedFlowLines<S extends ConversionSignal>(
+  signal: S,
+  conversions: Conversion[],
+  sides: ConversionDirection<S>,
+): string[] {
   const library = libraryLists(conversions);
-  return flowsOf(knxConversionRwMode(signal.knx.flags)).map(
-    (flow) => `${FLOW_LABELS[flow]}: ${storedFlowParts(signal, library, flow).map((part) => part.text).join(" › ") || "—"}`,
+  return flowsOf(sides.rwMode(signal)).map(
+    (flow) => `${flowLabel(flow, sides)}: ${storedFlowParts(signal, library, flow).map((part) => part.text).join(" › ") || "—"}`,
   );
 }
 
@@ -74,18 +79,20 @@ export interface ConversionChain {
  * runs them. The cell follows the defined flow (the only one, or the black one
  * of a read + write signal); the tooltip lists every active flow.
  */
-export function conversionChain(signal: KnxMbmSignal, conversions: Conversion[]): ConversionChain {
+export function conversionChain<S extends ConversionSignal>(
+  signal: S,
+  conversions: Conversion[],
+  sides: ConversionDirection<S>,
+): ConversionChain {
   const library = libraryLists(conversions);
-  const rwMode = knxConversionRwMode(signal.knx.flags);
+  const rwMode = sides.rwMode(signal);
   const flows = flowsOf(rwMode);
   const nonStandard = !refsRoundTrip(signal.conversions, rwMode);
   const stored = (flow: ConversionFlow) => halfSteps(halfOfFlow(signal.conversions, flow)).length > 0;
   const anyRefs = stored("write") || stored("read");
   if (signal.virtual) {
     const text = anyRefs ? "Ignored · virtual signal" : "Not available · virtual";
-    const title = anyRefs
-      ? "Virtual signals have no Modbus side: the gateway ignores these conversions."
-      : "Virtual signals have no Modbus side, so they cannot have conversions.";
+    const title = anyRefs ? sides.virtualNote.ignored : sides.virtualNote.unavailable;
     return { virtual: true, empty: !anyRefs, nonStandard: false, arrow: "", parts: [], text, title };
   }
   const note = nonStandard
@@ -112,7 +119,7 @@ export function conversionChain(signal: KnxMbmSignal, conversions: Conversion[])
     arrow,
     parts,
     text: `${arrow} ${parts.map((part) => part.text).join(" › ") || "—"}${nonStandard ? " · non-standard" : ""}`,
-    title: storedFlowLines(signal, conversions).join("\n") + note,
+    title: storedFlowLines(signal, conversions, sides).join("\n") + note,
   };
 }
 
