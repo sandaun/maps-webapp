@@ -31,7 +31,7 @@ function currentView(id = "demo"): ProjectView {
     meta: { id, family: "mbs-knx", name: "P", description: "", source: "demo", updatedAt: "", revision },
     project: projectFromXml(xml),
     issues: [],
-    hasCompleteBlob: false,
+    passwordValid: false, hasCompleteBlob: false,
   };
 }
 

@@ -39,7 +39,7 @@ function buildKnxView(): ProjectView {
     family: "knx-mbm",
     project,
     issues: validateKnx(project),
-    hasCompleteBlob: false,
+    passwordValid: false, hasCompleteBlob: false,
   };
 }
 
@@ -57,7 +57,7 @@ function buildMeView(): ProjectView {
     family: "me-mbs",
     project,
     issues: validateMe(project),
-    hasCompleteBlob: false,
+    passwordValid: false, hasCompleteBlob: false,
   };
 }
 

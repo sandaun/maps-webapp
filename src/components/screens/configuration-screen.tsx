@@ -25,8 +25,9 @@ import { useDraftForm, usePropertyDrafts, useRevealProperty } from "@/lib/proper
 import { cn } from "@/lib/utils";
 import { FieldRow, GroupCard, ReadOnly, SectionHeader } from "./configuration-blocks";
 import { ConversionsSection } from "./configuration-conversions";
+import { PasswordSection } from "./configuration-password";
 
-type SectionKey = "general" | "network" | "bms" | "device" | "conv";
+type SectionKey = "general" | "network" | "bms" | "device" | "conv" | "security";
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   general: "General",
@@ -34,6 +35,7 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   bms: "BMS",
   device: "Device",
   conv: "Conversions",
+  security: "Security",
 };
 
 function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
@@ -46,6 +48,7 @@ function sectionsFor(family: FamilyId): { key: SectionKey; label: string }[] {
   // MAPS hides the conversions panel when the project disables conversions
   // (`frmGateway.cs:283`); ME–MBS does (`IntesisProjectMbsMe_RT.ConversionsEnabled`).
   if (family === "knx-mbm" || family === "mbs-knx") sections.push({ key: "conv", label: SECTION_LABELS.conv });
+  sections.push({ key: "security", label: SECTION_LABELS.security });
   return sections;
 }
 
@@ -59,10 +62,19 @@ export function ConfigurationScreen() {
 
 function ConfigurationWorkspace({ view }: { view: ProjectView }) {
   const sections = sectionsFor(view.family);
-  const [section, setSection] = React.useState<SectionKey>("general");
+  const searchParams = useSearchParams();
+  const sectionParam = searchParams.get("section");
+  const requestedSection = sections.find((candidate) => candidate.key === sectionParam)?.key;
+  const [section, setSection] = React.useState<SectionKey>(requestedSection ?? "general");
+  const [lastSectionParam, setLastSectionParam] = React.useState(sectionParam);
+  // Next's client navigation can change the query while Configuration stays mounted.
+  if (sectionParam !== lastSectionParam) {
+    setLastSectionParam(sectionParam);
+    if (requestedSection) setSection(requestedSection);
+  }
   const [reveal, setReveal] = React.useState<{ id: string; seq: number }>();
   // "Open conversion" of a validation issue: /configuration?conversion=f0 selects that library entry.
-  const conversionParam = useSearchParams().get("conversion");
+  const conversionParam = searchParams.get("conversion");
   const [openedConversion, setOpenedConversion] = React.useState<string | null>(null);
   if (
     (view.family === "knx-mbm" || view.family === "mbs-knx") &&
@@ -120,6 +132,7 @@ function ConfigurationWorkspace({ view }: { view: ProjectView }) {
           <ScreenIssues issues={view.issues} screen="configuration" />
           {section === "general" && <GeneralSection view={view} />}
           {section === "network" && <NetworkSection view={view} />}
+          {section === "security" && <PasswordSection passwordValid={view.passwordValid} />}
           {section === "bms" &&
             (view.family === "knx-mbm" ? (
               <KnxInterfaceSection

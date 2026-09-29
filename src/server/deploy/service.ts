@@ -1,5 +1,5 @@
 import "server-only";
-import { buildCompleteBlob, buildProjectZip, parseCompleteBlob } from "@/core/project-format";
+import { buildCompleteBlob, buildProjectZip, parseCompleteBlob, XmlDocument } from "@/core/project-format";
 import { decodeElements, DEFAULT_SW_VERSION } from "@/core/xbl";
 import { APP_ID_KNX_MBM, generateKnxMbmXbl } from "@/gateway-families/knx-mbm";
 import { APP_ID_ME_AC_XXX, generateMeMbsXbl, validateSlaveIndices } from "@/gateway-families/me-mbs";
@@ -7,6 +7,7 @@ import { APP_ID_MBS_KNX, generateMbsKnxXbl } from "@/gateway-families/mbs-knx";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
 import { getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
+import { hasValidProjectPassword } from "../projects/password";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 
 /**
@@ -24,13 +25,14 @@ import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
  *    project can never be pushed to a gateway of a different family.
  * 4. `project` — families with deploy blockers (me-mbs: signals left on the
  *    wrong Modbus slave, `validateSlaveIndices`) must have none.
+ * 5. `password` — MAPS requires a nonempty ASCII IBOX/Pwd for every supported family.
  *
  * The XBL is REGENERATED from the current project XML (never the original
  * blob's XBL) so user edits take effect; the firmware only runs config from
  * the XBL (PROTOCOL.md §10, SENDPROJ experiment).
  */
 
-export type DeployGateId = "family" | "capability" | "session-appid" | "project";
+export type DeployGateId = "family" | "capability" | "session-appid" | "project" | "password";
 
 /** Gate failure carrying an HTTP status, rendered by projects/http.ts. */
 export class DeployGateError extends Error {
@@ -164,7 +166,7 @@ async function runGates(
   projectId: string,
   sessionId: string,
   deps: DeployDeps,
-): Promise<{ checks: DeployGateCheck[]; appId?: number; descriptor?: DeployFamilyDescriptor }> {
+): Promise<{ checks: DeployGateCheck[]; xml: string; appId?: number; descriptor?: DeployFamilyDescriptor }> {
   const view = await getProjectView(projectId); // 404 propagates
   const checks: DeployGateCheck[] = [];
 
@@ -216,7 +218,19 @@ async function runGates(
     checks.push({ id: "project", ok: blocker === undefined, detail: blocker ?? "No project issue blocks the deploy" });
   }
 
-  return { checks, appId, descriptor };
+  // Validate precisely the XML that will be compiled and sent. A later project
+  // edit must not substitute an unchecked password between gates and generation.
+  const xml = await getProjectStore().readXml(projectId);
+  const passwordOk = hasValidProjectPassword(XmlDocument.parse(xml));
+  checks.push({
+    id: "password",
+    ok: passwordOk,
+    detail: passwordOk
+      ? "Project password is valid"
+      : "Set a valid project password in Configuration → Security before deploying.",
+  });
+
+  return { checks, xml, appId, descriptor };
 }
 
 /** Evaluate the deploy gates without side effects (drives the UI state). */
@@ -239,7 +253,7 @@ export async function deployProject(
   deps: DeployDeps = {},
 ): Promise<DeployResult> {
   const sessions = deps.sessions ?? getGatewaySessionManager();
-  const { checks, appId, descriptor } = await runGates(projectId, sessionId, deps);
+  const { checks, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
   for (const check of checks) {
     if (check.ok) continue;
     const status =
@@ -250,7 +264,6 @@ export async function deployProject(
   if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
 
   const store = getProjectStore();
-  const xml = await store.readXml(projectId);
 
   let swVersion: readonly [number, number, number, number] = DEFAULT_SW_VERSION;
   if (await store.hasCompleteBlob(projectId)) {

@@ -27,7 +27,7 @@ const knxView: ProjectView = {
   family: "knx-mbm",
   project: knxProjectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML)),
   issues: [],
-  hasCompleteBlob: false,
+  passwordValid: false, hasCompleteBlob: false,
 };
 
 const meMbsView: ProjectView = {
@@ -42,7 +42,7 @@ const meMbsView: ProjectView = {
   family: "me-mbs",
   project: meProjectFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)),
   issues: [],
-  hasCompleteBlob: true,
+  passwordValid: false, hasCompleteBlob: true,
 };
 
 let currentView: ProjectView = knxView;
@@ -186,6 +186,17 @@ describe("DeployScreen (knx-mbm)", () => {
     await screen.findByText("Blocked by a gate");
     expect(button).toBeDisabled();
     expect(screen.getByText(/Missing verified XBL capability \(knxMbmXblVerified\)/)).toBeInTheDocument();
+  });
+
+  it("links a blocked password gate to Configuration Security", async () => {
+    const posts = stubFetch({
+      sessions: [KNX_SESSION],
+      status: { deployable: false, checks: [{ id: "password", ok: false, detail: "Set a project password before deploying." }] },
+    });
+    render(<DeployScreen />);
+    expect(await screen.findByRole("link", { name: "Set password" })).toHaveAttribute("href", "/configuration?section=security");
+    expect(screen.getByRole("button", { name: "Deploy to gateway" })).toBeDisabled();
+    expect(posts).toEqual([]);
   });
 
   it("keeps deploy disabled without a gateway session", async () => {

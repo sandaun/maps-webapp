@@ -39,6 +39,8 @@ export interface ProjectMeta {
 }
 
 interface ProjectViewBase {
+  /** MAPS deploy integrity check; never the password itself. */
+  passwordValid: boolean;
   meta: ProjectMeta;
   issues: ValidationIssue[];
   hasCompleteBlob: boolean;
@@ -108,6 +110,7 @@ export type ConversionListInput = "filters" | "operations";
 
 /** Mirror of `ProjectPatch` in `src/server/projects/families.ts`. */
 export type ProjectPatchInput =
+  | { type: "setProjectPassword"; password: string }
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }

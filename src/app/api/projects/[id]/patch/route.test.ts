@@ -70,6 +70,30 @@ describe("PATCH If-Match", () => {
   });
 });
 
+describe("PATCH project password", () => {
+  function post(password: unknown) {
+    return POST(new Request("http://local/api/projects/demo/patch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patches: [{ type: "setProjectPassword", password }] }),
+    }), { params: Promise.resolve({ id: "demo" }) });
+  }
+
+  it("returns only password status, never the new password", async () => {
+    const response = await post("New-test");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.passwordValid).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("New-test");
+  });
+
+  it.each(["", "café", "control\n", "long-test-password", 123, null])("rejects malformed/invalid values without reflecting them: %j", async (password) => {
+    const response = await post(password);
+    expect([400, 422]).toContain(response.status);
+    const body = await response.text();
+    if (typeof password === "string" && password.length) expect(body).not.toContain(password);
+  });
+});
+
 describe("PATCH signal conversions", () => {
   function post(patches: unknown[]) {
     return POST(

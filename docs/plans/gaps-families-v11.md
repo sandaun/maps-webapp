@@ -46,7 +46,7 @@ Git).
 | BMS: slave addressing Single/Multiple + llista de slaves | [fet] | backend + UI + test de servei. Passar a Multiple regenera els senyals com MAPS (1.0); la llista es deriva dels grups i es mostra de només lectura, amb «Slave starting address» com a MAPS |
 | BMS: RTU connection type | [fet] | read-only ("una sola EIA-485") |
 | DNS / NTP / timezone (`<TimeConfiguration>`, atributs `DNS`/`DNS2`) | [decidir] | ni es parseja al model; pendent de decisió de producte |
-| Security (password, certs) | [decidir] | `Pwd` exclòs del model a propòsit; V11 hi té secció |
+| Security (password, certs) | [parcial] | Contrasenya només d'escriptura i bloqueig abans de desplegar [fet], vegeu §4. Certificats pendents. `Pwd` continua exclòs del model |
 | Consumption function: assignació de meters | [falta] | només tenim el toggle `Enabled`; el desktop/V11 tenen "meter assignment" (issue `ME-*` del V11 ho referencia) |
 
 ### 1.2 AC units (pantalla de dispositius)
@@ -217,3 +217,71 @@ Pendents (abans de disseny):
   Nosaltres activem tot: `DEBUG=1` al costat KNX omple el log de `DB_MSG`/`DB_AL`
   i al Modbus cada petició surt dues vegades (`[Tx] 01 03 …` de COMMS i
   `[Tx] Slv:1 Func:3 …` de DEBUG).
+
+---
+
+## 4. Pendents després de MBS–KNX (un PR per punt, en aquest ordre)
+
+MBS–KNX es va fusionar amb el PR #20 (`docs/reference/mbs-knx-analisi.md`).
+El que queda és compartit entre famílies. Abans de cada PR, cal revisar què
+ja existeix i què es pot compartir.
+
+1. **Contrasenya abans de desplegar** (totes les famílies) — **[fet]**.
+   - **MAPS:** no envia si la contrasenya del projecte no és vàlida.
+     `frmMain.cs:7413`: `PasswordNeeded && !TypeUtils.CheckPasswordIntegrity(ConfigPwd)`.
+     Mostra «Please, set a valid Password for the Project» i obre el diàleg
+     de canvi (`frmGateway.b_changePwd_Click` → `frmProtectProject`).
+     `CheckPasswordIntegrity` (`TypeUtils.cs:712`) rebutja una contrasenya
+     buida o no ASCII. `PasswordNeeded` és true per defecte; se sobreescriu
+     en poques classes (MBSIR, MBSPAAHU, BacnetIr).
+   - **Nosaltres:** la contrasenya és `IBOX Pwd`. El model no la llegeix, per
+     disseny, i no ha d'arribar mai al navegador. L'XBL la hi escriu
+     (`core/xbl/ibox-xml.ts`).
+   - **Què va passar:** la plantilla de MBS–KNX la porta buida, i el deploy
+     de la prova en viu va deixar la unitat sense contrasenya.
+   - **Implementat:** porta `password` al deploy i editor compartit a
+     Configuration → Security, només d'escriptura, amb confirmació.
+     El diàleg de MAPS limita l'entrada a 8 caràcters ASCII imprimibles;
+     el control d'enviament només comprova no buida + ASCII. Es mantenen
+     les dues regles. Recerca i verificacions a
+     `docs/reference/project-password.md`.
+2. **Integritat de l'XML compacte** (KNX–MBM, ME–MBS). Vegeu el punt del §3.
+   El helper corregit és a `mbs-knx/xml-ops.ts` i
+   `core/conversions/library-xml.ts`. Cal compartir-lo i afegir tests de
+   regressió.
+3. **Esborrar projectes.** Vegeu el punt del §3.
+4. **Numeració automàtica** d'adreces Modbus i GA KNX (eina de taula
+   compartida).
+   - **MAPS:**
+     - Modbus: `InternalMbs.AutoEnumRegisters` / `AutoEnumModbusAddress`
+       (`InternalMbs.cs:1134`, `:1755`; inici + increment, màxim 20.000).
+     - KNX: `ExternalKnx.AutoEnumGroupAddresses` (`ExternalKnx.cs:816`) i
+       `InternalKnx`. Format d'1, 2 o 3 nivells, inici + increment.
+     - Diàleg: `frmAutoEnum`.
+   - **Nosaltres:** no hi és a cap família. A ME–MBS no té sentit, perquè les
+     adreces són fixes. Referència antiga: `docs/plans/knx-mbm-mvp.md:144`.
+5. **Reordenar files.**
+   - **MAPS:** Move Up/Down (`ModifyObjectsPosition` → `MoveRowByOne` a
+     `InternalMbs.cs:1013` i `ExternalKnx.cs:768`). Intercanvia les dues
+     files als dos costats i en renumera `ConfigID`/`ExternalID`.
+   - **Nosaltres:** no hi ha cap op `moveSignal`. Es vol arrossegar, amb
+     alternativa de teclat i desfer.
+   - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
+     model.
+6. **XLSX a MBS–KNX.**
+   - **Nosaltres:** KNX–MBM i ME–MBS ja el tenen (`server/exports/xlsx-signals.ts`,
+     `server/imports/xlsx-signals.ts`). MBS–KNX respon amb un 422
+     (`server/projects/service.ts`).
+   - **MAPS:** `IntesisProjectMBSKNX_RT.AddObjectsFromExcel` /
+     `CheckExcelRowIntegrity` (`:868-930`).
+7. **ETS/ESF** per a les famílies amb KNX.
+   - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta
+     per a MBS–KNX, on el KNX és el costat extern.
+   - **Import:** no existeix. MAPS: `KnxProjectParser` / `EsfProjectParser`
+     (`Protocols.KNX.External/`) i `PopulateProjectFromKNXDataGridView`
+     (`IntesisProjectMBSKNX_RT.cs:932`).
+
+**Correcció petita independent.** El camí de traducció de la visió general
+(`overview-screen.tsx`, `.overflow-x-auto`) fa 666 px en un espai de 661 a
+1440 px d'ample, i hi apareix una barra horitzontal. Passa igual a totes les
+famílies.

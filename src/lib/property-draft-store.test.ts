@@ -39,14 +39,14 @@ function fixture(family: Extract<FamilyId, "knx-mbm" | "me-mbs"> = "knx-mbm") {
           meta: meta(),
           project: readKnx(doc),
           issues: [],
-          hasCompleteBlob: false,
+          passwordValid: false, hasCompleteBlob: false,
         }
       : {
           family,
           meta: meta(),
           project: readMe(doc),
           issues: [],
-          hasCompleteBlob: false,
+          passwordValid: false, hasCompleteBlob: false,
         };
   const patch = (patches: ProjectPatchInput[]) => {
     familyById(family).applyPatches(doc, patches);

@@ -89,6 +89,7 @@ import {
   type MbmTcpNode,
 } from "@/protocols/modbus/master";
 import { ProjectServiceError } from "./errors";
+import { setProjectPassword } from "./password";
 
 /**
  * Gateway-family registry: the single place where the project service learns
@@ -127,6 +128,7 @@ type MeGroupPatch = Partial<
 
 /** Patch ops a KNX ↔ Modbus Master project accepts. */
 export type KnxMbmPatch =
+  | ProjectPasswordPatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
@@ -179,6 +181,7 @@ type KnxMbmSignalPatchInput = Omit<KnxMbmSignalPatch, "conversionRefs"> & { conv
 
 /** Patch ops a Mitsubishi Electric AC ↔ Modbus Slave project accepts. */
 export type MeMbsPatch =
+  | ProjectPasswordPatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "addSignal" }
@@ -197,6 +200,7 @@ type MbsKnxSignalPatchInput = Omit<MbsKnxSignalPatch, "conversionRefs"> & { conv
 
 /** Patch ops a KNX ↔ Modbus Slave project accepts. */
 export type MbsKnxPatch =
+  | ProjectPasswordPatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }
   | { type: "setKnxPhysicalAddress"; address: number }
@@ -210,6 +214,7 @@ export type MbsKnxPatch =
   | ConversionLibraryPatch;
 
 /** Patch operations accepted by the API (validated with zod at the edge). */
+type ProjectPasswordPatch = { type: "setProjectPassword"; password: string };
 export type ProjectPatch = KnxMbmPatch | MeMbsPatch | MbsKnxPatch;
 
 // --- registry -----------------------------------------------------------------
@@ -228,6 +233,7 @@ interface FamilyEntry {
 }
 
 const KNX_MBM_TYPES = new Set([
+  "setProjectPassword",
   "setGeneralInfo",
   "setGatewayInfo",
   "setKnxPhysicalAddress",
@@ -248,6 +254,7 @@ const KNX_MBM_TYPES = new Set([
 ]);
 
 const ME_MBS_TYPES = new Set([
+  "setProjectPassword",
   "setGeneralInfo",
   "setGatewayInfo",
   "addSignal",
@@ -288,6 +295,7 @@ const ME_MBS: FamilyEntry = {
 };
 
 const MBS_KNX_TYPES = new Set([
+  "setProjectPassword",
   "setGeneralInfo",
   "setGatewayInfo",
   "setKnxPhysicalAddress",
@@ -361,6 +369,9 @@ function applyKnxMbmPatches(doc: XmlDocument, patches: KnxMbmPatch[]): void {
 
 function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
   switch (patch.type) {
+    case "setProjectPassword":
+      setProjectPassword(doc, patch.password);
+      break;
     case "setGeneralInfo":
       knxSetGeneralInfo(doc, patch);
       break;
@@ -488,6 +499,9 @@ function applyMeMbsPatches(doc: XmlDocument, patches: MeMbsPatch[]): void {
 
 function applyMeMbsPatch(doc: XmlDocument, patch: MeMbsPatch): void {
   switch (patch.type) {
+    case "setProjectPassword":
+      setProjectPassword(doc, patch.password);
+      break;
     case "setGeneralInfo":
       meSetGeneralInfo(doc, patch);
       break;
@@ -566,6 +580,9 @@ function applyMbsKnxPatches(doc: XmlDocument, patches: MbsKnxPatch[]): void {
 /** Returns true when the patch removed a signal. */
 function applyMbsKnxPatch(doc: XmlDocument, patch: MbsKnxPatch): boolean {
   switch (patch.type) {
+    case "setProjectPassword":
+      setProjectPassword(doc, patch.password);
+      break;
     case "setGeneralInfo":
       mbsKnxSetGeneralInfo(doc, patch);
       break;
