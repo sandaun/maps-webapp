@@ -283,7 +283,9 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
         const levels: (1 | 2 | 3)[] = [];
         for (const part of parts) {
           const ga = parseGroupAddress(part);
-          if (ga === undefined || !isValidGroupAddress(ga, { extended })) {
+          // InternalKnx checks the listening cell's format, not the project's
+          // extended-address setting (which only limits the sending address).
+          if (ga === undefined || !isValidGroupAddress(ga, { extended: true })) {
             return { error: `Invalid group address: “${part}”` };
           }
           addresses.push(ga);
