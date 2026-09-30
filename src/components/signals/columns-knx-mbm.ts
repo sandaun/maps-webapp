@@ -186,11 +186,14 @@ function deviceOptions(mbm: MbmConfig, row: KnxSignalRow) {
   ];
 }
 
-/** `CheckFloatAndDash(value, 0f, 100f)` with `Replace(',', '.')` (ExternalMbm.cs:2921, 2109-2112). */
+/**
+ * `CheckFloatFormat` (digits, commas and points only: no sign, spaces or
+ * exponent) and `CheckFloatAndDash(value, 0f, 100f)`, read with
+ * `Replace(',', '.')` (ExternalMbm.cs:2921, 2109-2112).
+ */
 function parseDeadband(raw: string): { deadband: number } | { error: string } {
-  const text = raw.trim().replace(",", ".");
-  const value = Number(text);
-  if (text === "" || !Number.isFinite(value) || value < 0 || value > 100) {
+  const value = Number(raw.replace(",", "."));
+  if (!/^[\d,.]+$/.test(raw) || !Number.isFinite(value) || value < 0 || value > 100) {
     return { error: "Invalid value for Deadband (0..100)" };
   }
   return { deadband: value };

@@ -23,7 +23,8 @@ describe("KNX–MBM deadband column (MAPS ch_deadband)", () => {
   });
 
   it("accepts 0–100 only, with the MAPS message", () => {
-    for (const raw of ["-1", "100.5", "abc", ""]) {
+    // `CheckFloatFormat` also refuses signs, spaces and exponents.
+    for (const raw of ["-1", "100.5", "abc", "", "1E-05", "1e-5", " 2.5", "+1"]) {
       expect(column.parse!(ordinary, raw)).toEqual({ error: "Invalid value for Deadband (0..100)" });
     }
     expect(column.parse!(ordinary, "100")).toEqual({ patch: { modbus: { deadband: 100 } } });

@@ -463,6 +463,11 @@ la Fase C i el suport V6 queden fora.
   catàleg ni baixa firmwares; es rebutja amb el motiu.
 - **Correcció de llicència** (`LICENSE_FIX_REQUIRED`): depèn de la llista de
   números de sèrie incorporada a MAPS (`LicenseFixManager`); no es comprova.
+- **Deadband per sota de 0,0001 a l'XLSX** (limitació compartida amb MAPS, no
+  es corregeix): l'export l'escriu com `float.ToString()` ("1E-05") i la
+  importació, com `CheckFloatFormat`, només accepta dígits, comes i punts, així
+  que aquest valor no fa l'anada i tornada per Excel. La graella també rebutja
+  exponents, com la cel·la de MAPS.
 - **Comprovació en viu**: el tag 15 i l'avís de firmware només estan provats
   amb tests i les regles del codi; falta un XBL de MAPS amb deadbands no nuls
   i un gateway amb firmware anterior a 2.0.2.0.
