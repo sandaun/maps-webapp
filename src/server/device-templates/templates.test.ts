@@ -39,7 +39,8 @@ describe("MAPS device template format", () => {
     expect(parsed.preview.device).toMatchObject({ manufacturer: "Test manufacturer", baseRegister: 0, timeout: 750 });
     expect(parsed.preview.signals[0]).toMatchObject({ description: "Temperature & demand", knx: { dpt: 2305, groupAddress: 102, additionalAddresses: [300], priority: 2 }, modbus: { lenBits: 32, format: 3, byteOrder: 2, address: 17, deadband: 0.25 } });
     expect(parsed.preview.signals[1]).toMatchObject({ active: false, modbus: { lenBits: 64, writeFunc: -1 } });
-    expect(parsed.preview.warnings.some((w) => w.includes("deadband"))).toBe(true);
+    // The per-signal deadband reaches the gateway (tag 15): nothing to warn about.
+    expect(parsed.preview.warnings.some((w) => w.includes("deadband"))).toBe(false);
   });
 
   it.each([

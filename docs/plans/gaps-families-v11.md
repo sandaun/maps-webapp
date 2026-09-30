@@ -175,7 +175,7 @@ Implementat a KNX–MBM (2026-09-30):
 Validat amb proves sintètiques, quatre templates oficials (inclòs Daikin de
 4.417 files), generació/decodificació XBL i flux real de biblioteca al navegador.
 Pendent el contrast en una execució del desktop/equip real. El deadband per
-senyal manté el gap XBL previ; s'avisa al preview. Es rebutgen conversions
+senyal dels templates arriba a l'equip (tag 15, sandaun/maps-webapp#29). Es rebutgen conversions
 LUT referenciades perquè el format de template no porta les dades de lookup.
 BACnet–MBM com a família, preview BACnet i aplicació de taules d'estats/MAP
 continuen pendents; importar un fitxer bacmbm a KNX no implementa aquella família.
