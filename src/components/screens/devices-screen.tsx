@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2, Download, Library } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Plus, Trash2, Download, Library, Loader2 } from "lucide-react";
 import { DeviceTemplateModal } from "@/components/devices/device-template-modal";
 import { downloadDeviceTemplate } from "@/lib/device-templates";
 import { useCurrentProject } from "@/lib/current-project";
@@ -54,7 +55,7 @@ function DevicesSections({ view }: { view: Extract<ProjectView, { family: "knx-m
   const { rtuNodes, tcpNodes } = view.project.mbm;
 
   return (
-    <div className="flex min-h-full max-w-5xl flex-col">
+    <div className="flex min-h-full min-w-0 max-w-5xl flex-col">
       <div className="flex-1 space-y-4 pb-6">
       <ScreenIssues issues={view.issues} screen="devices" />
       {error && (
@@ -109,7 +110,7 @@ function NodeSection({
 }) {
   return (
     <section className="space-y-3" aria-label={title}>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h2 className="font-mono text-[10.5px] font-medium uppercase tracking-wider text-fg-muted">
           {title}
         </h2>
@@ -341,7 +342,7 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
   const [templateOpen, setTemplateOpen] = React.useState(false);
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h3 className="font-mono text-[10.5px] font-medium uppercase tracking-wider text-fg-muted">
           Devices
         </h3>
@@ -363,18 +364,18 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
       {devices.length === 0 ? (
         <p className="text-sm text-fg-muted">No devices on this node.</p>
       ) : (
-        <Table>
+        <Table className="min-w-[700px] table-fixed [&_th]:px-2 [&_td]:px-2">
           <TableHeader>
             <TableRow>
-              <TableHead>#</TableHead>
+              <TableHead className="w-10">#</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Manufacturer</TableHead>
-              <TableHead>Slave</TableHead>
-              <TableHead>Base register</TableHead>
+              <TableHead className="w-[72px]">Slave</TableHead>
+              <TableHead className="w-[120px]">Base register</TableHead>
               {/* MAPS hides the timeout of TCP devices (p_devAdvanced) and never sends it for them. */}
-              {locator.kind === "rtu" && <TableHead>Timeout (ms)</TableHead>}
-              <TableHead>Enabled</TableHead>
-              <TableHead>
+              {locator.kind === "rtu" && <TableHead className="w-[104px]">Timeout (ms)</TableHead>}
+              <TableHead className="w-[76px]">Enabled</TableHead>
+              <TableHead className="sticky right-0 z-10 w-20 bg-white">
                 <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
@@ -415,7 +416,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Device name"
           size="sm"
-          className="w-40"
+          className="w-full"
           value={form.name}
           maxLength={128}
           onChange={(e) => set("name", e.target.value)}
@@ -427,7 +428,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Manufacturer"
           size="sm"
-          className="w-32"
+          className="w-full"
           value={form.manufacturer}
           maxLength={128}
           onChange={(e) => set("manufacturer", e.target.value)}
@@ -440,7 +441,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           aria-label="Slave"
           type="number"
           size="sm"
-          className="w-20"
+          className="w-full"
           value={form.slave}
           min={slaveRange.min}
           max={slaveRange.max}
@@ -453,7 +454,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
           inlineDot
           aria-label="Base register"
           size="sm"
-          className="w-24"
+          className="w-full"
           value={form.baseRegister}
           onValueChange={(value) => set("baseRegister", Number(value) as 0 | 1)}
           options={[{ value: "0", label: "0-based" }, { value: "1", label: "1-based" }]}
@@ -467,7 +468,7 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
             aria-label="Timeout"
             type="number"
             size="sm"
-            className="w-24"
+            className="w-full"
             value={form.timeout}
             min={DEVICE_TIMEOUT_RANGE.min}
             max={DEVICE_TIMEOUT_RANGE.max}
@@ -484,26 +485,43 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
         />
         <ImmediatePropertyError id={`${group}-enabled`} />
       </TableCell>
-      <TableCell className="whitespace-nowrap">
-        <Button size="sm" variant="secondary" disabled={busy || exporting || pendingCount > 0 || !signals.some((s) => !s.virtual)}
-          title={pendingCount > 0 ? "Save device edits before exporting" : "Export this device as a MAPS template"}
-          onClick={() => {
-            if (!projectId) return;
-            setExporting(true); setExportError(null);
-            const query = new URLSearchParams({ kind: locator.kind, nodeIndex: String(locator.nodeIndex), deviceIndex: String(position) });
-            void downloadDeviceTemplate(`/api/projects/${encodeURIComponent(projectId)}/device-templates/export?${query}`, `${device.name}.knxmbm`)
-              .catch((err: unknown) => setExportError(err instanceof Error ? err.message : "Export failed"))
-              .finally(() => setExporting(false));
-          }}>
-          <Download className="h-3.5 w-3.5" aria-hidden />{exporting ? "Exporting…" : "Export template"}
-        </Button>
-        <Button size="sm" variant="ghost-destructive" disabled={busy} onClick={() => setConfirmRemove(true)}>
-          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          Remove
-        </Button>
-        {error && !confirmRemove && <p role="alert" className="text-xs text-error">{error}</p>}
-        {exportError && <p role="alert" className="text-xs text-error">{exportError}</p>}
-        {confirmRemove && (
+      <TableCell className="sticky right-0 z-10 bg-white">
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            variant="secondary"
+            disabled={busy || exporting || pendingCount > 0 || !signals.some((s) => !s.virtual)}
+            aria-label="Export template"
+            aria-busy={exporting || undefined}
+            title={pendingCount > 0 ? "Save device edits before exporting" : "Export this device as a MAPS template"}
+            onClick={() => {
+              if (!projectId) return;
+              setExporting(true); setExportError(null);
+              const query = new URLSearchParams({ kind: locator.kind, nodeIndex: String(locator.nodeIndex), deviceIndex: String(position) });
+              void downloadDeviceTemplate(`/api/projects/${encodeURIComponent(projectId)}/device-templates/export?${query}`, `${device.name}.knxmbm`)
+                .catch((err: unknown) => setExportError(err instanceof Error ? err.message : "Export failed"))
+                .finally(() => setExporting(false));
+            }}
+          >
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Download className="h-3.5 w-3.5" aria-hidden />}
+          </Button>
+          <Button
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            variant="ghost-destructive"
+            aria-label="Remove"
+            title={`Remove ${device.name || "device"}`}
+            disabled={busy}
+            onClick={() => setConfirmRemove(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </div>
+        {error && !confirmRemove && <p role="alert" className="break-words text-xs text-error">{error}</p>}
+        {exportError && <p role="alert" className="break-words text-xs text-error">{exportError}</p>}
+        {/* Keep the dialog outside the sticky cell's clipping and stacking context. */}
+        {confirmRemove && createPortal(
           <Modal
             title={`Remove device ${position}`}
             description={`${device.name || "This device"} is removed and later devices on this node are renumbered. Signals of later devices keep pointing at the same device.`}
@@ -551,7 +569,8 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
               )}
               {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
             </div>
-          </Modal>
+          </Modal>,
+          document.body,
         )}
       </TableCell>
     </TableRow>
