@@ -167,7 +167,7 @@ Pendents (abans de disseny):
 | Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
 | Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [fet 2026-09-26] | model amb les dues meitats; export i import amb "Conv. Id" i el full "Conversions" com MAPS (import més estricte en els casos perillosos); patch com `SaveObjectsConfiguration`. Detall a `docs/reference/conversions.md` §5 |
 | Import ESF (ETS) | [decidir] | export ESF [fet]; import no existeix ni al V11 |
-| Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML) |
+| Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML). El deadband per senyal ja es llegeix, s'exporta i s'importa per XLSX (§4, punt 7), però **encara no arriba a l'equip**: l'XBL només emet el global (tag 8) i no el tag 15 per senyal de RT. Pendent a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md) |
 
 ---
 
@@ -374,6 +374,11 @@ ja existeix i què es pot compartir.
      compten les seves conversions. Els senyals nous ja no es creen `Fixed`.
      L'Excel real de Stiebel (MAPS 1.2.27, 113 senyals) s'importa amb els seus
      valors.
+   - **Limitació KNX–MBM: el deadband per senyal no arriba a l'equip.** L'import
+     l'escriu a `<Deadband>` de cada senyal, però l'XBL encara no emet el tag 15
+     per senyal ni aplica la migració RT del global (només el tag 8 global), de
+     manera que el valor importat no canvia l'XBL. Pendent, amb les plataformes,
+     a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
    - **Divergències KNX–MBM:** Address "-" en una fila normal es rebutja (MAPS
      l'accepta i falla a mitja importació). La base es compara amb la del
      dispositiu. L'adreça de grup es reescriu amb el seu format de nivells, no
