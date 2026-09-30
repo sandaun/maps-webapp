@@ -7,7 +7,7 @@ import type { ProjectPatchInput } from "./project-types";
 const SIDEBAR_KEY = "maps.sidebarCollapsed";
 
 /** Patches that can renumber signal IDs. */
-const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode", "moveSignal"]);
+const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode", "moveSignal", "undoDeviceTemplate"]);
 
 const sidebarListeners = new Set<() => void>();
 
@@ -78,7 +78,8 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
   React.useEffect(() => {
     const onPatched = (event: Event) => {
       const { patches } = (event as CustomEvent<ProjectPatchedDetail>).detail;
-      if (patches.some((patch) => SIGNAL_REMOVING.has(patch.type))) setUndo(null);
+      setUndo((current) => patches.some((patch) => SIGNAL_REMOVING.has(patch.type)) ||
+        current?.patches.some((patch) => patch.type === "undoDeviceTemplate") ? null : current);
     };
     // Another project, or a revision written elsewhere: the entry's IDs may
     // now name different signals (the other session may have renumbered them).

@@ -439,7 +439,10 @@ export function createPropertyDraftStore() {
         let id = entry.id;
         let removed = false;
         for (const patch of patches) {
-          if (patch.type === "removeNode") {
+          if (patch.type === "undoDeviceTemplate" && !newFields.has(id)) {
+            // Undo removes only entities appended by the import; keep unrelated drafts.
+            removed = true;
+          } else if (patch.type === "removeNode") {
             const match = id.match(/^(rtu|tcp)-(\d+)(-.*)$/);
             if (match && match[1] === patch.locator.kind) {
               const index = Number(match[2]);

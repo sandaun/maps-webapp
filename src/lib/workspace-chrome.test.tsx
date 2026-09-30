@@ -12,6 +12,7 @@ function UndoProbe() {
         push
       </button>
       <output>{undo?.label ?? "none"}</output>
+      <button onClick={() => pushUndo({label:"Template",patches:[{type:"undoDeviceTemplate",token:"test"}]})}>push template</button>
     </>
   );
 }
@@ -36,6 +37,12 @@ function renderProbe() {
 }
 
 describe("workspace undo", () => {
+  it("clears template undo when a later edit makes its XML snapshot stale", () => {
+    renderProbe();
+    act(() => screen.getByRole("button",{name:"push template"}).click());
+    patched(8,8,[{type:"updateSignal",id:2,patch:{active:false}}]);
+    expect(screen.getByRole("status")).toHaveTextContent("none");
+  });
   it("drops an old undo entry when a move renumbers the signals", () => {
     renderProbe();
     patched(8, 8, [{ type: "moveSignal", id: 2, toIndex: 5 }]);

@@ -19,6 +19,7 @@ export function Modal({
   onConfirm,
   onClose,
   width = 500,
+  scrollable = false,
   children,
 }: {
   title: string;
@@ -31,6 +32,7 @@ export function Modal({
   onConfirm: () => void;
   onClose: () => void;
   width?: number;
+  scrollable?: boolean;
   children: React.ReactNode;
 }) {
   React.useEffect(() => {
@@ -51,8 +53,9 @@ export function Modal({
       />
       <div
         role="dialog"
+        aria-modal="true"
         aria-label={title}
-        className="relative w-full overflow-hidden whitespace-normal rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]"
+        className={cn("relative w-full overflow-hidden whitespace-normal rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]", scrollable && "flex max-h-[calc(100dvh-32px)] flex-col")}
         style={{ maxWidth: width }}
       >
         <div className="border-b border-border px-[22px] pb-[14px] pt-[18px]">
@@ -61,7 +64,7 @@ export function Modal({
             <p className="mt-1 text-[12.5px] leading-[1.5] text-fg-muted">{description}</p>
           ) : null}
         </div>
-        <div className="px-[22px] py-4">{children}</div>
+        <div className={cn("px-[22px] py-4", scrollable && "min-h-0 overflow-auto")}>{children}</div>
         <div className="flex items-center gap-[9px] border-t border-border bg-card-foot px-[22px] py-[14px]">
           <p className="flex-1 text-[11.5px] text-fg-subtle">{foot}</p>
           <Button variant="secondary" size="sm" className="h-8" onClick={onClose}>

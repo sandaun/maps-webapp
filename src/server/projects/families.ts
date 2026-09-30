@@ -1,4 +1,7 @@
 import "server-only";
+import type { ApplyDeviceTemplate } from "@/core/device-templates/types";
+import { applyDeviceTemplate } from "@/server/device-templates/apply";
+import { getPreviewTemplate } from "@/server/device-templates/cache";
 import type { XmlDocument } from "@/core/project-format";
 import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
@@ -130,6 +133,8 @@ type MeGroupPatch = Partial<
 
 /** Patch ops a KNX ↔ Modbus Master project accepts. */
 export type KnxMbmPatch =
+  | ApplyDeviceTemplate
+  | { type: "undoDeviceTemplate"; token: string }
   | ProjectPasswordPatch
   | SignalMovePatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
@@ -238,6 +243,8 @@ interface FamilyEntry {
 }
 
 const KNX_MBM_TYPES = new Set([
+  "applyDeviceTemplate",
+  "undoDeviceTemplate",
   "moveSignal",
   "setProjectPassword",
   "setGeneralInfo",
@@ -395,6 +402,12 @@ function applyKnxMbmPatches(doc: XmlDocument, patches: KnxMbmPatch[]): void {
 
 function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
   switch (patch.type) {
+    case "applyDeviceTemplate":
+      applyDeviceTemplate(doc, getPreviewTemplate(patch.token), patch);
+      break;
+    case "undoDeviceTemplate":
+      // The project service restores the server-held XML snapshot before dispatch.
+      break;
     case "moveSignal":
       applySignalMove(doc, patch, knxMoveSignal);
       break;

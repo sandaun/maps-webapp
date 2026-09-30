@@ -172,7 +172,7 @@ export function SignalsGrid<R>({
     };
     const onPatched = (event: Event) => {
       const { patches } = (event as CustomEvent<ProjectPatchedDetail>).detail;
-      if (patches.some((patch) => patch.type === "moveSignal")) resetEditors();
+      if (patches.some((patch) => patch.type === "moveSignal" || patch.type === "undoDeviceTemplate")) resetEditors();
     };
     window.addEventListener(PROJECT_PATCHED_EVENT, onPatched);
     window.addEventListener(PROJECT_REPLACED_EVENT, resetEditors);

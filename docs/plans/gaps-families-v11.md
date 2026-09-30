@@ -88,7 +88,7 @@ Git).
 
 ## 2. KNX ↔ Modbus Master (`knx-mbm`)
 
-### 2.1 Add from Template — **ESSENCIAL** [falta]
+### 2.1 Add from Template — **ESSENCIAL** [fet a KNX–MBM; BACnet–MBM pendent]
 
 Funcionalitat del desktop per afegir un **dispositiu Modbus amb tota la seva
 taula de senyals ja mapejada** d'un sol cop. Sense això, cada device s'ha de
@@ -100,7 +100,8 @@ Què sabem del descompilat (`Protocols.MB.External/`):
   template per node) i `b_devExportTemplate` (Export template).
 - `frmMbmTemplates.cs` (655 línies): diàleg amb catàleg + **Browse** (fitxer
   local) + **Download** (web HMS), preview dels senyals en taula, reanomenar el
-  device, checkbox **"import disabled"** (els senyals entren desactivats),
+  device, checkbox **"import disabled"** (inclou també els senyals desactivats,
+  conservant-ne l'estat),
   validació de nom duplicat.
 - `ModbusTemplate.cs` (1188 línies): format del fitxer — XML `<Template
   Version MAPSVersion Author>` amb `<ExternalProtocol>` (device MBM + senyals),
@@ -129,21 +130,55 @@ contenidor està descrit per sencer a
 - **Payload**: l'XML del template descrit a dalt.
 
 Conseqüència: les dues preguntes bloquejants (format i xifratge) estan
-resoltes. Podem **importar templates d'HMS i exportar/importar templates
-propis** amb total compatibilitat.
+resoltes. El contenidor permet **importar templates d'HMS i exportar/importar
+templates propis** amb el format de MAPS; la compatibilitat funcional s'ha de
+contrastar per família i contingut.
 
-Pendents (abans de disseny):
+### Recerca ampliada amb V16 — 2026-09-30
 
-1. **Implementar `template-crypto` + parser de template** a
-   `src/server/` (AES-CBC + GZip + HMAC amb `node:crypto`, parser del
-   `<Template>` al model MBM/KNX existent). Test amb un template real.
-2. **Catàleg**: el desktop llegeix fitxers locals (Browse) i en baixa de la web
-   HMS (Download). Nosaltres: upload de fitxer + (futur) catàleg propi.
-3. **Àmbit d'aplicació**: aplicar template crea device + senyals externes +
-   senyals internes (KNX) + conversions. Cal op de servidor `applyTemplate`
-   atòmica (o seqüència de patches existents en una transacció).
-4. **UI V12**: modal/pantalla amb preview de senyals, rename, import-disabled.
-   Passar a disseny quan 1–3 estiguin clars.
+Anàlisi de disseny, descompilat, webapp i quatre templates oficials
+descarregats/desxifrats a
+[Templates de dispositius Modbus](../reference/modbus-device-templates.md).
+El flux afegeix devices Modbus a projectes existents KNX–MBM o BACnet–MBM.
+També existeix en variants MBM NIBE/ATW/DAIKIN i MEB; M-Bus té un flux
+anàleg separat. BACnet–MBM encara no és una família implementada a la webapp.
+
+La biblioteca real **ja es pot consultar i descarregar**:
+`api-tools.intesis.com/v1`, 62 fabricants, 112 templates KNX i 95 BACnet
+amb Modbus MBM a la consulta de recerca. Cal paginar fins a una pàgina
+incompleta/buida: el `pagination.total` observat és de pàgina i aturar-se
+als primers 100 perd 12 templates KNX. Les quatre mostres utilitzen HMAC-SHA1
+legacy, necessari des del primer increment.
+
+La V16 aporta modal i biblioteca, però són simulats. Cal corregir extensions,
+GA inventades, rangs de slave, nodes, dades del preview i recompte amb el
+senyal virtual de comunicació; portar conversions amb reassignació i,
+a BACnet, taules d'estats/MAP. La importació és atòmica amb revisió
+i historial en la implementació KNX–MBM.
+
+Implementat a KNX–MBM (2026-09-30):
+
+1. **Lector i export** a `src/server/device-templates/`: AES-CBC, GZip,
+   HMAC-SHA256/SHA1, XML preservat, extensions knxmbm/knxmbr/bacmbm.
+   Els templates BACnet s'adapten al KNX com el desktop, amb avís.
+2. **Catàleg real** amb paginació completa, cache de cinc minuts, límits de
+   resposta i redireccions restringides a l'API oficial. La biblioteca
+   KNX observada retorna les 112 entrades; permet carregar i descarregar.
+3. **Aplicació atòmica**: device habilitat, error virtual fix, parells KNX/MBM,
+   conversions deduplicades i referències reassignades. Comprova revisió,
+   selecció, node, nom, slave i capacitat. Historial i desfer en una acció,
+   sense descartar edits posteriors ni deixar drafts d'entitats eliminades.
+4. **UI V16** a Devices: preview paginat amb valors reals, selecció, import
+   disabled, destí, metadades, errors i recompte amb comunicació d'error.
+   Export per dispositiu, sense files virtuals i només conversions utilitzades.
+
+Validat amb proves sintètiques, quatre templates oficials (inclòs Daikin de
+4.417 files), generació/decodificació XBL i flux real de biblioteca al navegador.
+Pendent el contrast en una execució del desktop/equip real. El deadband per
+senyal manté el gap XBL previ; s'avisa al preview. Es rebutgen conversions
+LUT referenciades perquè el format de template no porta les dades de lookup.
+BACnet–MBM com a família, preview BACnet i aplicació de taules d'estats/MAP
+continuen pendents; importar un fitxer bacmbm a KNX no implementa aquella família.
 
 ### 2.2 Resta de gaps
 
