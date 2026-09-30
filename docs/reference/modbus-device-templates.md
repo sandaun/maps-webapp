@@ -180,9 +180,8 @@ conversions, overview, validacions, historial, export `.ibmaps`/XLSX i XBL.
 No s'ha d'escriure el projecte complet des del DTO: cal preservar l'XML
 existent i transformar només el contingut afegit.
 
-Limitació prèvia de KNX–MBM: el deadband per senyal es modela però el tag 15
-RT encara no es compila a XBL. Importar-lo no resol aquest gap; cal advertir
-o delimitar aquest suport abans de presentar la característica com completa.
+El deadband per senyal de KNX–MBM RT es compila a l'XBL (tag 15, des de
+sandaun/maps-webapp#29): el dels senyals del template arriba a l'equip.
 
 Validació pendent abans d'afirmar compatibilitat final: aplicar mostres a
 RTU/TCP amb MAPS, comparar `.ibmaps` i XBL, reimportar/exportar template,
@@ -239,8 +238,7 @@ EPIV, aplicar 37 objectes actius més comunicació d'error, exportar/recarregar
 per byte amb la mostra prèvia. No s'ha contrastat amb una execució del desktop
 ni amb desplegament a un equip.
 
-Límits de suport: el gap de deadband per senyal a XBL continua advertit al
-preview. Les conversions LUT referenciades es rebutgen en import/export perquè
+Límits de suport: les conversions LUT referenciades es rebutgen en import/export perquè
 el format de template del desktop no inclou les dades de lookup necessàries;
 no es poden vincular cegament a les LUT d'un altre projecte. La família
 BACnet–MBM i l'aplicació de les seves taules d'estats/MAP queden per al seu port.

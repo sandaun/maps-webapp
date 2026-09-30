@@ -28,8 +28,11 @@ export interface MbmEndpoint {
   bit: number;
   numOfBits: number;
   address: number;
-  /** The signal's own `<Deadband>` (MAPS 1.2.34); undefined when the XML has none. */
-  deadband?: number;
+  /**
+   * The signal's own `<Deadband>` (0–100; the 700 Series class keeps no global
+   * one, `normalizeRtDeadband`), 0 when the XML has none.
+   */
+  deadband: number;
 }
 
 export interface KnxMbmSignal {

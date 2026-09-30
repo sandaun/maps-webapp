@@ -277,6 +277,7 @@ export function SignalsGrid<R>({
   function startEdit(row: R, col: GridColumn<R>) {
     if (reorder?.moving) return;
     if (col.kind === "none" || col.kind === "switch" || col.kind === "flags") return;
+    if (col.readOnly?.(row)) return;
     setEditing({ id: rowId(row), field: col.id });
     setDraft(editorSeed(col, row));
   }
@@ -609,7 +610,7 @@ export function SignalsGrid<R>({
       });
     }
 
-    const editable = col.kind !== "none";
+    const editable = col.kind !== "none" && !col.readOnly?.(row);
     return cellShell(col, {
       ...cellPresentation,
       extra: cn(editable && "hover:ring-1 hover:ring-inset hover:ring-hms-accent/30"),

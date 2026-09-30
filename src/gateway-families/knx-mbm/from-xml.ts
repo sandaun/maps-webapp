@@ -1,6 +1,7 @@
 import {
   getAttr,
   getText,
+  parseMapsSingle,
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
@@ -56,7 +57,6 @@ function readMbmConfig(doc: XmlDocument): MbmConfig {
   const config = defaultMbmConfig();
   config.enabled = parseBool(textOf(external, "Enabled"), true);
   config.media = parseNumber(textOf(external, "Media"), 0) as MbmConfig["media"];
-  config.deadband = parseNumber(textOf(external, "Deadband"), 0);
 
   const pollRecords = external.children.find(
     (c): c is XmlElement => c.kind === "element" && c.tag === "PollRecords",
@@ -167,7 +167,7 @@ function readMbmEndpoint(el: XmlElement): KnxMbmSignal["modbus"] {
     bit: parseNumber(textOf(el, "Bit"), -1),
     numOfBits: parseNumber(textOf(el, "NumOfBits"), -1),
     address: parseNumber(textOf(el, "Address"), 0),
-    ...(textOf(el, "Deadband") !== undefined ? { deadband: parseNumber(textOf(el, "Deadband"), 0) } : {}),
+    deadband: parseMapsSingle(textOf(el, "Deadband")),
   };
 }
 
@@ -200,6 +200,7 @@ function defaultMbmEndpoint(): KnxMbmSignal["modbus"] {
     bit: -1,
     numOfBits: -1,
     address: 0,
+    deadband: 0,
   };
 }
 

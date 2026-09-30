@@ -56,8 +56,6 @@ export interface MbmTcpNode {
 export interface MbmConfig {
   enabled: boolean;
   media: Media;
-  /** Global deadband towards the internal system (0.00–1.00). */
-  deadband: number;
   pollRecords: { enabled: boolean; useMissingReg: boolean; maxRegisters: number };
   rtuNodes: MbmRtuNode[];
   tcpNodes: MbmTcpNode[];
@@ -118,7 +116,6 @@ export function defaultMbmConfig(): MbmConfig {
   return {
     enabled: true,
     media: MEDIA.RTU,
-    deadband: 0,
     pollRecords: { enabled: false, useMissingReg: false, maxRegisters: 100 },
     rtuNodes: [],
     tcpNodes: [],

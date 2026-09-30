@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Download, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Upload, X } from "lucide-react";
 import { exportProjectUrl } from "@/lib/api";
 import type { FamilyId } from "@/lib/project-types";
 import {
@@ -132,7 +132,9 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
     setDeployError(null);
     setResult(null);
     try {
-      const deployResult = await deployGatewayProject(session.id, meta.id);
+      // The confirmation showed the warnings: the user accepted them.
+      const confirmed = status?.warnings.map((warning) => warning.id) ?? [];
+      const deployResult = await deployGatewayProject(session.id, meta.id, confirmed);
       setResult(deployResult);
       setPhase("done");
     } catch (err) {
@@ -199,6 +201,17 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
             </ul>
           )}
 
+          {status && status.warnings.length > 0 && (
+            <ul aria-label="Deploy warnings" className="space-y-1.5">
+              {status.warnings.map((warning) => (
+                <li key={warning.id} className="flex items-start gap-2 text-[13px]">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-text" aria-hidden />
+                  <span className="text-text-body">{warning.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {phase === "deploying" && progress && <TransferProgressBar progress={progress} />}
 
           {phase !== "confirm" && phase !== "deploying" && (
@@ -228,6 +241,12 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
                 <span className="font-mono font-medium">{session.host}</span>. The running
                 configuration is replaced immediately.
               </p>
+              {/* MAPS appends "Do you want to continue?" to each warning before sending. */}
+              {status?.warnings.map((warning) => (
+                <p key={warning.id} className="text-sm font-medium text-text-body">
+                  {warning.message} Do you want to continue?
+                </p>
+              ))}
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="destructive" onClick={handleConfirm}>
                   Confirm deploy

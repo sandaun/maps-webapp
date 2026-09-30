@@ -1,6 +1,7 @@
 import { XmlDocument } from "@/core/project-format";
 import { getProjectStore } from "@/server/persistence";
 import { withProjectLock } from "@/server/projects/project-lock";
+import { readProjectXml } from "@/server/projects/service";
 import { errorResponse } from "@/server/projects/http";
 import { ProjectServiceError } from "@/server/projects/errors";
 import { isKnxMbmProject } from "@/gateway-families/knx-mbm";
@@ -17,7 +18,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const store = getProjectStore();
     return await withProjectLock(store.storageId(id), async () => {
       if (!(await store.get(id))) throw new ProjectServiceError(404,"Project not found.");
-      const doc = XmlDocument.parse(await store.readXml(id));
+      // The project as MAPS loads it (`readProjectXml`).
+      const doc = XmlDocument.parse(await readProjectXml(id));
       if (!isKnxMbmProject(doc)) throw new ProjectServiceError(409,"Device template export is available for KNX–Modbus Master projects.");
       const { bytes, fileName } = exportDeviceTemplate(doc, { kind, nodeIndex, deviceIndex });
       return templateDownload(bytes, fileName);

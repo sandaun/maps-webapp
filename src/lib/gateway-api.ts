@@ -296,10 +296,18 @@ export interface DeployGateCheck {
   detail: string;
 }
 
+/** Mirror of `DeployWarning` in `src/server/deploy/service.ts`. */
+export interface DeployWarning {
+  id: "deadband-firmware";
+  message: string;
+}
+
 /** Mirror of `DeployStatus` in `src/server/deploy/service.ts`. */
 export interface DeployStatus {
   deployable: boolean;
   checks: DeployGateCheck[];
+  /** Shown in the confirmation; the deploy sends them back as accepted. */
+  warnings: DeployWarning[];
 }
 
 /** Mirror of `DeployResult` in `src/server/deploy/service.ts`. */
@@ -331,6 +339,7 @@ export async function getDeployStatus(sessionId: string, projectId: string): Pro
 export async function deployGatewayProject(
   sessionId: string,
   projectId: string,
+  confirmedWarnings: DeployWarning["id"][] = [],
 ): Promise<DeployResult> {
   const data = await sessionScoped(
     sessionId,
@@ -339,7 +348,7 @@ export async function deployGatewayProject(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, confirmedWarnings }),
       },
     ),
   );

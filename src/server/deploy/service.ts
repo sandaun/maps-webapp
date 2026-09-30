@@ -6,9 +6,10 @@ import { APP_ID_ME_AC_XXX, generateMeMbsXbl, validateSlaveIndices } from "@/gate
 import { APP_ID_MBS_KNX, generateMbsKnxXbl } from "@/gateway-families/mbs-knx";
 import { getGatewaySessionManager, type GatewaySessions } from "../intesis-transport";
 import { getProjectStore } from "../persistence";
-import { beginProjectDeploy, getProjectView, snapshotDeploy, type ProjectView } from "../projects/service";
+import { beginProjectDeploy, getProjectSnapshot, snapshotDeploy, type ProjectView } from "../projects/service";
 import { hasValidProjectPassword } from "../projects/password";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
+import { deadbandFirmwareWarning, evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
 
 /**
  * Deploy service: writes a (possibly modified) project to a gateway via
@@ -20,12 +21,19 @@ import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
  *    per-family entry (`knxMbmXblVerified` / `meMbsXblVerified`), written only
  *    by scripts/verify-xbl.ts after a byte-exact match against a real fixture.
  *    Read from disk here; no client flag is ever trusted.
- * 3. `session-appid` — the live session's gateway INFO must report the
- *    family's unit AppId (4 for KNX–MBM, 64 for ME–MBS on the 770 Air), so a
- *    project can never be pushed to a gateway of a different family.
+ * 3. `session-appid` — the live session's gateway must accept the project as
+ *    MAPS decides it (`gateway-compat.ts`): a 700 Series gateway whose INFO
+ *    AppId is one of the class's `ApplicationIDs` (4 for KNX–MBM, 7 for
+ *    MBS–KNX, 8 or 64 for ME–MBS), so a project can never be pushed to a
+ *    legacy gateway or a gateway of a different family.
  * 4. `project` — families with deploy blockers (me-mbs: signals left on the
  *    wrong Modbus slave, `validateSlaveIndices`) must have none.
  * 5. `password` — MAPS requires a nonempty ASCII IBOX/Pwd for every supported family.
+ *
+ * Warnings do not block, but the deploy must confirm them (MAPS asks "Do you
+ * want to continue?" before sending): `deadband-firmware` when the connected
+ * gateway runs a firmware older than the per-signal deadband minimum
+ * (`frmMain.CheckProject`, `IntesisProject.CheckDeadbandFwCompatibility`).
  *
  * The XBL is REGENERATED from the current project XML (never the original
  * blob's XBL) so user edits take effect; the firmware only runs config from
@@ -52,9 +60,33 @@ export interface DeployGateCheck {
   detail: string;
 }
 
+/** A condition MAPS reports before sending and lets the user accept. */
+export type DeployWarningId = "deadband-firmware";
+
+export interface DeployWarning {
+  id: DeployWarningId;
+  message: string;
+}
+
+/** A deploy that did not confirm a warning the gates raised (409). */
+export class DeployWarningError extends Error {
+  readonly status = 409;
+  constructor(readonly warning: DeployWarningId, message: string) {
+    super(message);
+    this.name = "DeployWarningError";
+  }
+}
+
 export interface DeployStatus {
   deployable: boolean;
   checks: DeployGateCheck[];
+  /** Shown before the deploy; each one must be confirmed. */
+  warnings: DeployWarning[];
+}
+
+export interface DeployOptions {
+  /** Warnings the user accepted in the confirmation. */
+  confirmedWarnings?: readonly DeployWarningId[];
 }
 
 export interface DeployResult {
@@ -85,19 +117,15 @@ type XblGenerator = (
 ) => Uint8Array;
 
 /** Everything the deploy path needs to know about a gateway family. */
-export interface DeployFamilyDescriptor {
+export interface DeployFamilyDescriptor extends ProjectClassIdentity {
   /** Project family id (`ProjectView.family`). */
   family: string;
-  /** Human-readable family name for gate details. */
-  displayName: string;
   /** Capability key in `.local-data/capabilities.json` gating this family. */
   capabilityKey: string;
-  /** AppId the connected gateway's INFO must report for this family. */
-  expectedAppId: number;
-  /** Short unit label for gate details (e.g. "ME unit"). */
-  unitLabel: string;
   /** Byte-exact verified XBL generator for this family. */
   generateXbl: XblGenerator;
+  /** `MinFwVersionForPerSignalDeadband` of the MAPS class, when it has one. */
+  minFwVersionForPerSignalDeadband?: string;
   /** Why the project must not reach the gateway, if anything. */
   deployBlocker?: (view: ProjectView) => string | undefined;
 }
@@ -113,15 +141,19 @@ export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = 
     family: "knx-mbm",
     displayName: "KNX ↔ Modbus Master",
     capabilityKey: "knxMbmXblVerified",
-    expectedAppId: APP_ID_KNX_MBM, // 4 — IN701KNX reports AppId 4
+    applicationIds: [APP_ID_KNX_MBM], // 4 — IN701KNX reports AppId 4
+    blankAppId: 63, // IN_XXX_XXX
     unitLabel: "KNX–MBM unit",
     generateXbl: generateKnxMbmXbl,
+    minFwVersionForPerSignalDeadband: "2.0.2.0", // IntesisProjectKnxMbm_RT.cs:30
   },
   "me-mbs": {
     family: "me-mbs",
     displayName: "Mitsubishi Electric AC ↔ Modbus Slave",
     capabilityKey: "meMbsXblVerified",
-    expectedAppId: APP_ID_ME_AC_XXX, // 64 — ME_AC_XXX on the 770 Air
+    // IntesisProjectMbsMe_RT.ApplicationIDs: ME_AC_XXX (64, the 770 Air) and ME_AC_MBS (8).
+    applicationIds: [APP_ID_ME_AC_XXX, 8],
+    blankAppId: 61, // XX_AC_XXX
     unitLabel: "ME unit",
     generateXbl: generateMeMbsXbl,
     deployBlocker: (view) =>
@@ -131,7 +163,8 @@ export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = 
     family: "mbs-knx",
     displayName: "KNX ↔ Modbus Slave",
     capabilityKey: "mbsKnxXblVerified",
-    expectedAppId: APP_ID_MBS_KNX, // 7 — IN701KNX running the MBS–KNX application
+    applicationIds: [APP_ID_MBS_KNX], // 7 — IN701KNX running the MBS–KNX application
+    blankAppId: 63, // IN_XXX_XXX
     unitLabel: "MBS–KNX unit",
     generateXbl: generateMbsKnxXbl,
     // MAPS does not send a project that fails CheckProject (IntesisProjectMBSKNX_RT.cs:633-662).
@@ -166,8 +199,17 @@ async function runGates(
   projectId: string,
   sessionId: string,
   deps: DeployDeps,
-): Promise<{ checks: DeployGateCheck[]; xml: string; appId?: number; descriptor?: DeployFamilyDescriptor }> {
-  const view = await getProjectView(projectId); // 404 propagates
+): Promise<{
+  checks: DeployGateCheck[];
+  warnings: DeployWarning[];
+  view: ProjectView;
+  xml: string;
+  appId?: number;
+  descriptor?: DeployFamilyDescriptor;
+}> {
+  // Validate precisely the XML that will be compiled and sent: a later project
+  // edit must not substitute an unchecked project between gates and generation.
+  const { view, xml } = await getProjectSnapshot(projectId); // 404 / 422 propagate
   const checks: DeployGateCheck[] = [];
 
   const descriptor = DEPLOY_FAMILIES[view.family];
@@ -192,6 +234,7 @@ async function runGates(
         : `Missing verified XBL capability (${descriptor.capabilityKey}) — run pnpm verify:xbl against a real fixture`,
   });
 
+  const warnings: DeployWarning[] = [];
   let appId: number | undefined;
   let sessionOk = false;
   let sessionDetail = "No gateway session";
@@ -202,11 +245,13 @@ async function runGates(
       sessionDetail = "The gateway session is not connected";
     } else if (!descriptor) {
       sessionDetail = "No deployable family — session AppId not evaluated";
-    } else if (appId === descriptor.expectedAppId) {
-      sessionOk = true;
-      sessionDetail = `Gateway reports AppId ${descriptor.expectedAppId} (${descriptor.unitLabel})`;
     } else {
-      sessionDetail = `Gateway AppId ${appId ?? "unknown"} does not match the ${descriptor.unitLabel} AppId ${descriptor.expectedAppId}`;
+      const compatibility = evaluateGatewayCompatibility(descriptor, status.gateway);
+      sessionOk = compatibility.ok;
+      sessionDetail = compatibility.detail;
+      // Only with a connected gateway, whatever the signals hold.
+      const firmware = deadbandFirmwareWarning(descriptor.minFwVersionForPerSignalDeadband, status.gateway?.appVersion);
+      if (firmware) warnings.push({ id: "deadband-firmware", message: firmware });
     }
   } catch {
     sessionDetail = "Gateway session not found";
@@ -218,9 +263,6 @@ async function runGates(
     checks.push({ id: "project", ok: blocker === undefined, detail: blocker ?? "No project issue blocks the deploy" });
   }
 
-  // Validate precisely the XML that will be compiled and sent. A later project
-  // edit must not substitute an unchecked password between gates and generation.
-  const xml = await getProjectStore().readXml(projectId);
   const passwordOk = hasValidProjectPassword(XmlDocument.parse(xml));
   checks.push({
     id: "password",
@@ -230,7 +272,7 @@ async function runGates(
       : "Set a valid project password in Configuration → Security before deploying.",
   });
 
-  return { checks, xml, appId, descriptor };
+  return { checks, warnings, view, xml, appId, descriptor };
 }
 
 /** Evaluate the deploy gates without side effects (drives the UI state). */
@@ -239,8 +281,8 @@ export async function getDeployStatus(
   sessionId: string,
   deps: DeployDeps = {},
 ): Promise<DeployStatus> {
-  const { checks } = await runGates(projectId, sessionId, deps);
-  return { deployable: checks.every((c) => c.ok), checks };
+  const { checks, warnings } = await runGates(projectId, sessionId, deps);
+  return { deployable: checks.every((c) => c.ok), checks, warnings };
 }
 
 /**
@@ -251,17 +293,20 @@ export async function deployProject(
   projectId: string,
   sessionId: string,
   deps: DeployDeps = {},
+  options: DeployOptions = {},
 ): Promise<DeployResult> {
   const sessions = deps.sessions ?? getGatewaySessionManager();
   const finishDeploy = await beginProjectDeploy(projectId);
   try {
-    const { checks, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
+    const { checks, warnings, view, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
     for (const check of checks) {
       if (check.ok) continue;
       const status =
         check.id === "capability" ? 403 : check.id === "session-appid" ? 409 : 422;
       throw new DeployGateError(status, check.id, check.detail);
     }
+    const unconfirmed = warnings.find((warning) => !options.confirmedWarnings?.includes(warning.id));
+    if (unconfirmed) throw new DeployWarningError(unconfirmed.id, unconfirmed.message);
     // All gates passed, so the family gate passed: the descriptor exists.
     if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
 
@@ -277,7 +322,6 @@ export async function deployProject(
     const zip = buildProjectZip(`${projectId}.ibmaps`, xml);
     const blob = buildCompleteBlob(xbl, zip);
 
-    const view = await getProjectView(projectId);
     await sessions.sendComplete(sessionId, blob, {
       name: view.meta.name,
       comments: "maps-webapp deploy",
@@ -291,7 +335,7 @@ export async function deployProject(
       bytes: blob.length,
       xblBytes: xbl.length,
       zipBytes: zip.length,
-      appId: appId ?? descriptor.expectedAppId,
+      appId: appId ?? descriptor.applicationIds[0],
       swVersion: swVersion.join("."),
     };
   } finally {

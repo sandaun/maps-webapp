@@ -1,9 +1,10 @@
 # Plataformes KTS/V6, RT/S700 i RT_AIR: compatibilitat i conversió
 
 Data de la investigació: 2026-09-29.
-Estat: anàlisi estàtica del MAPS descompilat i del webapp; proposta pendent
-d'implementació. No s'han executat conversions amb MAPS ni comparat parelles
-reals del mateix projecte abans i després de l'actualització.
+Estat (2026-09-30): Fases A i B implementades per a la sèrie 700 (§11). La
+Fase C (conversió V6 → S700), l'editor i el deploy V6 queden fora d'abast i
+pendents. No s'han executat conversions amb MAPS ni comparat parelles reals
+del mateix projecte abans i després de l'actualització.
 
 Relacionat: [gaps per família](gaps-families-v11.md),
 [guia per afegir famílies](../reference/adding-a-gateway-family.md) i
@@ -273,7 +274,7 @@ text amb el número XML ni deduir la plataforma només d'AppId.
 
 ## 6. Gaps observats al webapp
 
-Estat observat el 2026-09-29, no corregit per aquesta documentació:
+Estat observat el 2026-09-29. Tots sis estan resolts des del 2026-09-30 (§11):
 
 | Superfície | Observació | Conseqüència |
 |---|---|---|
@@ -393,3 +394,80 @@ sigui «no suportat» o «pendent de verificar»:
 
 Una família no hereta compatibilitat de plataforma, conversió o capacitats
 de firmware perquè comparteixi nom de protocol o AppId amb una altra variant.
+
+## 11. Estat de la implementació (2026-09-30)
+
+Abast acordat: la sèrie 700 (RT i RT_AIR), tot com MAPS. Fases A i B fetes;
+la Fase C i el suport V6 queden fora.
+
+### 11.1 Fet — Fase A (compatibilitat S700)
+
+- **Plataforma del projecte** (`src/core/project-format/platform.ts`): llegida
+  com `InitializeProject_getPlatform` (absent, no enter o desconegut → KTS).
+- **Detecció**: KNX–MBM, MBS–KNX i ME–MBS obren Platform 2 i 3, com
+  `GetProject` (una sola branca RT/RT_AIR), i rebutgen 0, 1 i desconeguts.
+  Abans MBS–KNX només acceptava 2, ME–MBS només 3 i KNX–MBM no mirava la
+  plataforma. `fromXml` i els generadors d'XBL fan servir la mateixa detecció.
+- **Projectes V6**: s'identifiquen i es rebutgen amb un missatge que els anomena
+  (422, `unsupportedProjectMessage`) i remet a *Project → Updated to S700
+  Project* de MAPS; també si ja eren desats (lectura, edició, deploy).
+- **Normalització en carregar** (`normalizeProject`): la plataforma de la
+  classe (2 KNX–MBM i MBS–KNX, 3 ME–MBS), com `SaveConfiguration`. S'aplica en
+  obrir, llegir, editar, importar, exportar i desplegar; el text no canvia si
+  no hi ha res a normalitzar.
+- **Gateway al deploy** (`src/server/deploy/gateway-compat.ts`), com
+  `ButtonConnect` + `EvaluateConnectionWithGw` + `CheckDeviceAppId`:
+  bootloader/sense aplicació → `message_noApp`; sense plataforma →
+  `message_v6projectNecessary`; altra plataforma → rebuig; 700 Series amb
+  l'AppId dins `ApplicationIDs` → acceptat (ME–MBS 64 i 8); firmware en blanc
+  (63 / 61) o una altra aplicació → rebuig explicant el canvi de firmware que
+  MAPS faria. Les tres classes no tenen `AllowedCompIds` ni llicència de
+  projecte, així que compId i llicència no rebutgen mai.
+- **Plataforma del gateway** (`summarizeInfo`): `PLATFORM`, o "700 Series"
+  quan el gateway envia `APPID`, com `DiscoveredDevice`.
+- **Mateix XML validat i enviat** (`getProjectSnapshot`).
+
+### 11.2 Fet — Fase B (deadband per senyal KNX–MBM RT)
+
+- **Càrrega** (`normalizeRtDeadband`): `MigrateGlobalDeadbandToSignals` exacte
+  (global ≠ 0 → senyals no fixos ni virtuals amb 0, actius o no; global a 0),
+  i el desament RT: sense `<Deadband>` global i un per senyal després
+  d'`<Address>`. Idempotent. El model ja no té deadband global.
+- **XBL**: tag 15 per senyal (float LE) quan no és zero; mai el tag 8 global.
+  El generador normalitza abans de compilar.
+- **Floats** (`src/core/project-format/single.ts`): lectura com
+  `GetInnerTextWithDefault` (coma acceptada) i escriptura com
+  `float.ToString()` de .NET 10 (MAPS 1.2.34), el text més curt.
+- **Edició**: columna "Deadband" a la graella, amagada per defecte com
+  `ch_deadband`, rang 0–100 amb el missatge de MAPS, de només lectura a les
+  files virtuals ("-") i als senyals Modbus fixos (el valor), també a l'API
+  (422) i a l'edició en bloc (se'ls salta). El camp global de Configuration
+  s'ha tret (`SetGlobalDeadbandVisible(!DeadbandEnabled)`) i l'API el rebutja.
+- **XLSX**: l'export llegeix el deadband normalitzat del senyal; ja no el
+  recalcula (abans no excloïa els senyals fixos, a diferència de MAPS).
+- **Firmware**: avís `message_deadbandFwTooOld` si el gateway connectat té un
+  `APPVERSION` anterior a 2.0.2.0 (comparat com `System.Version`), sense mirar
+  els valors dels senyals i en silenci si la versió no es pot llegir. El deploy
+  el mostra i demana confirmació ("Do you want to continue?"); el servidor
+  retorna 409 si no s'ha confirmat.
+- **Fixture sintètica**: ara té la forma RT de MAPS (sense global, un
+  `<Deadband>` per senyal).
+
+### 11.3 Pendent, no resolt
+
+- **Editor i deploy V6 (KTS)**: fora d'abast; els projectes V6 només
+  s'identifiquen.
+- **Fase C, conversió V6 → S700**: fora d'abast. Cal parelles de referència de
+  MAPS (V6, projecte actualitzat i XBL) per família (§8).
+- **Canvi de firmware** (`NEED_SWAP`, `FW_NOT_AVAILABLE`): MAPS Web no té el
+  catàleg ni baixa firmwares; es rebutja amb el motiu.
+- **Correcció de llicència** (`LICENSE_FIX_REQUIRED`): depèn de la llista de
+  números de sèrie incorporada a MAPS (`LicenseFixManager`); no es comprova.
+- **Deadband per sota de 0,0001 a l'XLSX** (limitació compartida amb MAPS, no
+  es corregeix): l'export l'escriu com `float.ToString()` ("1E-05") i la
+  importació, com `CheckFloatFormat`, només accepta dígits, comes i punts, així
+  que aquest valor no fa l'anada i tornada per Excel. La graella també rebutja
+  exponents, com la cel·la de MAPS.
+- **Comprovació en viu**: el tag 15 i l'avís de firmware només estan provats
+  amb tests i les regles del codi; falta un XBL de MAPS amb deadbands no nuls
+  i un gateway amb firmware anterior a 2.0.2.0.

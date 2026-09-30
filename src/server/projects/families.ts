@@ -2,7 +2,7 @@ import "server-only";
 import type { ApplyDeviceTemplate } from "@/core/device-templates/types";
 import { applyDeviceTemplate } from "@/server/device-templates/apply";
 import { getPreviewTemplate } from "@/server/device-templates/cache";
-import type { XmlDocument } from "@/core/project-format";
+import { platformXmlValue, XmlDocument, type MapsPlatform } from "@/core/project-format";
 import type { ConversionSelection, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { ValidationIssue } from "@/core/validation/issue";
 import {
@@ -10,8 +10,10 @@ import {
   addRtuNode as knxAddRtuNode,
   addSignal as knxAddSignal,
   addTcpNode as knxAddTcpNode,
+  hasKnxMbmProtocols,
   isKnxMbmProject,
   moveSignal as knxMoveSignal,
+  normalizeRtDeadband,
   projectFromXml as knxMbmProjectFromXml,
   removeDevice as knxRemoveDevice,
   removeNode as knxRemoveNode,
@@ -41,6 +43,7 @@ import {
   type SignalPatch as KnxMbmSignalPatch,
 } from "@/gateway-families/knx-mbm";
 import {
+  hasMeMbsProtocols,
   isMeMbsProject,
   projectFromXml as meMbsProjectFromXml,
   setGatewayInfo as meSetGatewayInfo,
@@ -61,6 +64,7 @@ import {
   addConversion as mbsKnxAddConversion,
   addSignal as mbsKnxAddSignal,
   ConversionEditError as MbsKnxConversionEditError,
+  hasMbsKnxProtocols,
   isMbsKnxProject,
   mbsKnxRestoredRefs,
   mbsKnxSelectionRefs,
@@ -145,7 +149,6 @@ export type KnxMbmPatch =
       type: "updateMbmConfig";
       patch: {
         media?: number;
-        deadband?: number;
         pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
       };
     }
@@ -233,7 +236,14 @@ interface FamilyEntry {
   id: FamilyId;
   /** Human-readable family name for badges and error messages. */
   displayName: string;
+  /** The family protocols, whatever the platform (legacy V6 projects included). */
+  hasProtocols: (doc: XmlDocument) => boolean;
+  /** The family protocols on a 700 Series platform: the projects MAPS Web supports. */
   detect: (doc: XmlDocument) => boolean;
+  /** The platform the MAPS class declares and saves (`IntesisProject.Platform`). */
+  platform: MapsPlatform;
+  /** What the MAPS class changes when it loads the project; true when it changed the document. */
+  normalize?: (doc: XmlDocument) => boolean;
   fromXml: (doc: XmlDocument) => KnxMbmProject | MeMbsProject | MbsKnxProject;
   validate: (project: KnxMbmProject | MeMbsProject | MbsKnxProject) => ValidationIssue[];
   /** True when this family knows how to apply the patch (payload included). */
@@ -286,7 +296,10 @@ const ME_MBS_TYPES = new Set([
 const KNX_MBM: FamilyEntry = {
   id: "knx-mbm",
   displayName: "KNX ↔ Modbus Master",
+  hasProtocols: hasKnxMbmProtocols,
   detect: isKnxMbmProject,
+  platform: "RT", // IntesisProjectKnxMbm_RT.Platform
+  normalize: normalizeRtDeadband,
   fromXml: (doc) => knxMbmProjectFromXml(doc),
   validate: (project) => validateKnxMbmProject(project as KnxMbmProject),
   accepts: (patch) =>
@@ -298,7 +311,9 @@ const KNX_MBM: FamilyEntry = {
 const ME_MBS: FamilyEntry = {
   id: "me-mbs",
   displayName: "Mitsubishi Electric AC ↔ Modbus Slave",
+  hasProtocols: hasMeMbsProtocols,
   detect: isMeMbsProject,
+  platform: "RT_AIR", // IntesisProjectMbsMe_RT.Platform
   fromXml: (doc) => meMbsProjectFromXml(doc),
   validate: (project) => validateMeMbsProject(project as MeMbsProject),
   accepts: (patch) =>
@@ -333,7 +348,9 @@ const MBS_KNX_MODBUS_FIELDS = new Set(["address", "bit", "lenBits", "format", "r
 const MBS_KNX: FamilyEntry = {
   id: "mbs-knx",
   displayName: "KNX ↔ Modbus Slave",
+  hasProtocols: hasMbsKnxProtocols,
   detect: isMbsKnxProject,
+  platform: "RT", // IntesisProjectMBSKNX_RT.Platform
   fromXml: (doc) => mbsKnxProjectFromXml(doc),
   validate: (project) => validateMbsKnxProject(project as MbsKnxProject),
   accepts: (patch) =>
@@ -360,6 +377,44 @@ export function familyById(id: FamilyId): FamilyEntry {
 /** Text for 422 rejections: the families this build can open. */
 export function supportedFamiliesText(): string {
   return FAMILIES.map((f) => f.displayName).join("; ");
+}
+
+/**
+ * Why a document is not a supported project. A legacy (V6) project of a
+ * supported family is named as such: MAPS opens it with its KTS class, which
+ * MAPS Web does not implement.
+ */
+export function unsupportedProjectMessage(doc: XmlDocument): string {
+  const legacy = FAMILIES.find((family) => family.hasProtocols(doc));
+  if (legacy) {
+    return (
+      `This is a legacy (V6) ${legacy.displayName} project. MAPS Web only supports 700 Series projects for now: ` +
+      "convert it in MAPS (Project → Updated to S700 Project) and open the converted file."
+    );
+  }
+  return `The file is not a supported project. Supported families: ${supportedFamiliesText()}.`;
+}
+
+/**
+ * The document as MAPS saves it after loading it: the root `Platform` of the
+ * project class (MAPS opens Platform 2 and 3 with the same class and writes
+ * the class's own), plus the family's own load changes (the KNX–MBM
+ * deadband). Returns whether anything changed.
+ */
+export function normalizeProject(doc: XmlDocument): boolean {
+  const family = detectFamily(doc);
+  if (!family) return false;
+  const platform = platformXmlValue(family.platform);
+  const platformChanged = doc.getAttr([], "Platform") !== platform;
+  if (platformChanged) doc.setAttr([], "Platform", platform);
+  const familyChanged = family.normalize?.(doc) ?? false;
+  return platformChanged || familyChanged;
+}
+
+/** `normalizeProject` on XML text; the text itself when there is nothing to change. */
+export function normalizeProjectXml(xml: string): string {
+  const doc = XmlDocument.parse(xml);
+  return normalizeProject(doc) ? doc.serialize() : xml;
 }
 
 // --- per-family patch dispatch ---------------------------------------------------
@@ -437,6 +492,7 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       break;
     case "updateSignal": {
       const { conversions, ...rest } = patch.patch;
+      if (rest.modbus?.deadband !== undefined) assertDeadbandEditable(doc, patch.id);
       let conversionRefs: KnxMbmSignalPatch["conversionRefs"];
       if (conversions) {
         const result = knxSelectionRefs(doc, patch.id, conversions, rest.knx?.flags);
@@ -498,6 +554,25 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
         throw error;
       }
       break;
+  }
+}
+
+/**
+ * The grid cell MAPS leaves read-only: "-" on virtual rows
+ * (`CheckThisRowSpecific`, IntesisProjectKnxMbm_RT.cs:618-619) and the value on
+ * fixed Modbus signals (`MbmObject.GenerateRow`, MbmObject.cs:363-369).
+ */
+function assertDeadbandEditable(doc: XmlDocument, id: number): void {
+  const flag = (path: Parameters<XmlDocument["getAttr"]>[0], attr: string) =>
+    doc.getAttr([...path, "Virtual"], attr)?.toLowerCase() === "true";
+  const idAttr = { attr: "ID", value: String(id) };
+  const virtual = flag(["InternalProtocol", { tag: "KNXObject", ...idAttr }], "Status");
+  const fixed = flag(["ExternalProtocol", "Signals", { tag: "Signal", ...idAttr }], "Fixed");
+  if (virtual || fixed) {
+    throw new ProjectServiceError(
+      422,
+      `Signal ${id + 1}: the deadband of a ${virtual ? "virtual" : "fixed"} signal cannot be edited, as in MAPS.`,
+    );
   }
 }
 

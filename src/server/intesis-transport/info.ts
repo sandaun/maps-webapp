@@ -22,6 +22,10 @@ export interface GatewayInfoSummary {
   appName?: string;
   appId?: number;
   appVersion?: string;
+  /**
+   * As MAPS reads it (`DiscoveredDevice.Platform`): `PLATFORM`, else "700 Series"
+   * when the unit reports an `APPID` (legacy V6 units report neither).
+   */
   platform?: string;
   mac?: string;
   ip?: string;
@@ -66,7 +70,7 @@ export function summarizeInfo(info: GatewayInfo): GatewayInfoSummary {
     appName: k["APPNAME"],
     appId: Number.isNaN(appId) ? undefined : appId,
     appVersion: k["APPVERSION"],
-    platform: k["PLATFORM"],
+    platform: k["PLATFORM"] ?? ("APPID" in k ? "700 Series" : undefined),
     mac: k["ETHMAC"],
     ip: k["NETIP"],
     netmask: k["NETMASK"],

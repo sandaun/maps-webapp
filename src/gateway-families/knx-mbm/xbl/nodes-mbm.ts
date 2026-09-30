@@ -154,6 +154,9 @@ function signalItemList(obj: EnabledMbmObject, rtuNodesCount: number): XblElemen
   }
   if (obj.numOfBits !== -1) out.push(node(13, new Uint8Array([obj.numOfBits & 0xff])));
   if (obj.isBroadcast) out.push(node(14, new Uint8Array([1])));
+  // The 700 Series class passes `DeadbandEnabled`: the signal's deadband as a
+  // little-endian float (plain BitConverter), when nonzero (MbmObject.cs:179-183).
+  if (obj.deadband !== 0) out.push(node(15, f32le(obj.deadband)));
   return out;
 }
 
@@ -197,11 +200,8 @@ export function buildMbmNode(mbm: XblPipelineResult["mbm"]): XblElementSpec | nu
   }
 
   const children: XblElementSpec[] = [node(1, new Uint8Array([media & 0xff]))];
-  // Deadband is a little-endian float (plain BitConverter) — an explicit
-  // endianness exception of the format (:405-409).
-  if (mbm.deadband !== 0) {
-    children.push(node(8, f32le(mbm.deadband)));
-  }
+  // No global deadband (tag 8): it is written only without `DeadbandEnabled`
+  // (ExternalMbm.cs:450-454), and the 700 Series class keeps it per signal (tag 15).
   if (mbm.rtuNodes.length === 1 && mbm.rtuNodes[0].physicalPort === 0) {
     const config = rtuSingleConfigNode(mbm.rtuNodes[0], mbm.media);
     if (config) children.push(config);

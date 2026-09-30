@@ -1,5 +1,5 @@
 import "server-only";
-import { appendChild, element, getAttr, setAttr, XmlDocument, type XmlElement } from "@/core/project-format";
+import { appendChild, element, formatSingle, getAttr, parseMapsSingle, setAttr, XmlDocument, type XmlElement } from "@/core/project-format";
 import { projectFromXml } from "@/gateway-families/knx-mbm";
 import type { DeviceTemplatePreview } from "@/core/device-templates/types";
 import { ProjectServiceError } from "@/server/projects/errors";
@@ -59,9 +59,9 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
     if ([obj, modbus[i]].some((el) => getAttr(children(el, "Virtual")[0] ?? element("Virtual"), "Status")?.toLowerCase() === "true"))
       throw new ProjectServiceError(422, "Device templates must not contain virtual signals.");
     validateModbusRow(modbus[i]);
-    // Older files can contain locale decimals; store invariant text for the project reader.
+    // Older files can contain locale decimals; store the float as MAPS writes it.
     const deadband = value(modbus[i], "Deadband");
-    if (deadband !== undefined) write(modbus[i], "Deadband", String(parseFloatLenient(deadband)));
+    if (deadband !== undefined) write(modbus[i], "Deadband", formatSingle(parseMapsSingle(deadband)));
     validateBoolean(value(obj, "Active"));
     if (protocol === "KNX") validateKnxRow(obj);
     return protocol === "KNX" ? copy(obj) : bacnetToKnx(obj, modbus[i], i);
@@ -92,7 +92,7 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
     }
   }
   // Reuse the project's parsers rather than maintaining a second MBM/KNX model.
-  const modelDoc = XmlDocument.parse('<Project InternalProtocol="KNX" ExternalProtocol="Modbus Master"><IBOX/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><RtuNodes><RtuNode/></RtuNodes><Signals/></ExternalProtocol></Project>');
+  const modelDoc = XmlDocument.parse('<Project Platform="2" InternalProtocol="KNX" ExternalProtocol="Modbus Master"><IBOX/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><RtuNodes><RtuNode/></RtuNodes><Signals/></ExternalProtocol></Project>');
   appendChild(modelDoc.find(["IBOX"])!, element("Conversions", [], conversions.map(copy)));
   for (const obj of knx) appendChild(modelDoc.find(["InternalProtocol"])!, copy(obj));
   const deviceCopy = copy(device);
@@ -115,8 +115,6 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
   const invalid = project.signals.filter((s) => checkMbmSignal({ ...s.modbus, deviceBase: project.mbm.rtuNodes[0].devices[0].baseRegister }).length);
   if (invalid.length) warnings.push(`${invalid.length} objects have Modbus settings that need review. Their original values are preserved; project validation reports active errors after import.`);
   if (protocol === "BACnet Server") warnings.push("BACnet template adapted to KNX: Modbus registers are retained; default KNX DPTs and flags replace the BACnet mapping. Assign group addresses in Signals.");
-  if (project.signals.some((s) => s.modbus.deadband !== undefined))
-    warnings.push("Per-signal deadband is preserved in the project. This version does not send it to the gateway; only global deadband reaches the device.");
   const author = Number(getAttr(doc.root, "Author") ?? -1);
   return { doc, knx, modbus, device: deviceCopy, conversions,
     preview: { sourceProtocol: protocol === "KNX" ? "knx" : "bacnet", version, mapsVersion,

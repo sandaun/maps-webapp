@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProjectStore } from "@/server/persistence";
 import { errorResponse } from "@/server/projects/http";
+import { readProjectXml } from "@/server/projects/service";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const store = getProjectStore();
     const meta = await store.get(id);
     if (!meta) return NextResponse.json({ error: `Project "${id}" not found` }, { status: 404 });
-    const xml = await store.readXml(id);
+    const xml = await readProjectXml(id);
     return new Response(xml, {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",

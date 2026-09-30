@@ -20,7 +20,7 @@ import { SYNTHETIC_ME_MBS_XML as EMPTY_PASSWORD_ME_XML } from "@/gateway-familie
 import type { GatewaySessions, GatewaySessionStatus } from "../intesis-transport";
 import { getProjectStore, resetProjectStoreForTests } from "../persistence";
 import { applyPatches, getProjectView, loadDemoProject, openCompleteBlob, openIbmaps } from "../projects/service";
-import { DEPLOY_FAMILIES, deployProject, DeployGateError, getDeployStatus } from "./service";
+import { DEPLOY_FAMILIES, deployProject, DeployGateError, DeployWarningError, getDeployStatus } from "./service";
 
 /**
  * Deploy gate tests (Pas 2.6 / 3.4): each gate blocks correctly per family
@@ -96,7 +96,9 @@ async function writeGenuineCapability(key: string = "meMbsXblVerified"): Promise
   );
 }
 
-function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boolean } = {}) {
+function fakeSessions(
+  opts: { appId?: number; appVersion?: string; platform?: string; connected?: boolean; known?: boolean } = {},
+) {
   const uploads: Uint8Array[] = [];
   const status: GatewaySessionStatus = {
     id: "sess-1",
@@ -109,7 +111,13 @@ function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boole
     monitorComms: false,
     monitorDebug: false,
     connectedAt: new Date().toISOString(),
-    gateway: { appId: opts.appId ?? 64, bootloader: false, noApp: false },
+    gateway: {
+      appId: opts.appId ?? 64,
+      appVersion: opts.appVersion,
+      platform: opts.platform ?? "700 Series",
+      bootloader: false,
+      noApp: false,
+    },
   };
   const sessions: GatewaySessions = {
     connect: () => Promise.reject(new Error("not implemented")),
@@ -316,6 +324,15 @@ describe("deploy gates", () => {
     expect(uploads).toHaveLength(0);
   });
 
+  it("accepts the other ApplicationID of the ME class (ME_AC_MBS, 8)", async () => {
+    await openMeMbsProject();
+    await writeGenuineCapability();
+    const { sessions } = fakeSessions({ appId: 8 });
+
+    const status = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
+    expect(status.checks.find((c) => c.id === "session-appid")).toMatchObject({ ok: true, detail: "Gateway reports AppId 8 (ME unit)" });
+  });
+
   it("blocks unknown sessions at the session gate (409)", async () => {
     await openMeMbsProject();
     await writeGenuineCapability();
@@ -439,6 +456,41 @@ describe("getDeployStatus", () => {
   });
 });
 
+describe("deadband firmware warning (CheckDeadbandFwCompatibility)", () => {
+  const MESSAGE = "You need the newest version of FW for the deadband feature to operate, please update and try again.";
+
+  it("warns about a KNX–MBM gateway older than 2.0.2.0 and sends only once confirmed", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const { sessions, uploads } = fakeSessions({ appId: 4, appVersion: "2.0.1.0" });
+
+    const status = await getDeployStatus("k1", "sess-1", { sessions, capabilitiesPath });
+    expect(status.deployable).toBe(true);
+    expect(status.warnings).toEqual([{ id: "deadband-firmware", message: MESSAGE }]);
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeployWarningError);
+    expect(error).toMatchObject({ status: 409, warning: "deadband-firmware", message: MESSAGE });
+    expect(uploads).toHaveLength(0);
+
+    await deployProject("k1", "sess-1", { sessions, capabilitiesPath }, { confirmedWarnings: ["deadband-firmware"] });
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("says nothing for a recent, unknown or unparsable firmware, or for the other families", async () => {
+    await openKnxMbmProject();
+    await openMeMbsProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    await writeGenuineCapability();
+    for (const appVersion of ["2.0.2.0", "2.1", undefined, "v2"]) {
+      const { sessions } = fakeSessions({ appId: 4, appVersion });
+      expect((await getDeployStatus("k1", "sess-1", { sessions, capabilitiesPath })).warnings).toEqual([]);
+    }
+    const { sessions } = fakeSessions({ appId: 64, appVersion: "1.0.0.0" });
+    expect((await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath })).warnings).toEqual([]);
+  });
+});
+
 describe("deploy gates (knx-mbm)", () => {
   it("deploys a knx-mbm project when every gate passes, regenerating the XBL", async () => {
     await openKnxMbmProject();
@@ -533,6 +585,33 @@ describe("deploy gates (knx-mbm)", () => {
     expect(error).toBeInstanceOf(DeployGateError);
     expect((error as DeployGateError).gate).toBe("session-appid");
     expect((error as DeployGateError).status).toBe(409);
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("blocks a legacy gateway (no platform) with the MAPS message (409)", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const { sessions, uploads } = fakeSessions({ appId: 4 });
+    sessions.getStatus("sess-1").gateway!.platform = undefined;
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeployGateError);
+    expect((error as DeployGateError).gate).toBe("session-appid");
+    expect((error as DeployGateError).status).toBe(409);
+    expect((error as DeployGateError).message).toMatch(/not compatible with legacy gateways/);
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("refuses a stored legacy (V6) project before any gate (422)", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const store = getProjectStore();
+    await store.writeXml("k1", (await store.readXml("k1")).replace(' Platform="2"', ' Platform="1"'));
+    const { sessions, uploads } = fakeSessions({ appId: 4 });
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect((error as { status?: number }).status).toBe(422);
+    expect((error as Error).message).toMatch(/legacy \(V6\) KNX ↔ Modbus Master project/);
     expect(uploads).toHaveLength(0);
   });
 

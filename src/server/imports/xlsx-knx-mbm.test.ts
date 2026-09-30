@@ -122,6 +122,20 @@ describe("signals XLSX · KNX–MBM", () => {
     expect(doc.serialize()).toBe(before);
   });
 
+  it("like MAPS, cannot import back a deadband it exports in scientific notation", async () => {
+    // MAPS writes `DeadBand.ToString()` ("1E-05") and its `CheckFloatFormat`
+    // only takes digits, commas and points: its own file does not round-trip either.
+    const doc = XmlDocument.parse(MAPS_KNX_MBM_REFERENCE_XML);
+    updateSignal(doc, 6, { modbus: { deadband: 0.00001 } });
+    const xml = doc.serialize();
+    expect(rows(xml)[6][24]).toBe("1E-05");
+    const target = XmlDocument.parse(xml);
+    const error = await applySignalsXlsx(target, "knx-mbm", await exportedTable(xml), "replace").catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 422 });
+    expect((error as Error).message).toContain('signal 7: Deadband "1E-05"');
+    expect(target.serialize()).toBe(xml);
+  });
+
   it("still imports the tables earlier MAPS Web versions exported", async () => {
     const workbook = await loadWorkbook(await exportedTable());
     const sheet = workbook.getWorksheet("Signals")!;
