@@ -119,6 +119,7 @@ describe("signals XLSX · ME–MBS", () => {
     expect(projectFromXml(doc).signals[0].active).toBe(!first.active);
   });
 
+  // Regenerates 1,730 signals and compares every cell: slower than the default timeout.
   it("exports and imports the table MAPS 1.2.34 exported for the same project", async () => {
     if (!existsSync(REAL_MAPS_DIR + "membs.xlsx")) return;
     const doc = XmlDocument.parse(readFileSync(REAL_MAPS_DIR + "base.ibmaps", "utf8"));
@@ -137,5 +138,5 @@ describe("signals XLSX · ME–MBS", () => {
     }
     const result = await applySignalsXlsx(doc, "me-mbs", new Uint8Array(readFileSync(REAL_MAPS_DIR + "membs.xlsx")), "replace");
     expect(result).toMatchObject({ rows: 1730, updated: 1730, ignored: 0 });
-  });
+  }, 30_000);
 });

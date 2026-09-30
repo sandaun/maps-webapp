@@ -138,6 +138,7 @@ describe("signals XLSX · MBS–KNX", () => {
     expect(project.conversions).toHaveLength(15);
   });
 
+  // Writes and reads a 5,001-row workbook: slower than the default timeout.
   it("refuses a table above the row limit before replacing anything", async () => {
     const workbook = await loadWorkbook(await exportedTable());
     const sheet = workbook.getWorksheet("Signals")!;
@@ -157,7 +158,7 @@ describe("signals XLSX · MBS–KNX", () => {
     expect(error).toMatchObject({ status: 422 });
     expect((error as Error).message).toContain(`more than ${MAX_SIGNAL_ROWS} signals`);
     expect(doc.serialize()).toBe(before);
-  });
+  }, 30_000);
 
   it("keeps the add-mode guard: a different list is refused when signals keep their conversions", async () => {
     const data = await exportedTable(MAPS_MBS_KNX_TEMPLATE_XML);
