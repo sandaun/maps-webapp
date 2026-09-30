@@ -325,8 +325,8 @@ ja existeix i què es pot compartir.
      al registre i aporta la seva renumeració; no s'activa automàticament.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
-7. **XLSX de MAPS** — MBS–KNX **[implementat 2026-09-30; prova a MAPS pendent]**,
-   KNX–MBM i ME–MBS pendents. L'XLSX ha de ser el de MAPS en els dos sentits.
+7. **XLSX de MAPS** — MBS–KNX **[implementat 2026-09-30; importat a MAPS, OK]**,
+   KNX–MBM **[implementat 2026-09-30]**, ME–MBS pendent. L'XLSX ha de ser el de MAPS en els dos sentits.
    - **Versió (B3).** MAPS escriu la seva `ProductVersion` i en importar exigeix
      que coincideixi exactament (`ExcelParser.ExcelScanInformation`, `:122`).
      La webapp té la seva versió (`package.json`, a les propietats del fitxer);
@@ -355,12 +355,28 @@ ja existeix i què es pot compartir.
    - **Divergències MBS–KNX:** R/W "-" (`NOT_DEFINED`) es rebutja. El DPT es
      valida sobre el text i cada component ha de cabre en el seu byte; MAPS
      accepta `1.257` i el converteix en `2.001`.
-   - **Pendent KNX–MBM:** import per posició (9 columnes amb un altre nom),
-     validació de cel·les i "#", files virtuals que només actualitzen actiu,
-     descripció, adreces i prioritat, i que no s'afegeixen si no troben
-     correspondència (`ManageRowFromDataGridView`); export amb el format de
-     MAPS; "Replace signals" conservant els virtuals i les seves conversions.
-     Ara una taula de MAPS es rebutja (422) en lloc d'importar valors per defecte.
+   - **KNX–MBM.** Export amb els noms de MAPS i els valors de
+     `KnxComObject.GenerateRow`, `MbmObject.GenerateRow` i `CheckThisRowSpecific`:
+     DPT amb descripció, i "1.x: (1-bit)" quan MAPS no en té; flags buits amb dos
+     espais, U/Ri/W amb un a les files virtuals, i els que les funcions Modbus no
+     fan servir en blanc; Device amb "Port B" sempre (`IsOnlyPortB` amb KNX) i el
+     dispositiu per posició; Bit i "# Bits" només a BitFields; deadband de cada
+     senyal (`<Deadband>`, ara al model, amb la migració del global de 1.2.34).
+     Idèntic cel·la per cel·la a `knx-to-modbus-master.xlsx` (MAPS 1.2.31) des del
+     seu projecte (`fixtures/maps-reference.ts`). Import per posició (25 columnes)
+     amb els noms de MAPS o els de MAPS Web anteriors, validació com
+     `CheckAllowedValue` dels dos costats (dispositiu, esclau, base, funcions,
+     bit, deadband…) i "#" consecutiu. Com `ManageRowFromDataGridView`, una fila
+     virtual (Data Length "-") només actualitza actiu, descripció, adreces i
+     prioritat del primer senyal del mateix port i dispositiu, i es descarta si
+     no n'hi ha cap. "Replace signals" conserva els virtuals renumerats; només
+     compten les seves conversions. Els senyals nous ja no es creen `Fixed`.
+     L'Excel real de Stiebel (MAPS 1.2.27, 113 senyals) s'importa amb els seus
+     valors.
+   - **Divergències KNX–MBM:** Address "-" en una fila normal es rebutja (MAPS
+     l'accepta i falla a mitja importació). La base es compara amb la del
+     dispositiu. L'adreça de grup es reescriu amb el seu format de nivells, no
+     amb el text desat; només difereix amb l'adreça 0.
    - **Pendent ME–MBS:** format de MAPS (14 columnes) i import només en mode
      Replace amb `RestoreUserConfig` (actiu i, en mode CUSTOM, l'adreça), no
      afegint senyals. Cal un XLSX real de MAPS per validar-ho.

@@ -99,7 +99,7 @@ describe("ImportExportView", () => {
   it("offers Replace signals only where it is available", () => {
     render(
       <ImportExportView
-        family="knx-mbm"
+        family="me-mbs"
         projectId="p"
         projectName="P"
         signalCount={3}

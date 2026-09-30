@@ -1,17 +1,6 @@
 import "server-only";
 import { XmlDocument } from "@/core/project-format";
-import {
-  addSignal as knxAddSignal,
-  projectFromXml as knxFromXml,
-  setConversions as setKnxConversions,
-  updateSignal as knxUpdateSignal,
-} from "@/gateway-families/knx-mbm";
-import {
-  addSignal as meAddSignal,
-  projectFromXml as meFromXml,
-  updateSignal as meUpdateSignal,
-} from "@/gateway-families/me-mbs";
-import { groupAddressLevelOf, parseGroupAddress } from "@/protocols/knx/address";
+import { addSignal as meAddSignal, updateSignal as meUpdateSignal } from "@/gateway-families/me-mbs";
 import { ProjectServiceError } from "../projects/errors";
 import {
   expectedProtocols,
@@ -20,19 +9,9 @@ import {
   type ParsedSignalsSheet,
   type SignalsXlsxFamily,
 } from "../exports/xlsx-signals";
-import { importedConversions } from "./xlsx-conversions";
+import { applyKnxMbmXlsx } from "./xlsx-knx-mbm";
 import { applyMbsKnxXlsx } from "./xlsx-mbs-knx";
-import {
-  indexFromString,
-  parseBoolCell,
-  parseDeviceCell,
-  parseDptCell,
-  parseFlagCell,
-  KNX_SIGNAL_HEADERS,
-  ME_SIGNAL_HEADERS,
-  parseListening,
-  parsePriorityCell,
-} from "../exports/maps-grid-values";
+import { indexFromString, ME_SIGNAL_HEADERS, parseBoolCell } from "../exports/maps-grid-values";
 
 /** MAPS `frmImport`: "Add signals" (`ImportExcelMode.ADD`) or "Replace signals" (`REPLACE`). */
 export type ImportMode = "add" | "replace";
@@ -43,6 +22,8 @@ export interface ImportXlsxResult {
   updated: number;
   /** Signals removed first by a "Replace signals" import. */
   removed?: number;
+  /** KNX–MBM virtual rows with no signal on their port and device, which MAPS drops. */
+  dropped?: number;
   /** B3 of the file: the MAPS version that wrote it. */
   fileVersion?: string;
 }
@@ -79,18 +60,18 @@ function applyFamily(
   mode: ImportMode,
 ): ImportXlsxResult {
   if (family === "mbs-knx") return applyMbsKnxXlsx(doc, parsed, mode);
+  if (family === "knx-mbm") return applyKnxMbmXlsx(doc, parsed, mode);
   if (mode === "replace") {
     throw new ProjectServiceError(422, '"Replace signals" is not available yet for this kind of project.');
   }
-  requireHeaders(parsed, family === "knx-mbm" ? KNX_SIGNAL_HEADERS : ME_SIGNAL_HEADERS);
-  if (family === "knx-mbm") return applyKnx(doc, parsed);
+  requireHeaders(parsed, ME_SIGNAL_HEADERS);
   return applyMe(doc, parsed.headers, parsed.rows);
 }
 
 /**
- * KNX–MBM and ME–MBS read the columns by our header names, so a table with
- * other names (one exported by MAPS desktop: "Group Address", "Read Func"…)
- * would import default values. Such a table is rejected instead.
+ * ME–MBS reads the columns by our header names, so a table with other names
+ * (one exported by MAPS desktop) would import default values. Such a table is
+ * rejected instead.
  */
 function requireHeaders(parsed: ParsedSignalsSheet, expected: readonly string[]): void {
   const missing = expected.filter(
@@ -102,78 +83,6 @@ function requireHeaders(parsed: ParsedSignalsSheet, expected: readonly string[])
     `This Excel file does not have the columns ${missing.map((h) => `"${h}"`).join(", ")}. ` +
       "Tables exported by MAPS desktop cannot be imported yet for this kind of project.",
   );
-}
-
-function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResult {
-  const { headers, rows } = parsed;
-  // Validated before touching the document, so a rejected import changes nothing.
-  const conversions = importedConversions(knxFromXml(doc), parsed);
-  if (conversions) setKnxConversions(doc, conversions.list);
-  let appended = 0;
-  let updated = 0;
-  for (const [i, cells] of rows.entries()) {
-    const row = rowMap(headers, cells);
-    const dataLength = (row["Data length"] ?? "").trim();
-    const virtual = dataLength === "-";
-    const project = knxFromXml(doc);
-    const device = parseDeviceCell(project.mbm, row.Device ?? "");
-    const sendingText = (row.Sending ?? "").trim();
-    const sending = parseGroupAddress(sendingText) ?? 0;
-    const listening = parseListening(row.Listening ?? "");
-    const dpt = parseDptCell(row.DPT ?? "");
-    const patch = {
-      active: parseBoolCell(row.Active ?? "True"),
-      description: row.Description ?? "",
-      knx: {
-        ...(dpt !== undefined ? { dpt } : {}),
-        groupAddress: sending,
-        ...(sending > 0 ? { groupAddressLevel: groupAddressLevelOf(sendingText) } : {}),
-        additionalAddresses: listening.addresses,
-        additionalAddressLevels: listening.levels,
-        flags: {
-          u: parseFlagCell(row.U ?? "", "U"),
-          t: parseFlagCell(row.T ?? "", "T"),
-          ri: parseFlagCell(row.Ri ?? "", "Ri"),
-          w: parseFlagCell(row.W ?? "", "W"),
-          r: parseFlagCell(row.R ?? "", "R"),
-        },
-        priority: parsePriorityCell(row.Priority ?? ""),
-      },
-      modbus: {
-        port: device.port,
-        deviceIndex: device.deviceIndex,
-        isBroadcast: device.isBroadcast,
-        readFunc: indexFromString(row.Read ?? "-"),
-        writeFunc: indexFromString(row.Write ?? "-"),
-        lenBits: virtual ? -1 : indexFromString(row["Data length"] ?? "16"),
-        format: indexFromString(row.Format ?? "-"),
-        byteOrder: indexFromString(row["Byte order"] ?? "-"),
-        address: virtual ? -1 : Number(row.Address || 0),
-        bit: dashToNumber(row.Bit),
-        numOfBits: dashToNumber(row["Bit length"]),
-      },
-      ...(conversions ? { conversionRefs: conversions.refs[i] } : {}),
-    };
-
-    if (virtual) {
-      const match = project.signals.find(
-        (s) => s.virtual && s.modbus.port === device.port && s.modbus.deviceIndex === device.deviceIndex,
-      );
-      if (match) {
-        knxUpdateSignal(doc, match.id, {
-          active: patch.active,
-          description: patch.description,
-          knx: patch.knx,
-        });
-        updated += 1;
-        continue;
-      }
-    }
-    const id = knxAddSignal(doc);
-    knxUpdateSignal(doc, id, patch);
-    appended += 1;
-  }
-  return { rows: rows.length, appended, updated };
 }
 
 function applyMe(doc: XmlDocument, headers: string[], rows: string[][]): ImportXlsxResult {

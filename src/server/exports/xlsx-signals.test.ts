@@ -20,11 +20,11 @@ describe("signals XLSX", () => {
     const parsed = await parseSignalsXlsx(new Uint8Array(buf));
     expect(parsed.internalProtocol).toBe("KNX");
     expect(parsed.externalProtocol).toBe("Modbus Master");
-    expect(parsed.headers.slice(0, 6)).toEqual(["#", "Active", "Description", "DPT", "Sending", "Listening"]);
+    expect(parsed.headers.slice(0, 6)).toEqual(["#", "Active", "Description", "DPT", "Group Address", "Additional Addresses"]);
     expect(parsed.rows).toHaveLength(2);
     expect(parsed.rows[0]?.[2]).toBe("Heat pump on/off");
     expect(parsed.rows[0]?.[4]).toBe("1/0/3");
-    expect(parsed.rows[0]?.[3]).toBe("1.001");
+    expect(parsed.rows[0]?.[3]).toBe("1.001: switch");
 
     const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
     const result = await applySignalsXlsx(doc, "knx-mbm", new Uint8Array(buf));
@@ -72,7 +72,7 @@ describe("signals XLSX", () => {
     const buf = await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW });
     const parsed = await parseSignalsXlsx(new Uint8Array(buf));
     expect(parsed.headers.slice(-2)).toEqual(["Conv. Id", "Conversions"]);
-    expect(parsed.rows[0]?.slice(-2)).toEqual(["-", "-"]);
+    expect(parsed.rows[0]?.slice(-2)).toEqual(["", "-"]);
     expect(parsed.rows[1]?.slice(-2)).toEqual(["DIRECTION[>/<]:INDEXES[-;0;-;-]", "Enabled"]);
 
     const sheet = (await loadWorkbook(new Uint8Array(buf))).getWorksheet("Conversions");
@@ -110,17 +110,18 @@ describe("signals XLSX", () => {
     expect((await loadWorkbook(new Uint8Array(buf))).getWorksheet("Conversions")).toBeUndefined();
   });
 
-  it("rejects a KNX–MBM table with the MAPS desktop headers instead of importing defaults", async () => {
+  it("rejects a KNX–MBM table whose columns are not the KNX–MBM ones, changing nothing", async () => {
     const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
     const workbook = await loadWorkbook(new Uint8Array(await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW })));
-    workbook.getWorksheet("Signals")!.getRow(7).getCell(5).value = "Group Address";
+    workbook.getWorksheet("Signals")!.getRow(7).getCell(5).value = "Sending address";
     const data = new Uint8Array(await workbookToBuffer(workbook));
     const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
     const before = doc.serialize();
     await expect(applySignalsXlsx(doc, "knx-mbm", data)).rejects.toMatchObject({ status: 422 });
-    await expect(applySignalsXlsx(doc, "knx-mbm", data)).rejects.toThrow(/does not have the columns "Sending"/);
+    await expect(applySignalsXlsx(doc, "knx-mbm", data)).rejects.toThrow(/column 5 is "Sending address", expected "Group Address"/);
     expect(doc.serialize()).toBe(before);
   });
+
 });
 
 describe("ESF export", () => {

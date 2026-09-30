@@ -514,10 +514,13 @@ describe("project service — me-mbs family", () => {
     expect(history.some((e) => e.text.includes("Imported"))).toBe(true);
   });
 
-  it("refuses a knx-mbm Replace signals import for now with 422", async () => {
+  it("replaces the knx-mbm signals from an XLSX, like MAPS", async () => {
     const meta = await loadDemoProject();
     const file = await exportSignalsXlsx(meta.id);
-    expect((await rejection(importSignalsXlsx(meta.id, new Uint8Array(file.body), "x.xlsx", "replace"))).status).toBe(422);
+    const before = await getProjectView(meta.id);
+    const after = await importSignalsXlsx(meta.id, new Uint8Array(file.body), "x.xlsx", "replace");
+    expect(after.project.signals).toHaveLength(before.project.signals.length);
+    expect(after.meta.lastImport).toMatchObject({ mode: "replace", rows: 2 });
   });
 
   it("exports an ESF with the synthetic sending address", async () => {
