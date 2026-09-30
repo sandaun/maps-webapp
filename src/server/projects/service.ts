@@ -1,4 +1,5 @@
 import "server-only";
+import { getPreviewTemplate, rememberTemplateUndo, templateUndoXml } from "@/server/device-templates/cache";
 import {
   buildCompleteBlob,
   buildProjectZip,
@@ -212,7 +213,7 @@ export async function applyPatches(
       );
     }
     const originalXml = await store.readXml(id);
-    const doc = XmlDocument.parse(originalXml);
+    let doc = XmlDocument.parse(originalXml);
     const family = detectFamily(doc);
     if (!family) {
       throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
@@ -225,6 +226,12 @@ export async function applyPatches(
         );
       }
     }
+    const templatePatch = patches.find((patch) => patch.type === "applyDeviceTemplate" || patch.type === "undoDeviceTemplate");
+    if (templatePatch) {
+      if (patches.length !== 1) throw new ProjectServiceError(422, "Import or undo a device template in a separate request.");
+      if (templatePatch.type === "applyDeviceTemplate") getPreviewTemplate(templatePatch.token, id, revisionOf(stored));
+      if (templatePatch.type === "undoDeviceTemplate") doc = XmlDocument.parse(templateUndoXml(templatePatch.token, id, revisionOf(stored)));
+    }
     family.applyPatches(doc, patches);
     const nextXml = doc.serialize();
     if (patches.length === 1 && patches[0].type === "moveSignal" && nextXml === originalXml) {
@@ -232,7 +239,8 @@ export async function applyPatches(
     }
     await store.writeXml(id, nextXml);
     await store.upsert(nextRevision(stored));
-    await snapshotDraft(id, "Edited project");
+    await snapshotDraft(id, templatePatch?.type === "applyDeviceTemplate" ? `Imported Modbus device ${templatePatch.name}` : templatePatch?.type === "undoDeviceTemplate" ? "Undid device template import" : "Edited project");
+    if (templatePatch?.type === "applyDeviceTemplate") rememberTemplateUndo(templatePatch.token, originalXml);
     return readProjectView(id, { locked: true });
   });
 }

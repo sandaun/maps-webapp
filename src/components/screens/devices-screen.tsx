@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Download, Library } from "lucide-react";
+import { DeviceTemplateModal } from "@/components/devices/device-template-modal";
+import { downloadDeviceTemplate } from "@/lib/device-templates";
+import { useCurrentProject } from "@/lib/current-project";
 import {
   BAUD_RATES,
   DEVICE_TIMEOUT_RANGE,
@@ -335,6 +338,7 @@ function TcpNodeCard({ node, nodeIndex }: { node: MbmTcpNode; nodeIndex: number 
 
 function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmDevice[] }) {
   const { save, busy } = useSave();
+  const [templateOpen, setTemplateOpen] = React.useState(false);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
@@ -350,7 +354,12 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
           <Plus className="h-3.5 w-3.5" aria-hidden />
           Add device
         </Button>
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setTemplateOpen(true)}>
+          <Library className="h-3.5 w-3.5" aria-hidden />
+          Add from template
+        </Button>
       </div>
+      {templateOpen && <DeviceTemplateModal initialLocator={locator} onClose={() => setTemplateOpen(false)} />}
       {devices.length === 0 ? (
         <p className="text-sm text-fg-muted">No devices on this node.</p>
       ) : (
@@ -384,6 +393,9 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
 /** Devices are addressed by position: that is what the API and signal references use. */
 function DeviceRow({ locator, device, position }: { locator: NodeLocator; device: MbmDevice; position: number }) {
   const { save, busy, error } = useSave();
+  const { projectId } = useCurrentProject();
+  const [exporting, setExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
   const drafts = usePropertyDrafts();
   const group = `${locator.kind}-${locator.nodeIndex}-device-${position}`;
   const pendingCount = Object.values(drafts.snapshot.projects[drafts.view?.meta.id ?? ""]?.edits ?? {}).filter((edit) => edit.group === group).length;
@@ -473,11 +485,24 @@ function DeviceRow({ locator, device, position }: { locator: NodeLocator; device
         <ImmediatePropertyError id={`${group}-enabled`} />
       </TableCell>
       <TableCell className="whitespace-nowrap">
+        <Button size="sm" variant="secondary" disabled={busy || exporting || pendingCount > 0 || !signals.some((s) => !s.virtual)}
+          title={pendingCount > 0 ? "Save device edits before exporting" : "Export this device as a MAPS template"}
+          onClick={() => {
+            if (!projectId) return;
+            setExporting(true); setExportError(null);
+            const query = new URLSearchParams({ kind: locator.kind, nodeIndex: String(locator.nodeIndex), deviceIndex: String(position) });
+            void downloadDeviceTemplate(`/api/projects/${encodeURIComponent(projectId)}/device-templates/export?${query}`, `${device.name}.knxmbm`)
+              .catch((err: unknown) => setExportError(err instanceof Error ? err.message : "Export failed"))
+              .finally(() => setExporting(false));
+          }}>
+          <Download className="h-3.5 w-3.5" aria-hidden />{exporting ? "Exporting…" : "Export template"}
+        </Button>
         <Button size="sm" variant="ghost-destructive" disabled={busy} onClick={() => setConfirmRemove(true)}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
           Remove
         </Button>
         {error && !confirmRemove && <p role="alert" className="text-xs text-error">{error}</p>}
+        {exportError && <p role="alert" className="text-xs text-error">{exportError}</p>}
         {confirmRemove && (
           <Modal
             title={`Remove device ${position}`}

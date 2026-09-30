@@ -120,6 +120,8 @@ export type ConversionListInput = "filters" | "operations";
 
 /** Mirror of `ProjectPatch` in `src/server/projects/families.ts`. */
 export type ProjectPatchInput =
+  | import("@/core/device-templates/types").ApplyDeviceTemplate
+  | { type: "undoDeviceTemplate"; token: string }
   | { type: "setProjectPassword"; password: string }
   | { type: "setGeneralInfo"; name?: string; description?: string }
   | { type: "setGatewayInfo"; name?: string; ip?: string; netmask?: string; gateway?: string; dhcp?: boolean }

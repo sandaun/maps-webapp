@@ -266,6 +266,18 @@ describe("property drafts", () => {
     expect(draft.prepare(next, "devices").invalid["tcp-1-desc"]).toBeDefined();
   });
 
+  it("drops drafts of imported entities on undo and keeps edits on pre-existing devices", () => {
+    const f = fixture();
+    const original = f.view();
+    const imported = f.patch([{type:"addDevice",locator:{kind:"rtu",nodeIndex:0}}]);
+    const draft = store();
+    draft.stage(imported,field(imported,"rtu-0-device-1-name"),"Undo removes this");
+    draft.stage(imported,field(imported,"rtu-0-device-0-name"),"Keep this draft");
+    const restored = {...original,meta:{...original.meta,revision:imported.meta.revision!+1}};
+    draft.afterMutation(imported,restored,[{type:"undoDeviceTemplate",token:"test"}]);
+    expect(draft.editsFor(restored.meta.id,"devices")).toEqual([expect.objectContaining({id:"rtu-0-device-0-name",value:"Keep this draft",conflict:undefined})]);
+  });
+
   it("keeps positional drafts across this client's own mutations of sibling entities", () => {
     const f = fixture();
     const a = f.patch([{ type: "addDevice", locator: { kind: "rtu", nodeIndex: 0 } }]);

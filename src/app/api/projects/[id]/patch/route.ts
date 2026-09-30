@@ -303,6 +303,12 @@ const patchSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("addDevice"), locator: nodeLocatorSchema }),
   z.object({
+    type: z.literal("applyDeviceTemplate"), token: z.string().uuid(), locator: nodeLocatorSchema,
+    name: z.string().trim().min(1).max(128), slave: z.number().int().min(0).max(255),
+    enabled: z.array(z.number().int().min(0).max(4999)).max(5000), includeDisabled: z.boolean(),
+  }).strict(),
+  z.object({ type: z.literal("undoDeviceTemplate"), token: z.string().uuid() }).strict(),
+  z.object({
     type: z.literal("updateDevice"),
     locator: nodeLocatorSchema,
     deviceIndex: z.number().int().min(0),
