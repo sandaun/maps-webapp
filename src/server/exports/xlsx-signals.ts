@@ -50,7 +50,7 @@ export async function buildSignalsXlsx(
     version: opts?.mapsVersion ?? MAPS_REFERENCE_VERSION,
     internalProtocol: internal,
     externalProtocol: external,
-    timestamp: opts?.now ?? new Date(),
+    timestamp: mapsTimestamp(opts?.now ?? new Date()),
   });
   const { headers, rows } = signalTable(input);
   writeTextRow(signals, 7, headers);
@@ -67,6 +67,15 @@ export async function buildSignalsXlsx(
   }
 
   return workbookToBuffer(workbook);
+}
+
+/**
+ * B6 as MAPS 1.2.34 writes it: `DateTime.Now.ToShortDateString()` as text,
+ * "09/30/2026" (earlier MAPS versions stored an Excel date; MAPS never reads it).
+ */
+function mapsTimestamp(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}`;
 }
 
 function signalTable(input: SignalsXlsxProject): { headers: string[]; rows: string[][] } {

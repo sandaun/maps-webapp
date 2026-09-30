@@ -44,8 +44,7 @@ export function writeFileHeaders(
     version: string;
     internalProtocol: string;
     externalProtocol?: string;
-    /** A date is written as MAPS does: an Excel date in the short date format (built-in 14). */
-    timestamp: string | Date;
+    timestamp: string;
   },
 ): void {
   sheet.getCell(1, 1).value = opts.title;
@@ -62,15 +61,7 @@ export function writeFileHeaders(
     last = 5;
   }
   sheet.getCell(last + 1, 1).value = "Timestamp";
-  const timestamp = sheet.getCell(last + 1, 2);
-  if (opts.timestamp instanceof Date) {
-    // ExcelJS stores dates as UTC serials: keep the local calendar day.
-    const day = opts.timestamp;
-    timestamp.value = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()));
-    timestamp.numFmt = "mm-dd-yy";
-  } else {
-    timestamp.value = opts.timestamp;
-  }
+  sheet.getCell(last + 1, 2).value = opts.timestamp;
   for (let row = 2; row <= last + 1; row++) {
     sheet.getCell(row, 1).font = { bold: true };
     for (const col of [1, 2]) {

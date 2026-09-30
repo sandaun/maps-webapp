@@ -337,7 +337,8 @@ ja existeix i què es pot compartir.
      s'accepta qualsevol versió; si és més nova que la de referència, avís a
      "Last import".
    - **Format comú.** Capçalera "Intesis MAPS Excel signals file" / "Intesis
-     MAPS Version"; timestamp com a data d'Excel (format 14), com ClosedXML.
+     MAPS Version"; timestamp com a text "MM/dd/yyyy", com MAPS 1.2.34 (fins a
+     1.2.33 MAPS hi desava una data d'Excel; MAPS no el llegeix).
      Els fitxers de MAPS porten XML amb prefixos (`<x:worksheet>`,
      `<ap:Properties>`): `loadWorkbook` els normalitza.
    - **MBS–KNX.** Export amb els noms de la graella de MAPS i els valors de
@@ -391,8 +392,8 @@ ja existeix i què es pot compartir.
    - **Divergències ME–MBS:** un text de Group o Controller que MAPS no pot
      llegir es marca com a cel·la dolenta en lloc de fer fallar la lectura; una
      adreça per sobre de 32767 es guarda tal qual (MAPS la desborda a `short`).
-     Encara sense un XLSX real de MAPS per contrastar-ho: les files esperades
-     surten del codi descompilat.
+     Contrastat amb un XLSX real de MAPS 1.2.34 (1.730 senyals, 50 grups):
+     l'export és idèntic cel·la per cel·la i l'import el restaura sencer.
 
 8. **ETS/ESF** per a les famílies amb KNX.
    - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta

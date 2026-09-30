@@ -55,7 +55,7 @@ const EARLIER_MAPS_WEB_HEADERS = [
 const withoutIndexes = (cells: string[]) => cells.filter((_, i) => i !== 0 && i !== 9);
 
 describe("signals XLSX · MBS–KNX", () => {
-  it("exports the MAPS template exactly as MAPS 1.2.23 does", async () => {
+  it("exports the MAPS template like MAPS 1.2.23 does, with the 1.2.34 timestamp", async () => {
     // Rows of modbus-slave-to-knx.xlsx, exported by MAPS from this same template.
     const project = projectFromXml(XmlDocument.parse(MAPS_MBS_KNX_TEMPLATE_XML));
     const data = new Uint8Array(
@@ -84,8 +84,8 @@ describe("signals XLSX · MBS–KNX", () => {
       "Intesis MAPS Excel signals file", "PROJECT_NAME", "Intesis MAPS Version", "Internal Protocol", "External Protocol", "Timestamp",
     ]);
     expect(sheet.getCell(2, 2).value).toBe("Project1");
-    // MAPS writes the date as an Excel date in the short date format.
-    expect(sheet.getCell(6, 2).value).toEqual(new Date(Date.UTC(2026, 0, 1)));
+    // MAPS 1.2.34 writes the short date as text (MAPS 1.2.23 stored an Excel date).
+    expect(sheet.getCell(6, 2).value).toBe("01/01/2026");
     // MAPS Web's own version only goes in the file properties.
     expect(workbook.creator).toMatch(/^MAPS Web \d+\.\d+\.\d+$/);
   });

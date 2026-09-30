@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { XmlDocument } from "@/core/project-format";
-import { projectFromXml, updateMbsConfig, updateSignal } from "@/gateway-families/me-mbs";
+import { projectFromXml, updateGroupAndSignals, updateMbsConfig, updateSignal } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
 import { buildSignalsXlsx, parseSignalsXlsx } from "@/server/exports/xlsx-signals";
 import { ME_SIGNAL_HEADERS } from "@/server/exports/maps-grid-values";
@@ -10,6 +10,8 @@ import { applySignalsXlsx } from "./xlsx-signals";
 
 const NOW = new Date(2026, 0, 1);
 const REAL_ME_MBS_XML = ".local-data/fixtures/770air-me-mbs-2026-08-18.ibmaps.xml";
+/** A table exported by MAPS 1.2.34 from base.ibmaps with the 50 groups of controller 1 enabled (kept out of the repository). */
+const REAL_MAPS_DIR = ".local-data/fixtures/me-mbs-maps-ref/";
 
 async function exportedTable(xml = SYNTHETIC_ME_MBS_XML): Promise<Uint8Array> {
   const project = projectFromXml(XmlDocument.parse(xml));
@@ -115,5 +117,25 @@ describe("signals XLSX · ME–MBS", () => {
     const result = await applySignalsXlsx(doc, "me-mbs", data, "replace");
     expect(result.ignored).toBe(0);
     expect(projectFromXml(doc).signals[0].active).toBe(!first.active);
+  });
+
+  it("exports and imports the table MAPS 1.2.34 exported for the same project", async () => {
+    if (!existsSync(REAL_MAPS_DIR + "membs.xlsx")) return;
+    const doc = XmlDocument.parse(readFileSync(REAL_MAPS_DIR + "base.ibmaps", "utf8"));
+    for (let group = 0; group < 50; group++) updateGroupAndSignals(doc, 0, group, { enabled: true });
+    const project = { ...projectFromXml(doc), name: "Project1" };
+    const maps = (await loadWorkbook(new Uint8Array(readFileSync(REAL_MAPS_DIR + "membs.xlsx")))).getWorksheet("Signals")!;
+    const ours = (
+      await loadWorkbook(new Uint8Array(await buildSignalsXlsx({ family: "me-mbs", project }, { mapsVersion: "1.2.34.0" })))
+    ).getWorksheet("Signals")!;
+    expect(ours.rowCount).toBe(maps.rowCount);
+    const text = (sheet: typeof maps, r: number) => Array.from({ length: 14 }, (_, c) => String(sheet.getRow(r).getCell(c + 1).value ?? ""));
+    // Every cell but the timestamp (B6), which is the export date.
+    for (let r = 1; r <= maps.rowCount; r++) {
+      if (r === 6) continue;
+      expect(text(ours, r)).toEqual(text(maps, r));
+    }
+    const result = await applySignalsXlsx(doc, "me-mbs", new Uint8Array(readFileSync(REAL_MAPS_DIR + "membs.xlsx")), "replace");
+    expect(result).toMatchObject({ rows: 1730, updated: 1730, ignored: 0 });
   });
 });
