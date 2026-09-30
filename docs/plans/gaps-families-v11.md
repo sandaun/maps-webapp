@@ -202,20 +202,20 @@ continuen pendents; importar un fitxer bacmbm a KNX no implementa aquella famíl
 | Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
 | Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [fet 2026-09-26] | model amb les dues meitats; export i import amb "Conv. Id" i el full "Conversions" com MAPS (import més estricte en els casos perillosos); patch com `SaveObjectsConfiguration`. Detall a `docs/reference/conversions.md` §5 |
 | Import ESF (ETS) | [decidir] | export ESF [fet]; import no existeix ni al V11 |
-| Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML). El deadband per senyal ja es llegeix, s'exporta i s'importa per XLSX (§4, punt 7), però **encara no arriba a l'equip**: l'XBL només emet el global (tag 8) i no el tag 15 per senyal de RT. Pendent a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md) |
+| Senyals virtuals / AllowedValues | [falta] | fora del model editable (es preserven a l'XML) |
+| Deadband per senyal (KNX–MBM RT) | [fet 2026-09-30] | com MAPS: el global antic passa als senyals en carregar, XML sense global, XBL amb el tag 15 per senyal i sense el tag 8, columna "Deadband" (0–100, amagada i de només lectura on MAPS) i avís de firmware anterior a 2.0.2.0 abans d'enviar. Vegeu la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md) §11 |
 
 ---
 
 ## 3. Transversals (afecten totes les famílies presents i futures)
 
-- **Plataformes KTS/V6, RT/S700 i RT_AIR** [falta; conversió: decidir,
-  investigat 2026-09-29]: protocols i AppId no distingeixen totes les variants.
-  KNX-MBM encara no filtra plataforma en detectar; MBS-KNX i ME-MBS sí, però
-  el desplegament compartit no compara la plataforma del projecte amb la del
-  gateway. Cal delimitar el suport actual, completar el deadband per senyal
-  KNX-MBM RT i decidir la conversió legacy explícita. Flux real de MAPS,
-  diferències per família, firmware, abast i proves pendents a
-  [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
+- **Plataformes KTS/V6, RT/S700 i RT_AIR** [S700 fet 2026-09-30; V6 fora
+  d'abast]: les tres famílies obren Platform 2 i 3 com MAPS i identifiquen els
+  projectes V6 amb un missatge clar; el deploy comprova el gateway com
+  `EvaluateConnectionWithGw` i el deadband per senyal KNX-MBM RT és complet.
+  Pendents, sense resoldre: editor i deploy V6, conversió V6 → S700 (Fase C),
+  canvi de firmware (`NEED_SWAP`) i correcció de llicència. Detall a
+  [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md) §11.
 - **API de gateway en viu** (sessió persistent per a scans, reads i mètriques):
   desbloqueja Scan groups (ME), Poll now / estats (KNX-MBM), live values,
   comptadors d'errors. És el blocant grosso de mig V11.
@@ -409,11 +409,9 @@ ja existeix i què es pot compartir.
      compten les seves conversions. Els senyals nous ja no es creen `Fixed`.
      L'Excel real de Stiebel (MAPS 1.2.27, 113 senyals) s'importa amb els seus
      valors.
-   - **Limitació KNX–MBM: el deadband per senyal no arriba a l'equip.** L'import
-     l'escriu a `<Deadband>` de cada senyal, però l'XBL encara no emet el tag 15
-     per senyal ni aplica la migració RT del global (només el tag 8 global), de
-     manera que el valor importat no canvia l'XBL. Pendent, amb les plataformes,
-     a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
+   - **Deadband per senyal KNX–MBM** [resolt 2026-09-30]: el valor importat
+     arriba a l'equip (tag 15 per senyal), amb la migració RT del global en
+     carregar; vegeu la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
    - **Divergències KNX–MBM:** Address "-" en una fila normal es rebutja (MAPS
      l'accepta i falla a mitja importació). La base es compara amb la del
      dispositiu. L'adreça de grup es reescriu amb el seu format de nivells, no

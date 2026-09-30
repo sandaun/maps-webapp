@@ -121,8 +121,11 @@ For each protocol side not yet implemented, create `src/protocols/<proto>/`:
 1. `model.ts` — the project model. **Never include credentials** (`Pwd`,
    auth users/passwords). Document exclusions in the header comment.
 2. `detect.ts` — family detection from the XML root attributes
-   (`InternalProtocol` + `ExternalProtocol` + `Platform`; check the decompiled
-   project class for the exact strings, and confirm against the real XML).
+   (`InternalProtocol` + `ExternalProtocol`, and a 700 Series `Platform` read
+   with `projectPlatform` / `isS700Platform`; check the decompiled project
+   class for the exact strings, and confirm against the real XML). Register the
+   class platform and any load-time changes (`normalize`) in
+   `src/server/projects/families.ts`.
 3. `from-xml.ts` — `XmlDocument` → model. The parser preserves everything;
    the model only maps what you understand.
 4. `xml-ops.ts` — typed patch ops (the ONLY way edits happen — surgical
@@ -285,8 +288,10 @@ Deploy writes to a physical device. Every layer is gated:
 1. Family has a deploy descriptor (`src/server/deploy/service.ts`,
    `DEPLOY_FAMILIES`) → else 422.
 2. Genuine capability artefact (shape-checked) → else 403.
-3. Active session whose gateway `INFO:APPID` matches the family's expected
-   AppId → else 409.
+3. Active session whose gateway MAPS would accept for the project class
+   (`src/server/deploy/gateway-compat.ts`: a 700 Series gateway whose
+   `INFO:APPID` is one of the class's `ApplicationIDs`) → else 409. Warnings
+   such as the per-signal deadband firmware one must be confirmed → else 409.
 4. Explicit user confirmation in the UI.
 
 Deploy regenerates the XBL from the current XML (never reuses the original)
