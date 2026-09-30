@@ -130,7 +130,3 @@ function importedSignal(row: Record<string, string>): ImportedSignal {
     knx: importedKnxEndpoint(row),
   };
 }
-
-
-
-
