@@ -163,6 +163,18 @@ export function removeSignal(doc: XmlDocument, id: number): boolean {
 }
 
 /**
+ * Remove every signal of both sides, fixed ones included, like the "Replace
+ * signals" Excel import (`ReplaceObjectsFromExcel`,
+ * IntesisProjectMBSKNX_RT.cs:868-873: `MbsObjects.Clear()` + `KnxObjects.Clear()`).
+ * Returns how many rows were removed.
+ */
+export function removeAllSignals(doc: XmlDocument): number {
+  const rows = Math.max(mbsSignals(doc).length, knxObjects(doc).length);
+  for (const el of [...mbsSignals(doc), ...knxObjects(doc)]) removeElement(el);
+  return rows;
+}
+
+/**
  * MAPS `ReorderIdxConfigs` (InternalMbs + ExternalKnx), run after deleting
  * signals: the i-th signal of each side gets ID = idxConfig = idxExternal = i.
  * Run it once after a batch of removals, so every ID in the batch keeps
@@ -214,13 +226,7 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
   const flagsBefore = readKnxEndpoint(knx).flags;
   if (patch.active !== undefined) setText(childEl(mbs, "isEnabled"), boolText(patch.active));
   if (patch.description !== undefined) setText(childEl(mbs, "Description"), patch.description);
-  if (patch.conversionRefs !== undefined) {
-    const { internal, external } = patch.conversionRefs;
-    setText(childEl(mbs, "IdxOperations"), formatConversionIds(internal.operations));
-    setText(childEl(mbs, "IdxFilters"), formatConversionIds(internal.filters));
-    setText(childEl(knx, "IdxOperations"), formatConversionIds(external.operations));
-    setText(childEl(knx, "IdxFilters"), formatConversionIds(external.filters));
-  }
+  if (patch.conversionRefs !== undefined) setConversionRefs(mbs, knx, patch.conversionRefs);
   if (patch.modbus) patchMbsEndpoint(mbs, patch.modbus);
   patchMbsEndpoint(mbs, fitMbsRowEdit(loaded, patch.modbus ?? {}));
   if (patch.knx) patchKnxEndpoint(knx, patch.knx);
@@ -234,6 +240,41 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
   const forceModeFlags = readWrite !== loaded.readWrite && patch.knx?.flags === undefined;
   const fitted = flagsForRwMode(edited, rwMode, forceModeFlags);
   if (!sameFlags(flags, fitted)) patchKnxEndpoint(knx, { flags: fitted });
+}
+
+/** A row of an imported Excel table, with every cell of both sides. */
+export interface ImportedSignal {
+  active: boolean;
+  description: string;
+  modbus: Pick<MbsEndpoint, "lenBits" | "format" | "address" | "bit" | "readWrite" | "stringLength">;
+  knx: KnxEndpoint;
+  conversionRefs?: SignalConversionRefs;
+}
+
+/**
+ * Append an Excel row like `AddObjectsFromExcel` (IntesisProjectMBSKNX_RT.cs:875-894):
+ * both halves take the cells as they are (`InternalMbs.ExtractObjectInfoFromRow`,
+ * `ExternalKnx.ExtractObjectInfoFromRow`), without the fitting of a grid edit,
+ * and the row is neither fixed nor virtual. Returns the new signal's id.
+ */
+export function appendImportedSignal(doc: XmlDocument, row: ImportedSignal): number {
+  const id = addSignal(doc);
+  const mbs = findMbsSignal(doc, id);
+  const knx = findKnxObject(doc, id);
+  if (!mbs || !knx) throw new Error(`Signal ${id} does not exist`);
+  setText(childEl(mbs, "isEnabled"), boolText(row.active));
+  setText(childEl(mbs, "Description"), row.description);
+  if (row.conversionRefs) setConversionRefs(mbs, knx, row.conversionRefs);
+  patchMbsEndpoint(mbs, row.modbus);
+  patchKnxEndpoint(knx, row.knx);
+  return id;
+}
+
+function setConversionRefs(mbs: XmlElement, knx: XmlElement, { internal, external }: SignalConversionRefs): void {
+  setText(childEl(mbs, "IdxOperations"), formatConversionIds(internal.operations));
+  setText(childEl(mbs, "IdxFilters"), formatConversionIds(internal.filters));
+  setText(childEl(knx, "IdxOperations"), formatConversionIds(external.operations));
+  setText(childEl(knx, "IdxFilters"), formatConversionIds(external.filters));
 }
 
 /**

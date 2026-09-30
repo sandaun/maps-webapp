@@ -61,14 +61,14 @@ function currentView(id = "demo"): ProjectView {
         meta,
         project: readKnx(xml),
         issues: [],
-        passwordValid: false, hasCompleteBlob: false,
+        passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
       }
     : {
         family,
         meta,
         project: readMe(xml),
         issues: [],
-        passwordValid: false, hasCompleteBlob: false,
+        passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
       };
 }
 function setup(nextFamily: TestFamily = "knx-mbm") {

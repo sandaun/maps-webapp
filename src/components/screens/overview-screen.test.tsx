@@ -23,7 +23,7 @@ function buildMeView(issues: ProjectView["issues"] = []): ProjectView {
     family: "me-mbs",
     project: meProjectFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)),
     issues,
-    passwordValid: false, hasCompleteBlob: false,
+    passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
   };
 }
 
@@ -40,7 +40,7 @@ function buildKnxView(issues: ProjectView["issues"] = []): ProjectView {
     family: "knx-mbm",
     project: knxProjectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML)),
     issues,
-    passwordValid: false, hasCompleteBlob: false,
+    passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
   };
 }
 

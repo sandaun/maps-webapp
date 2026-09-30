@@ -35,12 +35,22 @@ export interface ProjectMeta {
   /** Server write counter; sent back as `If-Match` when patching. */
   revision?: number;
   /** Last XLSX signal-table import, when any. */
-  lastImport?: { fileName: string; at: string; rows: number };
+  lastImport?: {
+    fileName: string;
+    at: string;
+    rows: number;
+    /** "Add signals" (default) or "Replace signals". */
+    mode?: "add" | "replace";
+    /** Set when the file comes from a MAPS newer than the one MAPS Web was checked against. */
+    warning?: string;
+  };
 }
 
 interface ProjectViewBase {
   /** MAPS deploy integrity check; never the password itself. */
   passwordValid: boolean;
+  /** MAPS version that last saved the project (`<Header Version>`): the default target of exported MAPS files. */
+  mapsVersion: string;
   meta: ProjectMeta;
   issues: ValidationIssue[];
   hasCompleteBlob: boolean;

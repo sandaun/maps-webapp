@@ -39,7 +39,7 @@ function buildKnxView(): ProjectView {
     family: "knx-mbm",
     project,
     issues: validateKnx(project),
-    passwordValid: false, hasCompleteBlob: false,
+    passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
   };
 }
 
@@ -57,7 +57,7 @@ function buildMeView(): ProjectView {
     family: "me-mbs",
     project,
     issues: validateMe(project),
-    passwordValid: false, hasCompleteBlob: false,
+    passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
   };
 }
 

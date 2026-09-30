@@ -8,58 +8,104 @@ import { conversionCode } from "@/core/signals/conversion-code";
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
-import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
+import type { MbsKnxSignal } from "@/gateway-families/mbs-knx/model";
+import { COMMON_DPT_OPTIONS, decodeDpt, formatDpt, parseDpt } from "@/protocols/knx/dpt";
 import { formatGroupAddress, formatGroupAddressAtLevel, formatListeningAddresses, groupAddressLevelOf, parseGroupAddress } from "@/protocols/knx/address";
 import type { MbmConfig, MbmRtuNode } from "@/protocols/modbus/master/nodes";
 import { nodeForPort } from "@/protocols/modbus/master";
+import { FORMATS as MB_FORMATS } from "@/protocols/modbus/slave";
 
+/**
+ * KNX–MBM columns as MAPS writes them: the grid's `HeaderText`
+ * (`IntesisExcel.WriteColumnHeaders`) — the KNX side (`InternalKnx.GetInternalCols`,
+ * 12 columns), the Modbus Master side (`ExternalMbm.GetExternalCols`, 13 with
+ * the deadband, which KNX–MBM always has) and the two conversion columns.
+ * Hidden grid columns ("Priority", the Modbus "#", "Deadband", the conversions)
+ * are exported too.
+ */
 export const KNX_SIGNAL_HEADERS = [
   "#",
   "Active",
   "Description",
   "DPT",
-  "Sending",
-  "Listening",
+  "Group Address",
+  "Additional Addresses",
   "U",
   "T",
   "Ri",
   "W",
   "R",
   "Priority",
-  "Index",
+  "#",
   "Device",
-  "Slave",
+  "# Slave",
   "Base",
-  "Read",
-  "Write",
-  "Data length",
+  "Read Func",
+  "Write Func",
+  "Data Length",
   "Format",
-  "Byte order",
+  "ByteOrder",
   "Address",
   "Bit",
-  "Bit length",
+  "# Bits",
   "Deadband",
-  // IntesisConversion.GetColumnHeaders: the grid's two conversion columns,
-  // which MAPS writes to the Excel like every other grid column.
   "Conv. Id",
   "Conversions",
 ] as const;
 
+/**
+ * ME–MBS columns as MAPS writes them: the Modbus Slave side
+ * (`InternalMbs.GetInternalCols`, 9 columns), the ME side
+ * (`ExternalME.GetExternalCols`: its own "#", "Group", "Controller") and the
+ * project's two specific values (`IntesisProjectMbsMe_RT.AddSpecificExcelColumnValues`).
+ * No conversion columns: conversions are disabled for this project.
+ */
 export const ME_SIGNAL_HEADERS = [
   "#",
   "Active",
   "Description",
-  "Data length",
+  "Data Length",
   "Format",
   "Address",
   "Bit",
-  "R/W",
-  "String length",
-  "Controller",
+  "Read / Write",
+  "String Length",
+  "#",
   "Group",
-  "Unit",
-  "Spec",
-  "Status",
+  "Controller",
+  "Sig Specific Index",
+  "Sig Internal Index",
+] as const;
+
+/**
+ * MBS–KNX columns as MAPS writes them: the grid's `HeaderText`
+ * (`IntesisExcel.WriteColumnHeaders`) — the Modbus Slave side
+ * (`InternalMbs.GetInternalCols`, 9 columns), the KNX side
+ * (`ExternalKnx.GetExternalCols`, 10 columns, with its own "#") and the two
+ * conversion columns (`IntesisConversion.GetColumnHeaders`).
+ */
+export const MBS_KNX_SIGNAL_HEADERS = [
+  "#",
+  "Active",
+  "Description",
+  "Data Length",
+  "Format",
+  "Address",
+  "Bit",
+  "Read / Write",
+  "String Length",
+  "#",
+  "DPT",
+  "Group Address",
+  "Additional Addresses",
+  "U",
+  "T",
+  "Ri",
+  "W",
+  "R",
+  "Priority",
+  "Conv. Id",
+  "Conversions",
 ] as const;
 
 export const CONVERSION_HEADERS = [
@@ -216,80 +262,137 @@ export function parsePriorityCell(raw: string): number {
   return n >= 0 && n <= 3 ? n : 3;
 }
 
-export function rtuPortLabel(nodes: MbmRtuNode[], index: number): string {
+/**
+ * RTU node name in a Device cell (`MbmRtuNode.GetNodeDescription`): with a
+ * KNX internal protocol every node is "Port B" (`IsOnlyPortB`, ExternalMbm.cs:686, 752).
+ */
+export const RTU_NODE_LABEL = "Port B";
+
+/** The node label earlier MAPS Web versions wrote ("Port A" for the first node), still read on import. */
+function earlierRtuPortLabel(nodes: MbmRtuNode[], index: number): string {
   const onlyPortB = nodes.length === 1 && nodes[0]?.physicalPort === 1;
-  if (index === 0 && !onlyPortB) return "Port A";
-  return "Port B";
+  return index === 0 && !onlyPortB ? "Port A" : "Port B";
 }
 
-/** Signal-table Device cell (`MbmObject.GetDeviceIndexValue`). */
+/** The signal's device: MAPS finds it by position in its node (`ContainedDevices[DeviceIndex]`). */
+function deviceOf(mbm: MbmConfig, signal: KnxMbmSignal) {
+  const { port, deviceIndex } = signal.modbus;
+  if (port < 0 || deviceIndex < 0) return undefined;
+  return nodeForPort(mbm, port)?.node.devices[deviceIndex];
+}
+
+/** Signal-table Device cell (`MbmObject.GetDeviceIndexValue`, MbmObject.cs:400-422). */
 export function deviceCell(mbm: MbmConfig, signal: KnxMbmSignal): string {
-  const port = signal.modbus.port;
+  const { port, deviceIndex, isBroadcast } = signal.modbus;
   if (port < 0) return "-";
   const ref = nodeForPort(mbm, port);
   if (!ref) return "-";
-  if (ref.kind === "rtu") {
-    const nodeLabel = `RTU // ${rtuPortLabel(mbm.rtuNodes, port)}`;
-    if (signal.modbus.deviceIndex < 0 && !signal.modbus.isBroadcast) return nodeLabel;
-    const device = signal.modbus.isBroadcast
-      ? "Broadcast"
-      : (ref.node.devices.find((d) => d.index === signal.modbus.deviceIndex)?.name ?? "-");
-    return `${nodeLabel} // ${device}`;
-  }
-  const tcp = mbm.tcpNodes[port - mbm.rtuNodes.length];
-  const nodeLabel = `TCP // ${tcp?.description || `${tcp?.ip ?? ""}:${tcp?.port ?? ""}`}`;
-  if (signal.modbus.deviceIndex < 0 && !signal.modbus.isBroadcast) return nodeLabel;
-  const device = signal.modbus.isBroadcast
-    ? "Broadcast"
-    : (ref.node.devices.find((d) => d.index === signal.modbus.deviceIndex)?.name ?? "-");
-  return `${nodeLabel} // ${device}`;
+  const node =
+    ref.kind === "rtu" ? `RTU // ${RTU_NODE_LABEL}` : `TCP // ${mbm.tcpNodes[port - mbm.rtuNodes.length]?.description ?? ""}`;
+  if (deviceIndex < 0 && !isBroadcast) return node;
+  return `${node} // ${isBroadcast ? "Broadcast" : (deviceOf(mbm, signal)?.name ?? "")}`;
 }
 
+/**
+ * `ExternalMbm.GetPortFromDeviceName` + the device lookup by name
+ * (ExternalMbm.cs:1814-1843, 2232-2257). `found` is false when the cell names
+ * a node or device the project does not have (MAPS: ERROR_COMPATIBILITY).
+ */
 export function parseDeviceCell(
   mbm: MbmConfig,
   raw: string,
-): { port: number; deviceIndex: number; isBroadcast: boolean } {
+): { port: number; deviceIndex: number; isBroadcast: boolean; found: boolean } {
   const value = raw.trim();
-  if (value === "" || value === "-") return { port: -1, deviceIndex: -1, isBroadcast: false };
+  const none = { port: -1, deviceIndex: -1, isBroadcast: false };
+  if (value === "" || value === "-") return { ...none, found: true };
   const parts = value.split(" // ").map((p) => p.trim());
   const kind = parts[0];
   const portName = parts[1] ?? "";
   const deviceName = parts[2] ?? "";
   let port = -1;
   if (kind === "RTU") {
-    port = mbm.rtuNodes.findIndex((_, i) => rtuPortLabel(mbm.rtuNodes, i) === portName);
+    port =
+      portName === RTU_NODE_LABEL && mbm.rtuNodes.length > 0
+        ? 0
+        : mbm.rtuNodes.findIndex((_, i) => earlierRtuPortLabel(mbm.rtuNodes, i) === portName);
   } else if (kind === "TCP") {
     const tcp = mbm.tcpNodes.findIndex(
       (node) => node.description === portName || `${node.ip}:${node.port}` === portName,
     );
     port = tcp >= 0 ? tcp + mbm.rtuNodes.length : -1;
   }
-  if (port < 0) return { port: -1, deviceIndex: -1, isBroadcast: false };
-  if (deviceName === "Broadcast") return { port, deviceIndex: -1, isBroadcast: true };
-  if (deviceName === "") return { port, deviceIndex: -1, isBroadcast: false };
-  const ref = nodeForPort(mbm, port);
-  const deviceIndex = ref?.node.devices.findIndex((d) => d.name === deviceName) ?? -1;
-  return { port, deviceIndex: deviceIndex >= 0 ? deviceIndex : -1, isBroadcast: false };
+  if (port < 0) return { ...none, found: false };
+  if (deviceName === "Broadcast") return { port, deviceIndex: -1, isBroadcast: true, found: true };
+  if (deviceName === "") return { port, deviceIndex: -1, isBroadcast: false, found: kind === "RTU" };
+  const deviceIndex = nodeForPort(mbm, port)?.node.devices.findIndex((d) => d.name === deviceName) ?? -1;
+  return { port, deviceIndex, isBroadcast: false, found: deviceIndex >= 0 };
 }
 
+/** KNX–MBM DPT cell: the MAPS combo text, or "1.x: (1-bit)" when the combo has none (KnxComObject.cs:366-374). */
+function knxMbmDptCell(dpt: number): string {
+  return DPT_LABELS.get(dpt) ?? "1.x: (1-bit)";
+}
+
+/**
+ * The flag cells as the grid shows them: the letter, or two spaces when off
+ * (`KnxComObject.GenerateRow`), then `CheckThisRowSpecific`
+ * (IntesisProjectKnxMbm_RT.cs:588-639): a virtual row shows U, Ri and W as one
+ * space; any other row blanks the flags its Modbus functions cannot use
+ * (`UpdateFlagsValueFromRWObject`, IntesisKnx.cs:870-903).
+ */
+function knxMbmFlagCells(signal: KnxMbmSignal): [string, string, string, string, string] {
+  const { flags } = signal.knx;
+  const cells = { u: knxFlagCell(flags.u, "U"), t: knxFlagCell(flags.t, "T"), ri: knxFlagCell(flags.ri, "Ri"), w: knxFlagCell(flags.w, "W"), r: knxFlagCell(flags.r, "R") };
+  if (signal.virtual) {
+    cells.u = " ";
+    cells.ri = " ";
+    cells.w = " ";
+  } else {
+    const { readFunc, writeFunc } = signal.modbus;
+    if (readFunc < 0 && writeFunc >= 0) {
+      cells.r = "  ";
+      cells.t = "  ";
+    } else if (readFunc >= 0 && writeFunc < 0) {
+      cells.w = "  ";
+      cells.u = "  ";
+      cells.ri = "  ";
+    }
+  }
+  return [cells.u, cells.t, cells.ri, cells.w, cells.r];
+}
+
+/**
+ * The signal's deadband as MAPS 1.2.34 loads it: its own `<Deadband>`, or the
+ * old global one when the signal has none (`MigrateGlobalDeadbandToSignals`,
+ * ExternalMbm.cs:726-740).
+ */
+function signalDeadband(project: KnxMbmProject, signal: KnxMbmSignal): number {
+  const own = signal.modbus.deadband ?? 0;
+  return own === 0 && project.mbm.deadband !== 0 && !signal.modbusVirtual ? project.mbm.deadband : own;
+}
+
+/**
+ * A KNX–MBM row as MAPS writes it (`KnxComObject.GenerateRow`,
+ * `MbmObject.GenerateRow` MbmObject.cs:187-372, `PopulateExtraParameters`,
+ * `CheckThisRowSpecific`). The Modbus cells follow the Modbus object's own
+ * virtual/fixed flags, as in MAPS; the deadband and flags follow the KNX one.
+ */
 export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): string[] {
   const { knx, modbus } = signal;
-  const ref = nodeForPort(project.mbm, modbus.port);
-  const device = ref?.node.devices.find((d) => d.index === modbus.deviceIndex);
+  const device = deviceOf(project.mbm, signal);
   const sending = knx.groupAddress > 0 ? formatGroupAddressAtLevel(knx.groupAddress, knx.groupAddressLevel ?? 3) : "";
   const listening = formatListeningAddresses(knx.additionalAddresses, knx.additionalAddressLevels, ",");
+  const modbusVirtual = signal.modbusVirtual ?? false;
+  const bitFields = modbus.format === MB_FORMATS.BITFIELDS && !modbusVirtual;
+  const code = conversionCode(signal.conversions);
   return [
     String(signal.id + 1),
     boolCell(signal.active),
     signal.description,
-    formatDpt(knx.dpt),
+    knxMbmDptCell(knx.dpt),
     sending,
     listening,
-    flagCell(knx.flags.u, "U"),
-    flagCell(knx.flags.t, "T"),
-    flagCell(knx.flags.ri, "Ri"),
-    flagCell(knx.flags.w, "W"),
-    flagCell(knx.flags.r, "R"),
+    ...knxMbmFlagCells(signal),
     priorityCell(knx.priority),
     String(signal.id + 1),
     deviceCell(project.mbm, signal),
@@ -297,34 +400,118 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
     device ? (device.baseRegister === 1 ? "1-based" : "0-based") : "-",
     functionCell(modbus.readFunc),
     functionCell(modbus.writeFunc),
-    signal.virtual ? "-" : dashNumber(modbus.lenBits),
-    formatCell(modbus.format),
+    modbusVirtual ? "-" : dashNumber(modbus.lenBits),
+    // MAPS loads String (5) as no format on this side (`ParseMBMObjects`).
+    modbus.format === MB_FORMATS.STRING ? "-" : formatCell(modbus.format),
     byteOrderCell(modbus.byteOrder),
-    signal.virtual ? "-" : dashNumber(modbus.address),
-    dashNumber(modbus.bit),
-    dashNumber(modbus.numOfBits),
-    signal.virtual ? "-" : String(project.mbm.deadband),
-    conversionCode(signal.conversions),
+    modbusVirtual && signal.modbusFixed ? "-" : String(modbus.address),
+    bitFields ? dashNumber(modbus.bit) : "-",
+    bitFields ? dashNumber(modbus.numOfBits === 0 ? 1 : modbus.numOfBits) : "-",
+    signal.virtual || (modbusVirtual && signal.modbusFixed) ? "-" : String(signalDeadband(project, signal)),
+    code === "-" ? "" : code,
     conversionsButtonCell(signal.conversions),
   ];
 }
 
+/**
+ * The Group cell (`MeObject.GenerateRow`, MeObject.cs:112-140): "-" for a
+ * controller signal, "Indoor Unit N" / "Outdoor Unit N" for a unit's error
+ * code, else "G<n> - <group description>" ("G<n>" without one).
+ */
+export function meGroupCell(project: MeMbsProject, signal: MeMbsSignal): string {
+  const { groupIndex, unitId, isIndoor, g50Index } = signal.me;
+  if (groupIndex === -1 && unitId === -1) return "-";
+  if (unitId !== -1) return isIndoor ? `Indoor Unit ${unitId + 1}` : `Outdoor Unit ${unitId + 1 - 50}`;
+  const description = project.me.controllers[g50Index]?.groups[groupIndex]?.description ?? "";
+  return description ? `G${groupIndex + 1} - ${description}` : `G${groupIndex + 1}`;
+}
+
+/** The Controller cell (MeObject.cs:97-110). */
+export function meControllerCell(signal: MeMbsSignal): string {
+  return signal.me.g50Index === -1 ? "-" : `Controller ${signal.me.g50Index + 1}`;
+}
+
+/**
+ * An ME–MBS row as MAPS writes it (`MbsObject.GenerateRow` without string
+ * format, `MeObject.GenerateRow`, `AddSpecificExcelSignalValues`). MAPS loads
+ * a length of 1 or -1 as 16 bits (1 also as Unsigned), shows String as no
+ * format and never shows a string length.
+ */
 export function meSignalRow(project: MeMbsProject, signal: MeMbsSignal): string[] {
+  const { modbus, me } = signal;
+  const oneBit = modbus.lenBits === 1;
+  const format = oneBit ? 0 : modbus.format;
   return [
     String(signal.id + 1),
     boolCell(signal.active),
     signal.description,
-    dashNumber(signal.modbus.lenBits),
-    formatCell(signal.modbus.format),
-    dashNumber(signal.modbus.address),
-    dashNumber(signal.modbus.bit),
-    readWriteCell(signal.modbus.readWrite),
-    dashNumber(signal.modbus.stringLength),
-    String(signal.me.g50Index),
-    String(signal.me.groupIndex),
-    String(signal.me.unitId),
-    String(signal.me.signalSpecIndex),
-    boolCell(signal.me.isStatus),
+    oneBit || modbus.lenBits === -1 ? "16" : String(modbus.lenBits),
+    format === MB_FORMATS.STRING ? "-" : formatCell(format),
+    String(modbus.address),
+    format === MB_FORMATS.BITFIELDS ? dashNumber(modbus.bit) : "-",
+    readWriteCell(modbus.readWrite),
+    "-",
+    String(signal.id + 1),
+    meGroupCell(project, signal),
+    meControllerCell(signal),
+    String(me.signalSpecIndex),
+    String(me.signalIndex),
+  ];
+}
+
+const DPT_LABELS = new Map(COMMON_DPT_OPTIONS.map((option) => [option.value, option.label]));
+
+/**
+ * The DPT cell (`IntesisKnx.ConvertDPTValueToString`): "9.001: temperature (ºC)",
+ * "1.x: (1-bit)"; empty for main type 0 or subtype 0 (except DPT 14), and
+ * "main.sub: " with no text for a DPT `GetDPTDescriptionFromValueString` does
+ * not name.
+ */
+export function dptCell(dpt: number): string {
+  const { main, sub } = decodeDpt(dpt);
+  if (main === 0) return "";
+  if (sub === 0 && main !== 14) return "";
+  return DPT_LABELS.get(dpt) ?? `${formatDpt(dpt)}: `;
+}
+
+/** A flag cell of the KNX side: the flag's letter, or two spaces (`KnxComObject.GenerateRowExternal`). */
+function knxFlagCell(on: boolean, token: string): string {
+  return on ? token : "  ";
+}
+
+/**
+ * An MBS–KNX row as MAPS writes it (`MbsObject.GenerateRow`,
+ * `KnxComObject.GenerateRowExternal`, `PopulateExtraParameters`): the bit only
+ * for BitFields and the string length only for String, "-" otherwise; "Conv. Id"
+ * empty and "Conversions" "-" when the row has no conversions.
+ */
+export function mbsKnxSignalRow(signal: MbsKnxSignal): string[] {
+  const { knx, modbus } = signal;
+  const sending = knx.groupAddress > 0 ? formatGroupAddressAtLevel(knx.groupAddress, knx.groupAddressLevel ?? 3) : "";
+  const listening = formatListeningAddresses(knx.additionalAddresses, knx.additionalAddressLevels, ",");
+  const code = conversionCode(signal.conversions);
+  return [
+    String(signal.id + 1),
+    boolCell(signal.active),
+    signal.description,
+    dashNumber(modbus.lenBits),
+    formatCell(modbus.format),
+    String(modbus.address),
+    modbus.format === MB_FORMATS.BITFIELDS ? dashNumber(modbus.bit) : "-",
+    readWriteCell(modbus.readWrite),
+    modbus.format === MB_FORMATS.STRING ? dashNumber(modbus.stringLength) : "-",
+    String(signal.id + 1),
+    dptCell(knx.dpt),
+    sending,
+    listening,
+    knxFlagCell(knx.flags.u, "U"),
+    knxFlagCell(knx.flags.t, "T"),
+    knxFlagCell(knx.flags.ri, "Ri"),
+    knxFlagCell(knx.flags.w, "W"),
+    knxFlagCell(knx.flags.r, "R"),
+    priorityCell(knx.priority),
+    code === "-" ? "" : code,
+    conversionsButtonCell(signal.conversions),
   ];
 }
 

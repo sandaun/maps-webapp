@@ -26,7 +26,15 @@ export interface ProjectMeta {
    */
   revision?: number;
   /** Last XLSX signal-table import, when any. */
-  lastImport?: { fileName: string; at: string; rows: number };
+  lastImport?: {
+    fileName: string;
+    at: string;
+    rows: number;
+    /** "Add signals" (default) or "Replace signals". */
+    mode?: "add" | "replace";
+    /** Set when the file comes from a MAPS newer than the one MAPS Web was checked against. */
+    warning?: string;
+  };
 }
 
 export interface ProjectHistoryEntry {

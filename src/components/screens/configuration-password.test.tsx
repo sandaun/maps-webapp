@@ -39,7 +39,7 @@ async function setup(family: FamilyId, fixture: string) {
   let revision = 1;
   const view = (id: string) => ({
     family, meta: { id, family, name: "Test", description: "", source: "file", updatedAt: "", revision },
-    project: familyById(family).fromXml(doc), issues: [], hasCompleteBlob: false, passwordValid: true,
+    project: familyById(family).fromXml(doc), issues: [], hasCompleteBlob: false, passwordValid: true, mapsVersion: "1.2.34.0",
   }) as ProjectView;
   mocks.get.mockImplementation(async (id: string) => view(id));
   mocks.patch.mockImplementation(async (id: string, patches: ProjectPatchInput[]) => {

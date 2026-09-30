@@ -167,7 +167,7 @@ Pendents (abans de disseny):
 | Columna "Conv. Id" al grid de senyals | [fet 2026-09-25] | només lectura i amagada per defecte com a MAPS (`GetColumnHeaders`); llegeix les dues meitats del senyal |
 | Refs de conversió d'una sola meitat al model, export/import XLSX i patch | [fet 2026-09-26] | model amb les dues meitats; export i import amb "Conv. Id" i el full "Conversions" com MAPS (import més estricte en els casos perillosos); patch com `SaveObjectsConfiguration`. Detall a `docs/reference/conversions.md` §5 |
 | Import ESF (ETS) | [decidir] | export ESF [fet]; import no existeix ni al V11 |
-| Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML) |
+| Senyals virtuals / AllowedValues / Deadband per senyal | [falta] | fora del model editable (es preserven a l'XML). El deadband per senyal ja es llegeix, s'exporta i s'importa per XLSX (§4, punt 7), però **encara no arriba a l'equip**: l'XBL només emet el global (tag 8) i no el tag 15 per senyal de RT. Pendent a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md) |
 
 ---
 
@@ -325,12 +325,81 @@ ja existeix i què es pot compartir.
      al registre i aporta la seva renumeració; no s'activa automàticament.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
-7. **XLSX a MBS–KNX.**
-   - **Nosaltres:** KNX–MBM i ME–MBS ja el tenen (`server/exports/xlsx-signals.ts`,
-     `server/imports/xlsx-signals.ts`). MBS–KNX respon amb un 422
-     (`server/projects/service.ts`).
-   - **MAPS:** `IntesisProjectMBSKNX_RT.AddObjectsFromExcel` /
-     `CheckExcelRowIntegrity` (`:868-930`).
+7. **XLSX de MAPS** — MBS–KNX **[implementat 2026-09-30; importat a MAPS, OK]**,
+   KNX–MBM i ME–MBS **[implementat 2026-09-30]**. L'XLSX ha de ser el de MAPS en els dos sentits.
+   - **Versió (B3).** MAPS escriu la seva `ProductVersion` i en importar exigeix
+     que coincideixi exactament (`ExcelParser.ExcelScanInformation`, `:122`).
+     La webapp té la seva versió (`package.json`, a les propietats del fitxer);
+     `MAPS_REFERENCE_VERSION` (1.2.34.0) és la versió de MAPS contrastada. B3
+     porta la **versió de MAPS de destinació**: la `<Header Version>` del
+     projecte per defecte, editable al camp "Target MAPS version" de
+     l'exportació (quatre números, sense límit, com MAPS). En importar
+     s'accepta qualsevol versió; si és més nova que la de referència, avís a
+     "Last import".
+   - **Format comú.** Capçalera "Intesis MAPS Excel signals file" / "Intesis
+     MAPS Version"; timestamp com a text "MM/dd/yyyy", com MAPS 1.2.34 (fins a
+     1.2.33 MAPS hi desava una data d'Excel; MAPS no el llegeix).
+     Els fitxers de MAPS porten XML amb prefixos (`<x:worksheet>`,
+     `<ap:Properties>`): `loadWorkbook` els normalitza.
+   - **MBS–KNX.** Export amb els noms de la graella de MAPS i els valors de
+     `MbsObject.GenerateRow` / `KnxComObject.GenerateRowExternal`: DPT amb
+     descripció (`ConvertDPTValueToString`), flags buits amb dos espais,
+     "Conv. Id" buit sense conversions. Idèntic cel·la per cel·la a
+     `modbus-slave-to-knx.xlsx` (MAPS 1.2.23) exportant la mateixa plantilla.
+     Import per posició (19 columnes), amb els noms de MAPS o els de MAPS Web
+     anteriors; validació com `CheckAllowedValue` dels dos costats i el "#"
+     consecutiu (`frmImport.CheckConfigIdConsecutivity`); una fila dolenta
+     rebutja el fitxer sense tocar res. "Add signals" afegeix les files tal
+     com venen (`AddObjectsFromExcel`); "Replace signals" abans esborra tots
+     els senyals, fixos inclosos (`ReplaceObjectsFromExcel`, `:868`), i les
+     conversions dels senyals esborrats no bloquegen la llista nova.
+   - **Divergències MBS–KNX:** R/W "-" (`NOT_DEFINED`) es rebutja. El DPT es
+     valida sobre el text i cada component ha de cabre en el seu byte; MAPS
+     accepta `1.257` i el converteix en `2.001`.
+   - **KNX–MBM.** Export amb els noms de MAPS i els valors de
+     `KnxComObject.GenerateRow`, `MbmObject.GenerateRow` i `CheckThisRowSpecific`:
+     DPT amb descripció, i "1.x: (1-bit)" quan MAPS no en té; flags buits amb dos
+     espais, U/Ri/W amb un a les files virtuals, i els que les funcions Modbus no
+     fan servir en blanc; Device amb "Port B" sempre (`IsOnlyPortB` amb KNX) i el
+     dispositiu per posició; Bit i "# Bits" només a BitFields; deadband de cada
+     senyal (`<Deadband>`, ara al model, amb la migració del global de 1.2.34).
+     Idèntic cel·la per cel·la a `knx-to-modbus-master.xlsx` (MAPS 1.2.31) des del
+     seu projecte (`fixtures/maps-reference.ts`). Import per posició (25 columnes)
+     amb els noms de MAPS o els de MAPS Web anteriors, validació com
+     `CheckAllowedValue` dels dos costats (dispositiu, esclau, base, funcions,
+     bit, deadband…) i "#" consecutiu. Com `ManageRowFromDataGridView`, una fila
+     virtual (Data Length "-") només actualitza actiu, descripció, adreces i
+     prioritat del primer senyal del mateix port i dispositiu, i es descarta si
+     no n'hi ha cap. "Replace signals" conserva els virtuals renumerats; només
+     compten les seves conversions. Els senyals nous ja no es creen `Fixed`.
+     L'Excel real de Stiebel (MAPS 1.2.27, 113 senyals) s'importa amb els seus
+     valors.
+   - **Limitació KNX–MBM: el deadband per senyal no arriba a l'equip.** L'import
+     l'escriu a `<Deadband>` de cada senyal, però l'XBL encara no emet el tag 15
+     per senyal ni aplica la migració RT del global (només el tag 8 global), de
+     manera que el valor importat no canvia l'XBL. Pendent, amb les plataformes,
+     a la Fase B de [Plataformes i conversió V6 a S700](platforms-v6-s700-migration.md).
+   - **Divergències KNX–MBM:** Address "-" en una fila normal es rebutja (MAPS
+     l'accepta i falla a mitja importació). La base es compara amb la del
+     dispositiu. L'adreça de grup es reescriu amb el seu format de nivells, no
+     amb el text desat; només difereix amb l'adreça 0.
+   - **ME–MBS.** Export amb les 14 columnes de MAPS: les 9 del Modbus Slave
+     (longitud 1/-1 com 16, String com "-", sense longitud de cadena), el "#",
+     "Group" ("G<n> - <nom>", "Indoor/Outdoor Unit <n>" o "-") i "Controller"
+     del costat ME, i "Sig Specific Index" / "Sig Internal Index"; sense
+     conversions. Import com MAPS: només "Replace signals" (`IsFixedRows`; la
+     pantalla no ofereix triar), sense afegir cap senyal: `RestoreUserConfig`
+     busca el primer senyal generat amb el mateix controlador, grup, unitat,
+     interior, senyal i especificació i en restaura l'estat, i l'adreça en mode
+     CUSTOM; les files sense correspondència s'ignoren. Validació com
+     `CheckAllowedValue` (adreça fins a 82500), noms de grup i controlador, la
+     comprovació "no objects for this signal" i el "#" consecutiu.
+   - **Divergències ME–MBS:** un text de Group o Controller que MAPS no pot
+     llegir es marca com a cel·la dolenta en lloc de fer fallar la lectura; una
+     adreça per sobre de 32767 es guarda tal qual (MAPS la desborda a `short`).
+     Contrastat amb un XLSX real de MAPS 1.2.34 (1.730 senyals, 50 grups):
+     l'export és idèntic cel·la per cel·la i l'import el restaura sencer.
+
 8. **ETS/ESF** per a les famílies amb KNX.
    - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta
      per a MBS–KNX, on el KNX és el costat extern.

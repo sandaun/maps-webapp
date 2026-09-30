@@ -7,8 +7,10 @@ import {
   importSignalsXlsx,
   listProjectHistory,
   restoreProjectHistory,
+  signalsXlsxUrl,
   type ProjectHistoryEntry,
 } from "@/lib/api";
+import { isMapsVersion } from "@/core/project-format/maps-version";
 import { cn } from "@/lib/utils";
 
 const HISTORY_PREVIEW_LIMIT = 4;
@@ -18,6 +20,7 @@ export function ImportExportView({
   projectId,
   projectName,
   signalCount,
+  mapsVersion,
   lastImport,
   onImported,
 }: {
@@ -25,6 +28,8 @@ export function ImportExportView({
   projectId: string;
   projectName: string;
   signalCount: number;
+  /** The project's MAPS version: the default target of the signal table. */
+  mapsVersion: string;
   lastImport?: ProjectMeta["lastImport"];
   onImported: () => void;
 }) {
@@ -34,6 +39,14 @@ export function ImportExportView({
   const [history, setHistory] = React.useState<ProjectHistoryEntry[]>([]);
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
+  // MAPS only imports a table written for its own version (B3), so the user
+  // picks the MAPS that will read it; the project's by default.
+  const [targetVersion, setTargetVersion] = React.useState(mapsVersion);
+  const targetVersionValid = isMapsVersion(targetVersion);
+  // MAPS "Add signals" / "Replace signals" (`frmImport`). ME–MBS signals are
+  // generated: MAPS hides the choice and always replaces (`IsFixedRows`).
+  const replaceAvailable = family !== "me-mbs";
+  const [importMode, setImportMode] = React.useState<"add" | "replace">("add");
 
   const loadHistory = React.useCallback(() => {
     void listProjectHistory(projectId).then(setHistory).catch(() => setHistory([]));
@@ -47,7 +60,7 @@ export function ImportExportView({
     setBusy(true);
     setError(null);
     try {
-      await importSignalsXlsx(projectId, file);
+      await importSignalsXlsx(projectId, file, replaceAvailable ? importMode : "replace");
       onImported();
       loadHistory();
     } catch (err) {
@@ -57,11 +70,16 @@ export function ImportExportView({
     }
   }
 
-  // MBS–KNX: signals XLSX and ESF are out of the first iteration (docs/reference/mbs-knx-analisi.md §8).
-  const xlsxAvailable = family !== "mbs-knx";
+  // MBS–KNX: ESF is out of the first iteration (docs/reference/mbs-knx-analisi.md §8).
   const exports =
     family === "mbs-knx"
       ? [
+          {
+            kind: "XLSX",
+            label: "Signal table",
+            sub: `${signalCount} rows · all columns`,
+            href: signalsXlsxUrl(projectId, targetVersion.trim()),
+          },
           {
             kind: "PROJ",
             label: "Whole project (.ibmaps)",
@@ -75,7 +93,7 @@ export function ImportExportView({
             kind: "XLSX",
             label: "Signal table",
             sub: `${signalCount} rows · all columns`,
-            href: `/api/projects/${encodeURIComponent(projectId)}/export/xlsx`,
+            href: signalsXlsxUrl(projectId, targetVersion.trim()),
           },
           {
             kind: "ESF",
@@ -101,7 +119,7 @@ export function ImportExportView({
             kind: "XLSX",
             label: "Signal table",
             sub: `${signalCount} rows · all columns`,
-            href: `/api/projects/${encodeURIComponent(projectId)}/export/xlsx`,
+            href: signalsXlsxUrl(projectId, targetVersion.trim()),
           },
           {
             kind: "PROJ",
@@ -120,9 +138,33 @@ export function ImportExportView({
         <section className="rounded-lg border border-border bg-white p-[18px]">
           <h2 className="font-display text-[17px] font-light text-hms-blue">Import signals from XLSX</h2>
           <p className="mb-3.5 mt-1.5 text-[12.5px] leading-[1.55] text-fg-muted">
-            Bring in a signal table prepared offline. Rows are appended like MAPS desktop Add from Excel; virtual
-            rows (data length “-”) update the matching virtual signal.
+            {family === "me-mbs"
+              ? "Bring in a signal table exported by MAPS desktop. Like MAPS, each row restores the state (and, in custom address mode, the address) of its generated signal; no signal is added."
+              : "Bring in a signal table exported by MAPS desktop or prepared offline, like MAPS Import from Excel."}
           </p>
+          {replaceAvailable ? (
+            <fieldset className="mb-3 flex gap-5 text-[12.5px] text-text-body">
+              <legend className="sr-only">Import mode</legend>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  checked={importMode === "add"}
+                  onChange={() => setImportMode("add")}
+                />
+                Add signals
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  checked={importMode === "replace"}
+                  onChange={() => setImportMode("replace")}
+                />
+                Replace signals
+              </label>
+            </fieldset>
+          ) : null}
           <input
             ref={fileRef}
             type="file"
@@ -135,11 +177,6 @@ export function ImportExportView({
               if (file) void handleXlsx(file);
             }}
           />
-          {!xlsxAvailable ? (
-            <p className="rounded-[6px] border border-border bg-[#FBFBFC] px-4 py-3 text-[12.5px] text-fg-muted">
-              Signal table import and export are not available yet for KNX ↔ Modbus Slave projects.
-            </p>
-          ) : (
           <button
             type="button"
             disabled={busy}
@@ -165,13 +202,17 @@ export function ImportExportView({
             <div className="text-[13px] font-bold text-hms-blue">Choose an XLSX file</div>
             <div className="mt-1 text-[11.5px] text-fg-subtle">or drop it here · max 5 000 rows</div>
           </button>
-          )}
           <div className="mt-3.5 text-[12px] text-fg-muted">
             Last import:{" "}
             {lastImport ? (
               <>
                 <span className="font-mono">{lastImport.fileName}</span> · {formatWhen(lastImport.at)} ·{" "}
-                {lastImport.rows} rows
+                {lastImport.rows} rows{lastImport.mode === "replace" ? " · replaced" : ""}
+                {lastImport.warning ? (
+                  <span role="status" className="mt-1 block text-warning-text">
+                    {lastImport.warning}
+                  </span>
+                ) : null}
               </>
             ) : (
               "—"
@@ -185,12 +226,36 @@ export function ImportExportView({
             Export the current table to reuse it in another project or to hand the register map to the BMS
             integrator.
           </p>
+          <label className="mb-3 block text-[12px] text-fg-muted">
+            <span className="mb-1 block font-bold text-hms-blue">Target MAPS version</span>
+            <input
+              type="text"
+              value={targetVersion}
+              onChange={(e) => setTargetVersion(e.target.value)}
+              aria-invalid={!targetVersionValid}
+              className={cn(
+                "w-[140px] rounded-[4px] border px-2 py-1 font-mono text-[12.5px] text-text-body",
+                targetVersionValid ? "border-border" : "border-error",
+              )}
+            />
+            <span className={cn("mt-1 block", targetVersionValid ? "" : "text-error")}>
+              {targetVersionValid
+                ? "Signal tables are written for this MAPS version: MAPS only imports tables of its own version."
+                : "Use four numbers, such as 1.2.34.0."}
+            </span>
+          </label>
           <div className="flex flex-col gap-[9px]">
-            {exports.map((item) => (
+            {exports.map((item) => {
+              const disabled = item.label === "Signal table" && !targetVersionValid;
+              return (
               <a
                 key={`${item.kind}-${item.label}`}
-                href={item.href}
-                className="flex items-center gap-[11px] rounded-[5px] border border-border px-[13px] py-[11px] hover:border-hms-accent hover:bg-[#F7FBFE]"
+                href={disabled ? undefined : item.href}
+                aria-disabled={disabled || undefined}
+                className={cn(
+                  "flex items-center gap-[11px] rounded-[5px] border border-border px-[13px] py-[11px]",
+                  disabled ? "cursor-not-allowed opacity-50" : "hover:border-hms-accent hover:bg-[#F7FBFE]",
+                )}
               >
                 <span className="rounded-[3px] bg-hms-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold text-hms-blue">
                   {item.kind}
@@ -201,7 +266,8 @@ export function ImportExportView({
                 </span>
                 <span className="text-[13px] text-hms-accent">↓</span>
               </a>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>

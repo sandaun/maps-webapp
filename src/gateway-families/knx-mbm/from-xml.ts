@@ -148,6 +148,7 @@ function readSignals(doc: XmlDocument): KnxMbmSignal[] {
       },
       virtual: parseBool(k ? attrOfChild(k, "Virtual", "Status") : undefined, false),
       modbusVirtual: parseBool(m ? attrOfChild(m, "Virtual", "Status") : undefined, false),
+      modbusFixed: parseBool(m ? attrOfChild(m, "Virtual", "Fixed") : undefined, false),
     };
   });
 }
@@ -166,6 +167,7 @@ function readMbmEndpoint(el: XmlElement): KnxMbmSignal["modbus"] {
     bit: parseNumber(textOf(el, "Bit"), -1),
     numOfBits: parseNumber(textOf(el, "NumOfBits"), -1),
     address: parseNumber(textOf(el, "Address"), 0),
+    ...(textOf(el, "Deadband") !== undefined ? { deadband: parseNumber(textOf(el, "Deadband"), 0) } : {}),
   };
 }
 

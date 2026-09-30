@@ -12,7 +12,7 @@ const SCALE_0_1000 = { id: 0, description: "x0.1 to degC", type: 1, params: ["0"
 
 async function exportedTable(): Promise<Uint8Array> {
   const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
-  return new Uint8Array(await buildSignalsXlsx("knx-mbm", project, { now: NOW }));
+  return new Uint8Array(await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW }));
 }
 
 /** Edit the exported workbook (sheet name → edit) and return the new file. */

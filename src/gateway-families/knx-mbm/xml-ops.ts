@@ -202,7 +202,26 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
     setNumberText(mbm, "Bit", m.bit);
     setNumberText(mbm, "NumOfBits", m.numOfBits);
     setNumberText(mbm, "Address", m.address);
+    if (m.deadband !== undefined) setText(childElAfter(mbm, "Deadband", "Address"), String(m.deadband));
   }
+}
+
+/**
+ * Keep only the virtual signals (the communication-error rows), renumbered
+ * from 0, like the "Replace signals" Excel import (`ReplaceObjectsFromExcel`,
+ * IntesisProjectKnxMbm_RT.cs:1073-1090). Returns how many signals were removed.
+ */
+export function removeNonVirtualSignals(doc: XmlDocument): number {
+  const knxObjects = doc.findAll(["InternalProtocol", "KNXObject"]);
+  const mbmSignals = doc.findAll(["ExternalProtocol", "Signals", "Signal"]);
+  const isVirtual = (el: XmlElement) =>
+    (el.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual") &&
+      parseBool(getAttr(childEl(el, "Virtual"), "Status"), false)) ||
+    false;
+  const removed = [...knxObjects, ...mbmSignals].filter((el) => !isVirtual(el));
+  for (const el of removed) removeElement(el);
+  reorderSignalIds(doc);
+  return knxObjects.filter((el) => !isVirtual(el)).length;
 }
 
 // --- conversions -----------------------------------------------------------
@@ -438,9 +457,11 @@ function buildMbmSignal(id: number): XmlElement {
     element("Bit", [], [text("-1")]),
     element("NumOfBits", [], [text("-1")]),
     element("Address", [], [text("0")]),
+    element("Deadband", [], [text("0")]),
+    // MAPS creates new rows neither fixed nor virtual (`CreateNewRow`, IntesisProjectKnxMbm_RT.cs:752-753).
     element("Virtual", [
       ["Status", "False"],
-      ["Fixed", "True"],
+      ["Fixed", "False"],
     ]),
   ]);
 }
@@ -512,6 +533,20 @@ function childEl(parent: XmlElement, tag: string): XmlElement {
 function setChildTextIfPresent(parent: XmlElement, tag: string, value: string): void {
   const child = parent.children.find((c): c is XmlElement => c.kind === "element" && c.tag === tag);
   if (child && getText(child) !== value) setText(child, value);
+}
+
+/** The child `tag`, created right after `afterTag` (same indentation) when missing. */
+function childElAfter(parent: XmlElement, tag: string, afterTag: string): XmlElement {
+  const existing = parent.children.find((c): c is XmlElement => c.kind === "element" && c.tag === tag);
+  if (existing) return existing;
+  const created = element(tag, [], [text("")]);
+  created.parent = parent;
+  const after = childEl(parent, afterTag);
+  const index = parent.children.indexOf(after);
+  const before = parent.children[index - 1];
+  const indent = before && before.kind === "text" && /^\s*$/.test(before.text) ? before.text : "";
+  parent.children.splice(index + 1, 0, ...(indent ? [text(indent)] : []), created);
+  return created;
 }
 
 function setNumberText(parent: XmlElement, tag: string, value: number | undefined): void {

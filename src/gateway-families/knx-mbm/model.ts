@@ -28,6 +28,8 @@ export interface MbmEndpoint {
   bit: number;
   numOfBits: number;
   address: number;
+  /** The signal's own `<Deadband>` (MAPS 1.2.34); undefined when the XML has none. */
+  deadband?: number;
 }
 
 export interface KnxMbmSignal {
@@ -42,6 +44,8 @@ export interface KnxMbmSignal {
   virtual: boolean;
   /** External Modbus object's virtual flag, used by MAPS auto-numbering. */
   modbusVirtual?: boolean;
+  /** External Modbus object's fixed flag: a fixed virtual row has no address (`MbmObject.GenerateRow`). */
+  modbusFixed?: boolean;
 }
 
 export interface GatewayInfo {

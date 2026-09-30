@@ -2,8 +2,12 @@ import "server-only";
 import {
   buildCompleteBlob,
   buildProjectZip,
+  compareMapsVersions,
   extractIbmaps,
+  isMapsVersion,
+  MAPS_REFERENCE_VERSION,
   parseCompleteBlob,
+  projectMapsVersion,
   XmlDocument,
 } from "@/core/project-format";
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
@@ -22,7 +26,7 @@ import type { ProjectHistoryEntry, ProjectMeta, ProjectSource } from "../persist
 import { buildKnxEsf } from "../exports/esf-knx";
 import { buildPollPlanXlsx } from "../exports/xlsx-poll-plan";
 import { buildSignalsXlsx } from "../exports/xlsx-signals";
-import { applySignalsXlsx } from "../imports/xlsx-signals";
+import { applySignalsXlsx, type ImportMode } from "../imports/xlsx-signals";
 import { ProjectServiceError } from "./errors";
 import { withProjectLock } from "./project-lock";
 import { hasValidProjectPassword } from "./password";
@@ -48,6 +52,8 @@ export type {
 interface ProjectViewBase {
   /** MAPS deploy integrity check; never the password itself. */
   passwordValid: boolean;
+  /** MAPS version that last saved the project (`<Header Version>`): the default target of exported MAPS files. */
+  mapsVersion: string;
   meta: ProjectMeta;
   issues: ValidationIssue[];
   /** Whether the original gateway "complete" blob is available for round-trip. */
@@ -122,17 +128,17 @@ async function readProjectView(id: string, { locked }: { locked: boolean }): Pro
   const doc = XmlDocument.parse(xml);
   const meta = withRevision(await withFamily(store, stored, doc, true));
   const hasCompleteBlob = await store.hasCompleteBlob(id);
-  const passwordValid = hasValidProjectPassword(doc);
+  const base = { meta, hasCompleteBlob, passwordValid: hasValidProjectPassword(doc), mapsVersion: projectMapsVersion(doc) };
   if (meta.family === "mbs-knx") {
     const project = mbsKnxProjectFromXml(doc);
-    return { family: "mbs-knx", meta, project, issues: familyById("mbs-knx").validate(project), hasCompleteBlob, passwordValid };
+    return { ...base, family: "mbs-knx", project, issues: familyById("mbs-knx").validate(project) };
   }
   if (meta.family === "me-mbs") {
     const project = meMbsProjectFromXml(doc);
-    return { family: "me-mbs", meta, project, issues: familyById("me-mbs").validate(project), hasCompleteBlob, passwordValid };
+    return { ...base, family: "me-mbs", project, issues: familyById("me-mbs").validate(project) };
   }
   const project = knxMbmProjectFromXml(doc);
-  return { family: "knx-mbm", meta, project, issues: familyById("knx-mbm").validate(project), hasCompleteBlob, passwordValid };
+  return { ...base, family: "knx-mbm", project, issues: familyById("knx-mbm").validate(project) };
 }
 
 /** Open a local .ibmaps XML text as a project. */
@@ -306,15 +312,20 @@ function nextRevision(meta: ProjectMeta, changes: Partial<ProjectMeta> = {}): Pr
   return { ...meta, ...changes, updatedAt: new Date().toISOString(), revision: revisionOf(meta) + 1 };
 }
 
-/** Signals XLSX for MBS–KNX is out of the first iteration (docs/reference/mbs-knx-analisi.md §8). */
-const MBS_KNX_NO_XLSX_MESSAGE = "Signals XLSX import and export are not available yet for KNX ↔ Modbus Slave projects.";
-
+/**
+ * The signals table in the MAPS format. `mapsVersion` is the MAPS version that
+ * will import it (B3; MAPS only accepts its own), by default the project's.
+ */
 export async function exportSignalsXlsx(
   id: string,
+  opts: { mapsVersion?: string } = {},
 ): Promise<{ filename: string; body: Buffer; contentType: string }> {
   const view = await getProjectView(id);
-  if (view.family === "mbs-knx") throw new ProjectServiceError(422, MBS_KNX_NO_XLSX_MESSAGE);
-  const body = await buildSignalsXlsx(view.family, view.project);
+  const mapsVersion = opts.mapsVersion?.trim() || view.mapsVersion;
+  if (!isMapsVersion(mapsVersion)) {
+    throw new ProjectServiceError(422, `"${mapsVersion}" is not a MAPS version: use four numbers, such as ${MAPS_REFERENCE_VERSION}.`);
+  }
+  const body = await buildSignalsXlsx(view, { mapsVersion });
   return {
     filename: `${safeDownloadName(view.meta.name)} signals.xlsx`,
     body,
@@ -347,7 +358,12 @@ export async function exportPollPlanXlsx(
   };
 }
 
-export async function importSignalsXlsx(id: string, data: Uint8Array, fileName: string): Promise<ProjectView> {
+export async function importSignalsXlsx(
+  id: string,
+  data: Uint8Array,
+  fileName: string,
+  mode: ImportMode = "add",
+): Promise<ProjectView> {
   const store = getProjectStore();
   return withProjectLock(store.storageId(id), async () => {
     const stored = await store.get(id);
@@ -356,14 +372,25 @@ export async function importSignalsXlsx(id: string, data: Uint8Array, fileName: 
     const doc = XmlDocument.parse(xml);
     const family = detectFamily(doc);
     if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
-    if (family.id === "mbs-knx") throw new ProjectServiceError(422, MBS_KNX_NO_XLSX_MESSAGE);
-    const result = await applySignalsXlsx(doc, family.id, data);
+    const result = await applySignalsXlsx(doc, family.id, data, mode);
     await store.writeXml(id, doc.serialize());
     const now = new Date().toISOString();
-    await store.upsert(nextRevision(stored, { lastImport: { fileName, at: now, rows: result.rows } }));
-    await snapshotDraft(id, `Imported ${fileName}`);
+    const warning = newerMapsWarning(result.fileVersion);
+    await store.upsert(
+      nextRevision(stored, {
+        lastImport: { fileName, at: now, rows: result.rows, mode, ...(warning ? { warning } : {}) },
+      }),
+    );
+    await snapshotDraft(id, mode === "replace" ? `Replaced signals from ${fileName}` : `Imported ${fileName}`);
     return readProjectView(id, { locked: true });
   });
+}
+
+/** A file from a MAPS newer than the reference may hold what MAPS Web does not know yet. */
+function newerMapsWarning(fileVersion: string | undefined): string | undefined {
+  if (!fileVersion || !isMapsVersion(fileVersion)) return undefined;
+  if (compareMapsVersions(fileVersion, MAPS_REFERENCE_VERSION) <= 0) return undefined;
+  return `This file comes from MAPS ${fileVersion}, newer than MAPS ${MAPS_REFERENCE_VERSION}, the version MAPS Web was checked against. Review the imported signals.`;
 }
 
 export async function listProjectHistory(id: string): Promise<ProjectHistoryEntry[]> {

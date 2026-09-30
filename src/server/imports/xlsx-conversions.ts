@@ -2,7 +2,7 @@ import "server-only";
 import { parseConversionCode } from "@/core/signals/conversion-code";
 import type { HalfConversionRefs, SignalConversionRefs } from "@/core/signals/conversion-refs";
 import { parseFloatLenient } from "@/core/xbl/conversions";
-import type { Conversion, KnxMbmProject } from "@/gateway-families/knx-mbm";
+import type { Conversion } from "@/gateway-families/knx-mbm";
 import { ProjectServiceError } from "../projects/errors";
 import type { ParsedSignalsSheet } from "../exports/xlsx-signals";
 
@@ -17,8 +17,14 @@ export interface ImportedConversions {
   refs: SignalConversionRefs[];
 }
 
+/** What the import needs of a project with conversions (KNX–MBM, MBS–KNX). */
+export interface ProjectWithConversions {
+  conversions: Conversion[];
+  signals: { conversions: SignalConversionRefs }[];
+}
+
 /**
- * Conversions of a KNX–MBM Excel import, following MAPS `frmImport`: the
+ * Conversions of a KNX–MBM or MBS–KNX Excel import, following MAPS `frmImport`: the
  * "Conversions" sheet replaces the project's list and every row's "Conv. Id"
  * is split into both halves (`ConvertStringToConversion`).
  *
@@ -32,7 +38,7 @@ export interface ImportedConversions {
  * conversions and the project's list is kept.
  */
 export function importedConversions(
-  project: KnxMbmProject,
+  project: ProjectWithConversions,
   parsed: ParsedSignalsSheet,
 ): ImportedConversions | undefined {
   const column = parsed.headers.indexOf("Conv. Id");
@@ -136,7 +142,7 @@ function sameBehaviour(current: Conversion[], next: Conversion[]): boolean {
   );
 }
 
-function hasRefs(signal: KnxMbmProject["signals"][number]): boolean {
+function hasRefs(signal: ProjectWithConversions["signals"][number]): boolean {
   const { internal, external } = signal.conversions;
   return [internal, external].some((half) => half.filters.length > 0 || half.operations.length > 0);
 }
@@ -145,7 +151,7 @@ function emptyHalf(): HalfConversionRefs {
   return { filters: [], operations: [] };
 }
 
-function listError(title: string, errors: string[]): ProjectServiceError {
+export function listError(title: string, errors: string[]): ProjectServiceError {
   const shown = errors.slice(0, MAX_LISTED_ERRORS).join("; ");
   const more = errors.length > MAX_LISTED_ERRORS ? ` (and ${errors.length - MAX_LISTED_ERRORS} more)` : "";
   return new ProjectServiceError(422, `${title}: ${shown}${more}.`);

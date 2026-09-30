@@ -45,7 +45,7 @@ function currentView(): ProjectView {
     family: "mbs-knx",
     project,
     issues: validateProject(project),
-    passwordValid: false, hasCompleteBlob: false,
+    passwordValid: false, mapsVersion: "1.2.34.0", hasCompleteBlob: false,
   };
 }
 
