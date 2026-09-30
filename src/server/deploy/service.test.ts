@@ -20,7 +20,7 @@ import { SYNTHETIC_ME_MBS_XML as EMPTY_PASSWORD_ME_XML } from "@/gateway-familie
 import type { GatewaySessions, GatewaySessionStatus } from "../intesis-transport";
 import { getProjectStore, resetProjectStoreForTests } from "../persistence";
 import { applyPatches, getProjectView, loadDemoProject, openCompleteBlob, openIbmaps } from "../projects/service";
-import { DEPLOY_FAMILIES, deployProject, DeployGateError, getDeployStatus } from "./service";
+import { DEPLOY_FAMILIES, deployProject, DeployGateError, DeployWarningError, getDeployStatus } from "./service";
 
 /**
  * Deploy gate tests (Pas 2.6 / 3.4): each gate blocks correctly per family
@@ -96,7 +96,9 @@ async function writeGenuineCapability(key: string = "meMbsXblVerified"): Promise
   );
 }
 
-function fakeSessions(opts: { appId?: number; platform?: string; connected?: boolean; known?: boolean } = {}) {
+function fakeSessions(
+  opts: { appId?: number; appVersion?: string; platform?: string; connected?: boolean; known?: boolean } = {},
+) {
   const uploads: Uint8Array[] = [];
   const status: GatewaySessionStatus = {
     id: "sess-1",
@@ -109,7 +111,13 @@ function fakeSessions(opts: { appId?: number; platform?: string; connected?: boo
     monitorComms: false,
     monitorDebug: false,
     connectedAt: new Date().toISOString(),
-    gateway: { appId: opts.appId ?? 64, platform: opts.platform ?? "700 Series", bootloader: false, noApp: false },
+    gateway: {
+      appId: opts.appId ?? 64,
+      appVersion: opts.appVersion,
+      platform: opts.platform ?? "700 Series",
+      bootloader: false,
+      noApp: false,
+    },
   };
   const sessions: GatewaySessions = {
     connect: () => Promise.reject(new Error("not implemented")),
@@ -445,6 +453,41 @@ describe("getDeployStatus", () => {
     expect(ok.checks.map((c) => c.id)).toEqual(["family", "capability", "session-appid", "password"]);
     expect(ok.checks[1].detail).toContain("knxMbmXblVerified");
     expect(ok.checks[2].detail).toContain("AppId 4");
+  });
+});
+
+describe("deadband firmware warning (CheckDeadbandFwCompatibility)", () => {
+  const MESSAGE = "You need the newest version of FW for the deadband feature to operate, please update and try again.";
+
+  it("warns about a KNX–MBM gateway older than 2.0.2.0 and sends only once confirmed", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const { sessions, uploads } = fakeSessions({ appId: 4, appVersion: "2.0.1.0" });
+
+    const status = await getDeployStatus("k1", "sess-1", { sessions, capabilitiesPath });
+    expect(status.deployable).toBe(true);
+    expect(status.warnings).toEqual([{ id: "deadband-firmware", message: MESSAGE }]);
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeployWarningError);
+    expect(error).toMatchObject({ status: 409, warning: "deadband-firmware", message: MESSAGE });
+    expect(uploads).toHaveLength(0);
+
+    await deployProject("k1", "sess-1", { sessions, capabilitiesPath }, { confirmedWarnings: ["deadband-firmware"] });
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("says nothing for a recent, unknown or unparsable firmware, or for the other families", async () => {
+    await openKnxMbmProject();
+    await openMeMbsProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    await writeGenuineCapability();
+    for (const appVersion of ["2.0.2.0", "2.1", undefined, "v2"]) {
+      const { sessions } = fakeSessions({ appId: 4, appVersion });
+      expect((await getDeployStatus("k1", "sess-1", { sessions, capabilitiesPath })).warnings).toEqual([]);
+    }
+    const { sessions } = fakeSessions({ appId: 64, appVersion: "1.0.0.0" });
+    expect((await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath })).warnings).toEqual([]);
   });
 });
 

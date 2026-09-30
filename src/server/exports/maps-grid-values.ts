@@ -4,6 +4,7 @@
  * in the desktop vocabulary, not the V9 grid labels.
  */
 
+import { formatSingle } from "@/core/project-format/single";
 import { conversionCode } from "@/core/signals/conversion-code";
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
@@ -362,16 +363,6 @@ function knxMbmFlagCells(signal: KnxMbmSignal): [string, string, string, string,
 }
 
 /**
- * The signal's deadband as MAPS 1.2.34 loads it: its own `<Deadband>`, or the
- * old global one when the signal has none (`MigrateGlobalDeadbandToSignals`,
- * ExternalMbm.cs:726-740).
- */
-function signalDeadband(project: KnxMbmProject, signal: KnxMbmSignal): number {
-  const own = signal.modbus.deadband ?? 0;
-  return own === 0 && project.mbm.deadband !== 0 && !signal.modbusVirtual ? project.mbm.deadband : own;
-}
-
-/**
  * A KNX–MBM row as MAPS writes it (`KnxComObject.GenerateRow`,
  * `MbmObject.GenerateRow` MbmObject.cs:187-372, `PopulateExtraParameters`,
  * `CheckThisRowSpecific`). The Modbus cells follow the Modbus object's own
@@ -407,7 +398,7 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
     modbusVirtual && signal.modbusFixed ? "-" : String(modbus.address),
     bitFields ? dashNumber(modbus.bit) : "-",
     bitFields ? dashNumber(modbus.numOfBits === 0 ? 1 : modbus.numOfBits) : "-",
-    signal.virtual || (modbusVirtual && signal.modbusFixed) ? "-" : String(signalDeadband(project, signal)),
+    signal.virtual || (modbusVirtual && signal.modbusFixed) ? "-" : formatSingle(signal.modbus.deadband),
     code === "-" ? "" : code,
     conversionsButtonCell(signal.conversions),
   ];

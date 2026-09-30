@@ -29,6 +29,7 @@ import {
   type XblElementSpec,
 } from "@/core/xbl";
 import { isKnxMbmProject } from "../detect";
+import { normalizeRtDeadband } from "../xml-ops";
 import { buildKnxNode } from "@/protocols/knx/xbl";
 import { buildMbmNode } from "./nodes-mbm";
 import { runXblPipeline } from "./pipeline";
@@ -60,6 +61,9 @@ export function generateKnxMbmXbl(
   if (!isKnxMbmProject(doc)) {
     throw new Error("Not a KNX ↔ Modbus Master project");
   }
+  // MAPS compiles the project as it loaded it: an old global deadband is
+  // already on the signals.
+  normalizeRtDeadband(doc);
   const pipeline = runXblPipeline(doc);
   const elements: XblElementSpec[] = [
     buildHeaderNode(

@@ -28,6 +28,8 @@ export interface GridColumn<R> {
   /** Starts hidden in the column picker until the user shows it. */
   defaultHidden?: boolean;
   kind: EditorKind;
+  /** Rows whose cell cannot be edited (MAPS read-only cells); bulk edits skip them. */
+  readOnly?: (row: R) => boolean;
   /** Shown in bulk "Edit field…"; omit to exclude from bulk. */
   bulkLabel?: string;
   mono?: boolean;

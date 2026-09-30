@@ -3,7 +3,8 @@ import type { GatewayInfoSummary } from "../intesis-transport";
 /**
  * Gateway compatibility of a 700 Series project, as MAPS decides it before
  * connecting and sending (`frmMain.ButtonConnect`, `IntesisProject.EvaluateConnectionWithGw`
- * and `IntesisLicense.CheckDeviceAppId`).
+ * and `IntesisLicense.CheckDeviceAppId`), and the per-signal deadband firmware
+ * warning (`IntesisProject.CheckDeadbandFwCompatibility`).
  *
  * The three supported classes have no `AllowedCompIds` and no project license
  * (`GetProjectLicense` = -1), so the compId and license checks never reject.
@@ -78,4 +79,39 @@ export function evaluateGatewayCompatibility(
       `Gateway AppId ${appId ?? "unknown"} is not compatible with a ${project.displayName} project ` +
       `(AppId ${expected}).${firmwareSwap}`,
   };
+}
+
+/**
+ * `System.Version.TryParse`: two to four non-negative integers; the missing
+ * components are -1, so "2.0.2" sorts before "2.0.2.0".
+ */
+function parseVersion(value: string): number[] | undefined {
+  const parts = value.trim().split(".");
+  if (parts.length < 2 || parts.length > 4 || parts.some((part) => !/^\d+$/.test(part.trim()))) return undefined;
+  const numbers = parts.map((part) => Number(part.trim()));
+  while (numbers.length < 4) numbers.push(-1);
+  return numbers;
+}
+
+function compareVersions(a: number[], b: number[]): number {
+  for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
+
+/**
+ * `CheckDeadbandFwCompatibility`: the connected gateway runs a firmware older
+ * than the class's `MinFwVersionForPerSignalDeadband`. Like MAPS, it does not
+ * look at the signal values, and says nothing when there is no minimum, no
+ * gateway or a version it cannot parse.
+ */
+export function deadbandFirmwareWarning(
+  minVersion: string | undefined,
+  appVersion: string | undefined,
+): string | undefined {
+  if (!minVersion || appVersion === undefined) return undefined;
+  const min = parseVersion(minVersion);
+  const current = parseVersion(appVersion);
+  if (!min || !current || compareVersions(current, min) >= 0) return undefined;
+  // `message_deadbandFwTooOld`.
+  return "You need the newest version of FW for the deadband feature to operate, please update and try again.";
 }

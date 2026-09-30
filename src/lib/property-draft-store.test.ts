@@ -104,7 +104,7 @@ describe("property drafts", () => {
         "cfg-name": "New name",
         "cfg-desc": "New description",
         "cfg-mbm-maxreg": "31",
-        "cfg-mbm-deadband": "0.5",
+        "cfg-mbm-media": "1",
         "rtu-0-baud": "19200",
       },
       a,
@@ -117,7 +117,7 @@ describe("property drafts", () => {
       },
       {
         type: "updateMbmConfig",
-        patch: { deadband: 0.5, pollRecords: { maxRegisters: 31 } },
+        patch: { media: 1, pollRecords: { maxRegisters: 31 } },
       },
       { type: "updateRtuNode", nodeIndex: 0, patch: { baudrate: 19200 } },
     ]);
@@ -133,7 +133,6 @@ describe("property drafts", () => {
     expect(prepared.invalid["cfg-mbm-maxreg"]).toBe("Enter a number.");
     expect(prepared.invalid["cfg-knx-address"]).toMatch(/area.line.device/);
     expect(prepared.patches).toHaveLength(0);
-    expect(validateField(field(a, "cfg-mbm-deadband"), "0.25")).toBeUndefined();
     expect(validateField(field(a, "cfg-mbm-maxreg"), "1.5")).toBe(
       "Enter a whole number.",
     );

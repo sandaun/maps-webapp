@@ -11,7 +11,7 @@ import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synth
 import { parseSignalsXlsx } from "@/server/exports/xlsx-signals";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { refsFromSelection } from "@/core/signals/conversion-refs";
-import { resetProjectStoreForTests } from "../persistence";
+import { getProjectStore, resetProjectStoreForTests } from "../persistence";
 import {
   applyPatches,
   createTemplateProject,
@@ -137,6 +137,38 @@ describe("project service", () => {
     }
   });
 
+  it("moves an old global deadband to the signals on open and on read, as MAPS loads it", async () => {
+    const legacy = SYNTHETIC_KNX_MBM_XML.replace("    <Media>0</Media>\r\n", "    <Media>0</Media>\r\n    <Deadband>2.5</Deadband>\r\n").replace(
+      '<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="True" />',
+      '<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="False" />',
+    );
+    expect(legacy).toContain('<Deadband>2.5</Deadband>\r\n    <PollRecords');
+    const meta = await openIbmaps(legacy, { id: "deadband" });
+    const stored = readFileSync(path.join(dir, "projects", meta.id, "project.ibmaps"), "utf8");
+    expect(stored).not.toContain("<Media>0</Media>\r\n    <Deadband>");
+    expect(knxProjectOf(await getProjectView(meta.id)).signals.map((s) => s.modbus.deadband)).toEqual([2.5, 0]);
+
+    // A project stored before the migration is read as MAPS would load it.
+    await getProjectStore().writeXml(meta.id, legacy);
+    expect(knxProjectOf(await getProjectView(meta.id)).signals.map((s) => s.modbus.deadband)).toEqual([2.5, 0]);
+  });
+
+  it("edits the per-signal deadband, and refuses it where MAPS leaves the cell read-only", async () => {
+    const editable = SYNTHETIC_KNX_MBM_XML.replace(
+      '<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="True" />',
+      '<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="False" />',
+    );
+    const meta = await openIbmaps(editable, { id: "deadband-edit" });
+    const view = await applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { modbus: { deadband: 0.3 } } }]);
+    expect(knxProjectOf(view).signals[0].modbus.deadband).toBe(Math.fround(0.3));
+    const stored = readFileSync(path.join(dir, "projects", meta.id, "project.ibmaps"), "utf8");
+    expect(stored).toContain("<Address>10</Address>\r\n        <Deadband>0.3</Deadband>");
+
+    // Signal 1 is a fixed Modbus signal.
+    const error = await applyPatches(meta.id, [{ type: "updateSignal", id: 1, patch: { modbus: { deadband: 1 } } }]).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 422, message: "Signal 2: the deadband of a fixed signal cannot be edited, as in MAPS." });
+  });
+
   it("patches survive a simulated restart", async () => {
     const meta = await loadDemoProject();
     await applyPatches(meta.id, [
@@ -210,18 +242,17 @@ describe("project service", () => {
     expect(knxProjectOf(after).mbm.rtuNodes[0].devices).toHaveLength(deviceCount);
   });
 
-  it("updates the global Modbus Master config (media, deadband, poll records)", async () => {
+  it("updates the global Modbus Master config (media, poll records)", async () => {
     const meta = await loadDemoProject();
 
     const view = await applyPatches(meta.id, [
       {
         type: "updateMbmConfig",
-        patch: { media: 2, deadband: 0.5, pollRecords: { enabled: true, maxRegisters: 60 } },
+        patch: { media: 2, pollRecords: { enabled: true, maxRegisters: 60 } },
       },
     ]);
     expect(knxProjectOf(view).mbm).toMatchObject({
       media: 2,
-      deadband: 0.5,
       pollRecords: { enabled: true, useMissingReg: false, maxRegisters: 60 },
     });
 

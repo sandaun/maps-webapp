@@ -15,6 +15,7 @@
 import {
   getAttr,
   getText,
+  parseMapsSingle,
   XmlDocument,
   type XmlElement,
 } from "@/core/project-format";
@@ -22,7 +23,6 @@ import {
   createConversionList,
   parseConversionIds,
   parseConversions,
-  parseFloatLenient,
   parseXblHeader,
   parseXblIbox,
   type ActiveConversion,
@@ -57,6 +57,8 @@ export interface MbmObjectParsed {
   bit: number;
   numOfBits: number;
   address: number;
+  /** `MbmObject.DeadBand`: tag 15 when nonzero (the 700 Series class sets `DeadbandEnabled`). */
+  deadband: number;
   base: number;
   isVirtual: boolean;
   filterIds: ConversionIdRef[];
@@ -160,7 +162,6 @@ export interface XblPipelineResult {
   mbm: {
     nodeEmitted: boolean;
     media: number;
-    deadband: number;
     pollRecordsEnabled: boolean;
     rtuNodes: EnabledRtuNode[];
     tcpNodes: EnabledTcpNode[];
@@ -198,7 +199,6 @@ export function runXblPipeline(
   const rtuNodes = parseRtuNodes(external);
   const tcpNodes = parseTcpNodes(external);
   const media = parseIntText(external, "Media", 0);
-  const deadband = parseFloatText(external, "Deadband", 0);
   const poll = external.children.find(
     (c): c is XmlElement => c.kind === "element" && c.tag === "PollRecords",
   );
@@ -292,7 +292,6 @@ export function runXblPipeline(
     mbm: {
       nodeEmitted,
       media,
-      deadband,
       pollRecordsEnabled,
       rtuNodes: enabledRtu,
       tcpNodes: enabledTcp,
@@ -322,13 +321,6 @@ function parseIntText(el: XmlElement, tag: string, fallback: number): number {
   const v = textOf(el, tag);
   const n = v === undefined || v === "" ? NaN : Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
-}
-
-function parseFloatText(el: XmlElement, tag: string, fallback: number): number {
-  const v = textOf(el, tag);
-  if (v === undefined || v === "") return fallback;
-  const n = parseFloatLenient(v);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 function parseBoolText(value: string | undefined, fallback: boolean): boolean {
@@ -377,6 +369,7 @@ function parseMbmObjects(external: XmlElement): MbmObjectParsed[] {
       bit: parseIntText(el, "Bit", 0),
       numOfBits,
       address: parseIntText(el, "Address", 0),
+      deadband: parseMapsSingle(textOf(el, "Deadband")),
       base: 0,
       isVirtual,
       filterIds: parseConversionIds(textOf(el, "IdxFilters")),

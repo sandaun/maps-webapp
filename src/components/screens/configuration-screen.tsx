@@ -543,7 +543,6 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
   const { mbm } = view.project;
   const { form, set, dirtyKeys } = useDraftForm("mbm", {
     media: mbm.media as number,
-    deadband: mbm.deadband,
     pollEnabled: mbm.pollRecords.enabled,
     useMissingReg: mbm.pollRecords.useMissingReg,
     maxRegisters: mbm.pollRecords.maxRegisters,
@@ -562,20 +561,6 @@ function DeviceMbmSection({ view }: { view: Extract<ProjectView, { family: "knx-
             value={form.media}
             onValueChange={(value) => set("media", Number(value))}
             options={MEDIA_OPTIONS.map((opt) => ({ value: String(opt.value), label: opt.label }))}
-          />
-        </FieldRow>
-        <FieldRow
-          label="Deadband to internal system"
-          hint="Minimum change to forward to KNX · non-boolean signals · 0–1"
-        >
-          <TextControl
-            id="cfg-mbm-deadband"
-            type="number"
-            value={form.deadband}
-            min={0}
-            max={1}
-            width={110}
-            onChange={(e) => set("deadband", Number(e.target.value))}
           />
         </FieldRow>
         <FieldRow label="RTU nodes" hint="Serial links — baud rate and timings are set per node on Devices">

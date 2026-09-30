@@ -90,7 +90,6 @@ export type MbsConfigPatchInput = Partial<
 /** KNX-MBM global Modbus Master config (mirror of `MbmConfigPatch` in xml-ops). */
 export interface MbmConfigPatchInput {
   media?: number;
-  deadband?: number;
   pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
 }
 export type MeScalarsPatchInput = Partial<

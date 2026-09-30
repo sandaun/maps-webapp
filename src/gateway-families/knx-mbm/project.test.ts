@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setAttr, XmlDocument } from "@/core/project-format";
+import { element, setAttr, text, XmlDocument } from "@/core/project-format";
 import { SYNTHETIC_KNX_MBM_XML } from "./fixtures/synthetic-project";
 import { describeProjectFamily, isKnxMbmProject } from "./detect";
 import { generateKnxMbmXbl } from "./xbl";
@@ -9,6 +9,7 @@ import {
   addDevice,
   addSignal,
   addTcpNode,
+  normalizeRtDeadband,
   removeDevice,
   removeConversion,
   removeNode,
@@ -59,6 +60,59 @@ describe("detect", () => {
     const doc = parseFixture();
     doc.setAttr([], "Platform", "1");
     expect(() => generateKnxMbmXbl(doc.serialize())).toThrow(/Not a KNX ↔ Modbus Master project/);
+  });
+});
+
+describe("normalizeRtDeadband (MigrateGlobalDeadbandToSignals + RT save)", () => {
+  /** Global 2.5; signal 0 ordinary and inactive, signal 1 with its own 1.25. */
+  function withGlobal(global = "2.5"): XmlDocument {
+    const doc = parseFixture();
+    const media = doc.find(["ExternalProtocol", "Media"])!;
+    const external = doc.find(["ExternalProtocol"])!;
+    const deadband = element("Deadband", [], [text(global)]);
+    deadband.parent = external;
+    external.children.splice(external.children.indexOf(media) + 1, 0, text("\r\n    "), deadband);
+    doc.setAttr(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "0" }, "Virtual"], "Fixed", "False");
+    updateSignal(doc, 0, { active: false });
+    updateSignal(doc, 1, { modbus: { deadband: 1.25 } });
+    return doc;
+  }
+
+  it("copies a nonzero global to the signals without one, keeps their own values and drops the global", () => {
+    const doc = withGlobal();
+    expect(normalizeRtDeadband(doc)).toBe(true);
+    expect(doc.find(["ExternalProtocol", "Deadband"])).toBeUndefined();
+    const deadbands = projectFromXml(doc).signals.map((s) => s.modbus.deadband);
+    // Signal 0 is inactive: MAPS migrates it anyway.
+    expect(deadbands).toEqual([2.5, 1.25]);
+  });
+
+  it("leaves fixed and virtual signals at zero", () => {
+    const doc = withGlobal();
+    doc.setAttr(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "0" }, "Virtual"], "Fixed", "True");
+    doc.setAttr(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "1" }, "Virtual"], "Status", "True");
+    updateSignal(doc, 1, { modbus: { deadband: 0 } });
+    normalizeRtDeadband(doc);
+    expect(projectFromXml(doc).signals.map((s) => s.modbus.deadband)).toEqual([0, 0]);
+  });
+
+  it("writes a missing per-signal deadband after the address, and is idempotent", () => {
+    const doc = withGlobal("0");
+    const signal = doc.find(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "0" }])!;
+    signal.children = signal.children.filter((c) => c.kind !== "element" || c.tag !== "Deadband");
+    expect(normalizeRtDeadband(doc)).toBe(true);
+    const tags = signal.children.flatMap((c) => (c.kind === "element" ? [c.tag] : []));
+    expect(tags.slice(tags.indexOf("Address"), tags.indexOf("Address") + 3)).toEqual(["Address", "Deadband", "Virtual"]);
+    expect(doc.getText(["ExternalProtocol", "Signals", { tag: "Signal", attr: "ID", value: "0" }, "Deadband"])).toBe("0");
+    const once = doc.serialize();
+    expect(normalizeRtDeadband(doc)).toBe(false);
+    expect(doc.serialize()).toBe(once);
+  });
+
+  it("does nothing on a project MAPS already saved as RT", () => {
+    const doc = parseFixture();
+    expect(normalizeRtDeadband(doc)).toBe(false);
+    expect(doc.serialize()).toBe(SYNTHETIC_KNX_MBM_XML);
   });
 });
 

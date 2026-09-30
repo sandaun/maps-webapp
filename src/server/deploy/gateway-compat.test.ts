@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GatewayInfoSummary } from "../intesis-transport";
-import { evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
+import { deadbandFirmwareWarning, evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
 
 const KNX_MBM: ProjectClassIdentity = {
   displayName: "KNX ↔ Modbus Master",
@@ -60,5 +60,23 @@ describe("evaluateGatewayCompatibility (EvaluateConnectionWithGw)", () => {
     expect(evaluateGatewayCompatibility(ME_MBS, gateway({})).detail).toBe(
       "Gateway AppId unknown is not compatible with a Mitsubishi Electric AC ↔ Modbus Slave project (AppId 64 or 8).",
     );
+  });
+});
+
+describe("deadbandFirmwareWarning (CheckDeadbandFwCompatibility)", () => {
+  it("warns when the firmware is older than the minimum, comparing like System.Version", () => {
+    expect(deadbandFirmwareWarning("2.0.2.0", "2.0.1.9")).toMatch(/^You need the newest version of FW/);
+    expect(deadbandFirmwareWarning("2.0.2.0", "1.9")).toBeDefined();
+    // Missing components are -1: "2.0.2" is older than "2.0.2.0".
+    expect(deadbandFirmwareWarning("2.0.2.0", "2.0.2")).toBeDefined();
+  });
+
+  it("says nothing for an equal or newer firmware, no minimum, no version or an unparsable one", () => {
+    expect(deadbandFirmwareWarning("2.0.2.0", "2.0.2.0")).toBeUndefined();
+    expect(deadbandFirmwareWarning("2.0.2.0", "2.0.52")).toBeUndefined();
+    expect(deadbandFirmwareWarning(undefined, "1.0.0.0")).toBeUndefined();
+    expect(deadbandFirmwareWarning("2.0.2.0", undefined)).toBeUndefined();
+    expect(deadbandFirmwareWarning("2.0.2.0", "2")).toBeUndefined();
+    expect(deadbandFirmwareWarning("2.0.2.0", "2.0.1-beta")).toBeUndefined();
   });
 });

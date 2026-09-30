@@ -5,6 +5,7 @@ export { XmlDocument } from "./xml/document";
 export { appendChildIndented } from "./xml/append-indented";
 export { compareMapsVersions, isMapsVersion, MAPS_REFERENCE_VERSION, projectMapsVersion } from "./maps-version";
 export { isS700Platform, platformXmlValue, projectPlatform, type MapsPlatform } from "./platform";
+export { formatSingle, parseMapsSingle } from "./single";
 export {
   appendChild,
   element,

@@ -43,6 +43,8 @@ const modbusPatchSchema = z
     bit: z.number().int(),
     numOfBits: z.number().int(),
     address: z.number().int().min(0).max(65535),
+    // `CheckFloatAndDash(value, 0f, 100f)` (ExternalMbm.cs:2921).
+    deadband: z.number().min(0).max(100),
   })
   .partial()
   .strict();
@@ -156,11 +158,10 @@ const devicePatchSchema = z
   })
   .partial();
 
-// KNX–MBM global Modbus Master config patch (media, deadband, poll records).
+// KNX–MBM global Modbus Master config patch (media, poll records). The deadband is per signal.
 const mbmConfigPatchSchema = z
   .object({
     media: z.union([z.literal(0), z.literal(1), z.literal(2)]),
-    deadband: z.number().min(0).max(1),
     pollRecords: z
       .object({
         enabled: z.boolean(),

@@ -9,7 +9,7 @@ import { getProjectStore } from "../persistence";
 import { beginProjectDeploy, getProjectSnapshot, snapshotDeploy, type ProjectView } from "../projects/service";
 import { hasValidProjectPassword } from "../projects/password";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
-import { evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
+import { deadbandFirmwareWarning, evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
 
 /**
  * Deploy service: writes a (possibly modified) project to a gateway via
@@ -29,6 +29,11 @@ import { evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gatew
  * 4. `project` — families with deploy blockers (me-mbs: signals left on the
  *    wrong Modbus slave, `validateSlaveIndices`) must have none.
  * 5. `password` — MAPS requires a nonempty ASCII IBOX/Pwd for every supported family.
+ *
+ * Warnings do not block, but the deploy must confirm them (MAPS asks "Do you
+ * want to continue?" before sending): `deadband-firmware` when the connected
+ * gateway runs a firmware older than the per-signal deadband minimum
+ * (`frmMain.CheckProject`, `IntesisProject.CheckDeadbandFwCompatibility`).
  *
  * The XBL is REGENERATED from the current project XML (never the original
  * blob's XBL) so user edits take effect; the firmware only runs config from
@@ -55,9 +60,33 @@ export interface DeployGateCheck {
   detail: string;
 }
 
+/** A condition MAPS reports before sending and lets the user accept. */
+export type DeployWarningId = "deadband-firmware";
+
+export interface DeployWarning {
+  id: DeployWarningId;
+  message: string;
+}
+
+/** A deploy that did not confirm a warning the gates raised (409). */
+export class DeployWarningError extends Error {
+  readonly status = 409;
+  constructor(readonly warning: DeployWarningId, message: string) {
+    super(message);
+    this.name = "DeployWarningError";
+  }
+}
+
 export interface DeployStatus {
   deployable: boolean;
   checks: DeployGateCheck[];
+  /** Shown before the deploy; each one must be confirmed. */
+  warnings: DeployWarning[];
+}
+
+export interface DeployOptions {
+  /** Warnings the user accepted in the confirmation. */
+  confirmedWarnings?: readonly DeployWarningId[];
 }
 
 export interface DeployResult {
@@ -95,6 +124,8 @@ export interface DeployFamilyDescriptor extends ProjectClassIdentity {
   capabilityKey: string;
   /** Byte-exact verified XBL generator for this family. */
   generateXbl: XblGenerator;
+  /** `MinFwVersionForPerSignalDeadband` of the MAPS class, when it has one. */
+  minFwVersionForPerSignalDeadband?: string;
   /** Why the project must not reach the gateway, if anything. */
   deployBlocker?: (view: ProjectView) => string | undefined;
 }
@@ -114,6 +145,7 @@ export const DEPLOY_FAMILIES: Partial<Record<string, DeployFamilyDescriptor>> = 
     blankAppId: 63, // IN_XXX_XXX
     unitLabel: "KNX–MBM unit",
     generateXbl: generateKnxMbmXbl,
+    minFwVersionForPerSignalDeadband: "2.0.2.0", // IntesisProjectKnxMbm_RT.cs:30
   },
   "me-mbs": {
     family: "me-mbs",
@@ -169,6 +201,7 @@ async function runGates(
   deps: DeployDeps,
 ): Promise<{
   checks: DeployGateCheck[];
+  warnings: DeployWarning[];
   view: ProjectView;
   xml: string;
   appId?: number;
@@ -201,6 +234,7 @@ async function runGates(
         : `Missing verified XBL capability (${descriptor.capabilityKey}) — run pnpm verify:xbl against a real fixture`,
   });
 
+  const warnings: DeployWarning[] = [];
   let appId: number | undefined;
   let sessionOk = false;
   let sessionDetail = "No gateway session";
@@ -215,6 +249,9 @@ async function runGates(
       const compatibility = evaluateGatewayCompatibility(descriptor, status.gateway);
       sessionOk = compatibility.ok;
       sessionDetail = compatibility.detail;
+      // Only with a connected gateway, whatever the signals hold.
+      const firmware = deadbandFirmwareWarning(descriptor.minFwVersionForPerSignalDeadband, status.gateway?.appVersion);
+      if (firmware) warnings.push({ id: "deadband-firmware", message: firmware });
     }
   } catch {
     sessionDetail = "Gateway session not found";
@@ -235,7 +272,7 @@ async function runGates(
       : "Set a valid project password in Configuration → Security before deploying.",
   });
 
-  return { checks, view, xml, appId, descriptor };
+  return { checks, warnings, view, xml, appId, descriptor };
 }
 
 /** Evaluate the deploy gates without side effects (drives the UI state). */
@@ -244,8 +281,8 @@ export async function getDeployStatus(
   sessionId: string,
   deps: DeployDeps = {},
 ): Promise<DeployStatus> {
-  const { checks } = await runGates(projectId, sessionId, deps);
-  return { deployable: checks.every((c) => c.ok), checks };
+  const { checks, warnings } = await runGates(projectId, sessionId, deps);
+  return { deployable: checks.every((c) => c.ok), checks, warnings };
 }
 
 /**
@@ -256,17 +293,20 @@ export async function deployProject(
   projectId: string,
   sessionId: string,
   deps: DeployDeps = {},
+  options: DeployOptions = {},
 ): Promise<DeployResult> {
   const sessions = deps.sessions ?? getGatewaySessionManager();
   const finishDeploy = await beginProjectDeploy(projectId);
   try {
-    const { checks, view, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
+    const { checks, warnings, view, xml, appId, descriptor } = await runGates(projectId, sessionId, deps);
     for (const check of checks) {
       if (check.ok) continue;
       const status =
         check.id === "capability" ? 403 : check.id === "session-appid" ? 409 : 422;
       throw new DeployGateError(status, check.id, check.detail);
     }
+    const unconfirmed = warnings.find((warning) => !options.confirmedWarnings?.includes(warning.id));
+    if (unconfirmed) throw new DeployWarningError(unconfirmed.id, unconfirmed.message);
     // All gates passed, so the family gate passed: the descriptor exists.
     if (!descriptor) throw new DeployGateError(422, "family", "Unsupported family");
 

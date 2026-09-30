@@ -20,6 +20,7 @@ import {
   portForTcpNode,
   type MbmConfig,
 } from "@/protocols/modbus/master";
+import { formatSingle } from "@/core/project-format/single";
 import { conversionCode } from "@/core/signals/conversion-code";
 import { conversionChain, type ConversionChain } from "./conversion-chain";
 import { KNX_MBM_CONVERSION_DIRECTION } from "./conversion-sides";
@@ -185,6 +186,21 @@ function deviceOptions(mbm: MbmConfig, row: KnxSignalRow) {
   ];
 }
 
+/** `CheckFloatAndDash(value, 0f, 100f)` with `Replace(',', '.')` (ExternalMbm.cs:2921, 2109-2112). */
+function parseDeadband(raw: string): { deadband: number } | { error: string } {
+  const text = raw.trim().replace(",", ".");
+  const value = Number(text);
+  if (text === "" || !Number.isFinite(value) || value < 0 || value > 100) {
+    return { error: "Invalid value for Deadband (0..100)" };
+  }
+  return { deadband: value };
+}
+
+/** "-" where MAPS shows it: virtual rows and fixed virtual Modbus signals (`GenerateRow`, `CheckThisRowSpecific`). */
+function deadbandText(signal: KnxMbmSignal): string {
+  return signal.virtual || (signal.modbusVirtual && signal.modbusFixed) ? "-" : formatSingle(signal.modbus.deadband);
+}
+
 function parseRegister(raw: string): { address: number } | { error: string } {
   const register = Number(raw);
   if (!Number.isInteger(register) || register < 0 || register > MAX_ADDRESS) {
@@ -206,6 +222,7 @@ export const KNX_TAB_ORDER = [
   "format",
   "byteOrder",
   "address",
+  "deadband",
 ];
 
 export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[] {
@@ -538,6 +555,29 @@ export function knxMbmColumns(project: KnxMbmProject): GridColumn<KnxSignalRow>[
         return { patch: { modbus: { address: parsed.address } } };
       },
       inverseFromText: (row) => ({ modbus: { address: row.signal.modbus.address } }),
+    },
+    {
+      // Hidden by default like the MAPS column (`ch_deadband.Visible = false`).
+      id: "deadband",
+      group: "device",
+      header: "Deadband",
+      headerShort: "DB",
+      headerHint: "Deadband · minimum change of value to update the BMS signal (0–100)",
+      width: 80,
+      defaultHidden: true,
+      kind: "number",
+      bulkLabel: "Deadband",
+      mono: true,
+      // Read-only on virtual rows and fixed Modbus signals, as in MAPS.
+      readOnly: (row) => row.signal.virtual || !!row.signal.modbusFixed,
+      getText: (row) => deadbandText(row.signal),
+      getEditorValue: (row) => formatSingle(row.signal.modbus.deadband),
+      parse: (_row, raw) => {
+        const parsed = parseDeadband(raw);
+        if ("error" in parsed) return parsed;
+        return { patch: { modbus: { deadband: parsed.deadband } } };
+      },
+      inverseFromText: (row) => ({ modbus: { deadband: row.signal.modbus.deadband } }),
     },
   ];
 }

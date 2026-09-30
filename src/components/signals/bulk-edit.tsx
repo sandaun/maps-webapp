@@ -55,6 +55,7 @@ export function BulkEditDialog<R>({
     const patches: ProjectPatchInput[] = [];
     const inverses: ProjectPatchInput[] = [];
     for (const row of targets) {
+      if (col.readOnly?.(row)) continue;
       const parsed = col.parse?.(row, raw);
       if (!parsed) continue;
       if ("error" in parsed) {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { projectFromXml as knxProjectFromXml } from "@/gateway-families/knx-mbm";
@@ -83,6 +83,7 @@ function gatesStatus(
   const capabilityKey = family === "knx-mbm" ? "knxMbmXblVerified" : "meMbsXblVerified";
   return {
     deployable: (["family", "capability", "session-appid"] as GateId[]).every((id) => ok(id)),
+    warnings: [] as { id: string; message: string }[],
     checks: [
       {
         id: "family",
@@ -175,6 +176,22 @@ describe("DeployScreen (knx-mbm)", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
+  it("shows the deadband firmware warning and confirms it with the deploy, like MAPS", async () => {
+    const message = "You need the newest version of FW for the deadband feature to operate, please update and try again.";
+    const status = { ...gatesStatus("knx-mbm"), warnings: [{ id: "deadband-firmware", message }] };
+    const posts = stubFetch({ sessions: [KNX_SESSION], status });
+    render(<DeployScreen />);
+
+    const button = await screen.findByRole("button", { name: "Deploy to gateway" });
+    expect(within(screen.getByRole("list", { name: "Deploy warnings" })).getByText(message)).toBeInTheDocument();
+    expect(button).toBeEnabled();
+
+    fireEvent.click(button);
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(`${message} Do you want to continue?`);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm deploy" }));
+    await waitFor(() => expect(posts).toEqual([{ projectId: "demo", confirmedWarnings: ["deadband-firmware"] }]));
+  });
+
   it("keeps deploy disabled when the capability gate fails, with the honest explanation", async () => {
     stubFetch({
       sessions: [KNX_SESSION],
@@ -191,7 +208,7 @@ describe("DeployScreen (knx-mbm)", () => {
   it("links a blocked password gate to Configuration Security", async () => {
     const posts = stubFetch({
       sessions: [KNX_SESSION],
-      status: { deployable: false, checks: [{ id: "password", ok: false, detail: "Set a project password before deploying." }] },
+      status: { deployable: false, warnings: [], checks: [{ id: "password", ok: false, detail: "Set a project password before deploying." }] },
     });
     render(<DeployScreen />);
     expect(await screen.findByRole("link", { name: "Set password" })).toHaveAttribute("href", "/configuration?section=security");
@@ -228,7 +245,7 @@ describe("DeployScreen (knx-mbm)", () => {
 
     expect(await screen.findByText(/the gateway accepted the upload/)).toBeInTheDocument();
     expect(screen.getByText(/Receive from gateway/)).toBeInTheDocument();
-    expect(posts).toEqual([{ projectId: "demo" }]);
+    expect(posts).toEqual([{ projectId: "demo", confirmedWarnings: [] }]);
   });
 
   it("offers the export download and explains the missing gateway blob", async () => {
@@ -292,6 +309,6 @@ describe("DeployScreen (me-mbs)", () => {
 
     expect(await screen.findByText(/the gateway accepted the upload/)).toBeInTheDocument();
     expect(screen.getByText(/Receive from gateway/)).toBeInTheDocument();
-    expect(posts).toEqual([{ projectId: "p1" }]);
+    expect(posts).toEqual([{ projectId: "p1", confirmedWarnings: [] }]);
   });
 });

@@ -190,12 +190,6 @@ export function propertyFields(view: ProjectView): PropertyField[] {
       }),
       [
         ["media", "media", "Connection type", labelled(choices(0, 1, 2), L.media)],
-        [
-          "deadband",
-          "deadband",
-          "Deadband to internal system",
-          { min: 0, max: 1 },
-        ],
         ["pollEnabled", "pollEnabled", "Polling records", toggle],
         ["useMissingReg", "useMissingReg", "Use missing registers", toggle],
         ["maxRegisters", "maxreg", "Maximum registers", integer(1, 255)],

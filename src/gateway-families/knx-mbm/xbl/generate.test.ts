@@ -194,6 +194,25 @@ describe("generateKnxMbmXbl", () => {
       expect(itemContent(xbl, signals[1], 9)).toEqual([10]);
     });
 
+    it("emits each nonzero signal deadband as tag 15 (little-endian float) and no global tag 8", () => {
+      // Signal 0 (write) takes the old global 1.5 once it is not fixed; signal 1 keeps its 2.5.
+      const xml = SYNTHETIC_KNX_MBM_XML.replace(
+        "    <Media>0</Media>\r\n",
+        "    <Media>0</Media>\r\n    <Deadband>1.5</Deadband>\r\n",
+      )
+        .replace('<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="True" />', '<Address>10</Address>\r\n        <Deadband>0</Deadband>\r\n        <Virtual Status="False" Fixed="False" />')
+        .replace("<Address>20</Address>\r\n        <Deadband>0</Deadband>", "<Address>20</Address>\r\n        <Deadband>2.5</Deadband>");
+      expect(xml).toContain("<Deadband>2.5</Deadband>");
+      expect(xml).toContain("<Deadband>1.5</Deadband>");
+      const xbl = generate(xml);
+      const mbm = decodeElements(xbl)[3];
+      expect(mbm.children?.map((c) => c.tag)).toEqual([1, 2, 3, 4, 6, 11]);
+      const signals = childByTag(childByTag(mbm, 6), 1).items ?? [];
+      expect(signals[0].map((el) => el.tag)).toEqual([1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 15]);
+      expect(itemContent(xbl, signals[0], 15)).toEqual([0x00, 0x00, 0x20, 0x40]); // 2.5f
+      expect(itemContent(xbl, signals[1], 15)).toEqual([0x00, 0x00, 0xc0, 0x3f]); // 1.5f
+    });
+
     it("emits derived poll records when enabled", () => {
       const xml = SYNTHETIC_KNX_MBM_XML.replace(
         '<PollRecords Enabled="False"',

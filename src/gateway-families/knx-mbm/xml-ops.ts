@@ -1,7 +1,9 @@
 import {
   appendChildIndented,
   element,
+  formatSingle,
   getAttr,
+  parseMapsSingle,
   getText,
   setAttr,
   setText,
@@ -68,17 +70,19 @@ export function setKnxExtendedAddresses(doc: XmlDocument, enabled: boolean): voi
   setKnxExtendedAddressesOn(mustFind(doc, ["InternalProtocol"]), enabled);
 }
 
-/** Global Modbus Master settings: media, deadband and poll records. */
+/**
+ * Global Modbus Master settings: media and poll records. The 700 Series class
+ * has no global deadband (`SetGlobalDeadbandVisible(!DeadbandEnabled)`): each
+ * signal has its own.
+ */
 export interface MbmConfigPatch {
   media?: number;
-  deadband?: number;
   pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
 }
 
 export function updateMbmConfig(doc: XmlDocument, patch: MbmConfigPatch): void {
   const external = mustFind(doc, ["ExternalProtocol"]);
   if (patch.media !== undefined) setText(childEl(external, "Media"), String(patch.media));
-  if (patch.deadband !== undefined) setText(childEl(external, "Deadband"), String(patch.deadband));
   const pr = patch.pollRecords;
   if (pr) {
     const pollRecords = external.children.find(
@@ -90,6 +94,40 @@ export function updateMbmConfig(doc: XmlDocument, patch: MbmConfigPatch): void {
       if (pr.maxRegisters !== undefined) setAttr(pollRecords, "MaxRegisters", String(pr.maxRegisters));
     }
   }
+}
+
+/**
+ * The deadband as the 700 Series class loads and saves it (`IntesisProjectKnxMbm_RT`
+ * sets `DeadbandEnabled`). On load, `MigrateGlobalDeadbandToSignals`
+ * (ExternalMbm.cs:726-740) copies a nonzero global deadband to every signal
+ * that is neither fixed nor virtual and has none, whether active or not, and
+ * zeroes the global one. On save, `GetXMLProtocol` omits the global
+ * `<Deadband>` and `CreateObjectNode` writes one per signal after `<Address>`
+ * (ExternalMbm.cs:768-773, 1005-1010). Idempotent; true when it changed the document.
+ */
+export function normalizeRtDeadband(doc: XmlDocument): boolean {
+  const external = doc.find(["ExternalProtocol"]);
+  if (!external) return false;
+  const globalEl = external.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Deadband");
+  const global = parseMapsSingle(globalEl ? getText(globalEl) : undefined);
+  let changed = false;
+  for (const signal of doc.findAll(["ExternalProtocol", "Signals", "Signal"])) {
+    const own = textOfChild(signal, "Deadband");
+    const deadband = parseMapsSingle(own);
+    const flags = signal.children.find((c): c is XmlElement => c.kind === "element" && c.tag === "Virtual");
+    const fixed = parseBool(flags ? getAttr(flags, "Fixed") : undefined, false);
+    const virtual = parseBool(flags ? getAttr(flags, "Status") : undefined, false);
+    const migrated = global !== 0 && deadband === 0 && !fixed && !virtual ? global : deadband;
+    if (own !== undefined && migrated === deadband) continue;
+    if (own === undefined && textOfChild(signal, "Address") === undefined) continue;
+    setText(childElAfter(signal, "Deadband", "Address"), formatSingle(migrated));
+    changed = true;
+  }
+  if (globalEl) {
+    removeElement(globalEl);
+    changed = true;
+  }
+  return changed;
 }
 
 // --- signals ---------------------------------------------------------------
@@ -202,7 +240,7 @@ export function updateSignal(doc: XmlDocument, id: number, patch: SignalPatch): 
     setNumberText(mbm, "Bit", m.bit);
     setNumberText(mbm, "NumOfBits", m.numOfBits);
     setNumberText(mbm, "Address", m.address);
-    if (m.deadband !== undefined) setText(childElAfter(mbm, "Deadband", "Address"), String(m.deadband));
+    if (m.deadband !== undefined) setText(childElAfter(mbm, "Deadband", "Address"), formatSingle(m.deadband));
   }
 }
 

@@ -6,6 +6,10 @@ import { errorResponse } from "@/server/projects/http";
 export const runtime = "nodejs";
 
 const bodySchema = z.object({ projectId: z.string().min(1).max(200) });
+const deployBodySchema = bodySchema.extend({
+  /** Warnings the user accepted ("Do you want to continue?"). */
+  confirmedWarnings: z.array(z.literal("deadband-firmware")).max(1).optional(),
+});
 
 /**
  * Deploy (SENDCMPLT — WRITES configuration to the gateway). All gates run
@@ -18,8 +22,8 @@ const bodySchema = z.object({ projectId: z.string().min(1).max(200) });
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { projectId } = bodySchema.parse(await request.json());
-    const result = await deployProject(projectId, id);
+    const { projectId, confirmedWarnings } = deployBodySchema.parse(await request.json());
+    const result = await deployProject(projectId, id, {}, { confirmedWarnings });
     return NextResponse.json({ result });
   } catch (error) {
     return errorResponse(error);

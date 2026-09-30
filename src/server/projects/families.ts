@@ -13,6 +13,7 @@ import {
   hasKnxMbmProtocols,
   isKnxMbmProject,
   moveSignal as knxMoveSignal,
+  normalizeRtDeadband,
   projectFromXml as knxMbmProjectFromXml,
   removeDevice as knxRemoveDevice,
   removeNode as knxRemoveNode,
@@ -148,7 +149,6 @@ export type KnxMbmPatch =
       type: "updateMbmConfig";
       patch: {
         media?: number;
-        deadband?: number;
         pollRecords?: { enabled?: boolean; useMissingReg?: boolean; maxRegisters?: number };
       };
     }
@@ -242,6 +242,8 @@ interface FamilyEntry {
   detect: (doc: XmlDocument) => boolean;
   /** The platform the MAPS class declares and saves (`IntesisProject.Platform`). */
   platform: MapsPlatform;
+  /** What the MAPS class changes when it loads the project; true when it changed the document. */
+  normalize?: (doc: XmlDocument) => boolean;
   fromXml: (doc: XmlDocument) => KnxMbmProject | MeMbsProject | MbsKnxProject;
   validate: (project: KnxMbmProject | MeMbsProject | MbsKnxProject) => ValidationIssue[];
   /** True when this family knows how to apply the patch (payload included). */
@@ -297,6 +299,7 @@ const KNX_MBM: FamilyEntry = {
   hasProtocols: hasKnxMbmProtocols,
   detect: isKnxMbmProject,
   platform: "RT", // IntesisProjectKnxMbm_RT.Platform
+  normalize: normalizeRtDeadband,
   fromXml: (doc) => knxMbmProjectFromXml(doc),
   validate: (project) => validateKnxMbmProject(project as KnxMbmProject),
   accepts: (patch) =>
@@ -395,15 +398,17 @@ export function unsupportedProjectMessage(doc: XmlDocument): string {
 /**
  * The document as MAPS saves it after loading it: the root `Platform` of the
  * project class (MAPS opens Platform 2 and 3 with the same class and writes
- * the class's own). Returns whether anything changed.
+ * the class's own), plus the family's own load changes (the KNX–MBM
+ * deadband). Returns whether anything changed.
  */
 export function normalizeProject(doc: XmlDocument): boolean {
   const family = detectFamily(doc);
   if (!family) return false;
   const platform = platformXmlValue(family.platform);
-  if (doc.getAttr([], "Platform") === platform) return false;
-  doc.setAttr([], "Platform", platform);
-  return true;
+  const platformChanged = doc.getAttr([], "Platform") !== platform;
+  if (platformChanged) doc.setAttr([], "Platform", platform);
+  const familyChanged = family.normalize?.(doc) ?? false;
+  return platformChanged || familyChanged;
 }
 
 /** `normalizeProject` on XML text; the text itself when there is nothing to change. */
@@ -487,6 +492,7 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       break;
     case "updateSignal": {
       const { conversions, ...rest } = patch.patch;
+      if (rest.modbus?.deadband !== undefined) assertDeadbandEditable(doc, patch.id);
       let conversionRefs: KnxMbmSignalPatch["conversionRefs"];
       if (conversions) {
         const result = knxSelectionRefs(doc, patch.id, conversions, rest.knx?.flags);
@@ -548,6 +554,25 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
         throw error;
       }
       break;
+  }
+}
+
+/**
+ * The grid cell MAPS leaves read-only: "-" on virtual rows
+ * (`CheckThisRowSpecific`, IntesisProjectKnxMbm_RT.cs:618-619) and the value on
+ * fixed Modbus signals (`MbmObject.GenerateRow`, MbmObject.cs:363-369).
+ */
+function assertDeadbandEditable(doc: XmlDocument, id: number): void {
+  const flag = (path: Parameters<XmlDocument["getAttr"]>[0], attr: string) =>
+    doc.getAttr([...path, "Virtual"], attr)?.toLowerCase() === "true";
+  const idAttr = { attr: "ID", value: String(id) };
+  const virtual = flag(["InternalProtocol", { tag: "KNXObject", ...idAttr }], "Status");
+  const fixed = flag(["ExternalProtocol", "Signals", { tag: "Signal", ...idAttr }], "Fixed");
+  if (virtual || fixed) {
+    throw new ProjectServiceError(
+      422,
+      `Signal ${id + 1}: the deadband of a ${virtual ? "virtual" : "fixed"} signal cannot be edited, as in MAPS.`,
+    );
   }
 }
 
