@@ -96,7 +96,7 @@ async function writeGenuineCapability(key: string = "meMbsXblVerified"): Promise
   );
 }
 
-function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boolean } = {}) {
+function fakeSessions(opts: { appId?: number; platform?: string; connected?: boolean; known?: boolean } = {}) {
   const uploads: Uint8Array[] = [];
   const status: GatewaySessionStatus = {
     id: "sess-1",
@@ -109,7 +109,7 @@ function fakeSessions(opts: { appId?: number; connected?: boolean; known?: boole
     monitorComms: false,
     monitorDebug: false,
     connectedAt: new Date().toISOString(),
-    gateway: { appId: opts.appId ?? 64, bootloader: false, noApp: false },
+    gateway: { appId: opts.appId ?? 64, platform: opts.platform ?? "700 Series", bootloader: false, noApp: false },
   };
   const sessions: GatewaySessions = {
     connect: () => Promise.reject(new Error("not implemented")),
@@ -314,6 +314,15 @@ describe("deploy gates", () => {
     expect((error as DeployGateError).gate).toBe("session-appid");
     expect((error as DeployGateError).status).toBe(409);
     expect(uploads).toHaveLength(0);
+  });
+
+  it("accepts the other ApplicationID of the ME class (ME_AC_MBS, 8)", async () => {
+    await openMeMbsProject();
+    await writeGenuineCapability();
+    const { sessions } = fakeSessions({ appId: 8 });
+
+    const status = await getDeployStatus("p1", "sess-1", { sessions, capabilitiesPath });
+    expect(status.checks.find((c) => c.id === "session-appid")).toMatchObject({ ok: true, detail: "Gateway reports AppId 8 (ME unit)" });
   });
 
   it("blocks unknown sessions at the session gate (409)", async () => {
@@ -533,6 +542,33 @@ describe("deploy gates (knx-mbm)", () => {
     expect(error).toBeInstanceOf(DeployGateError);
     expect((error as DeployGateError).gate).toBe("session-appid");
     expect((error as DeployGateError).status).toBe(409);
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("blocks a legacy gateway (no platform) with the MAPS message (409)", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const { sessions, uploads } = fakeSessions({ appId: 4 });
+    sessions.getStatus("sess-1").gateway!.platform = undefined;
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeployGateError);
+    expect((error as DeployGateError).gate).toBe("session-appid");
+    expect((error as DeployGateError).status).toBe(409);
+    expect((error as DeployGateError).message).toMatch(/not compatible with legacy gateways/);
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("refuses a stored legacy (V6) project before any gate (422)", async () => {
+    await openKnxMbmProject();
+    await writeGenuineCapability("knxMbmXblVerified");
+    const store = getProjectStore();
+    await store.writeXml("k1", (await store.readXml("k1")).replace(' Platform="2"', ' Platform="1"'));
+    const { sessions, uploads } = fakeSessions({ appId: 4 });
+
+    const error = await deployProject("k1", "sess-1", { sessions, capabilitiesPath }).catch((e: unknown) => e);
+    expect((error as { status?: number }).status).toBe(422);
+    expect((error as Error).message).toMatch(/legacy \(V6\) KNX ↔ Modbus Master project/);
     expect(uploads).toHaveLength(0);
   });
 

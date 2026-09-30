@@ -29,9 +29,18 @@ describe("detect", () => {
     doc.setAttr([], "InternalProtocol", "KNX");
     expect(isMeMbsProject(doc)).toBe(false);
     expect(describeProjectFamily(doc)).toBe("KNX ↔ Mitsubishi Electric");
-    const flat = parseFixture();
-    flat.setAttr([], "Platform", "2"); // RT, not RT_AIR
-    expect(isMeMbsProject(flat)).toBe(false);
+    // MAPS opens RT and RT_AIR with the same 700 Series class, and NONE/KTS
+    // (or a missing or unknown value) with the legacy one (`ProjectParser.GetProject`).
+    for (const platform of ["2", "3"]) {
+      const s700 = parseFixture();
+      s700.setAttr([], "Platform", platform);
+      expect(isMeMbsProject(s700)).toBe(true);
+    }
+    for (const platform of ["0", "1", "4", "x"]) {
+      const legacy = parseFixture();
+      legacy.setAttr([], "Platform", platform);
+      expect(isMeMbsProject(legacy)).toBe(false);
+    }
   });
 });
 

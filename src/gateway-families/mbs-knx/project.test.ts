@@ -31,6 +31,10 @@ describe("detect", () => {
     const kts = parseFixture();
     kts.setAttr([], "Platform", "1");
     expect(isMbsKnxProject(kts)).toBe(false);
+    // MAPS opens RT_AIR with the same 700 Series class (`ProjectParser.GetProject`).
+    const air = parseFixture();
+    air.setAttr([], "Platform", "3");
+    expect(isMbsKnxProject(air)).toBe(true);
   });
 });
 

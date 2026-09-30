@@ -114,6 +114,29 @@ describe("project service", () => {
     expect((error as ProjectServiceError).message).toMatch(/Supported families: .*KNX/);
   });
 
+  it("names a legacy (V6) project of a supported family instead of opening it", async () => {
+    for (const xml of [SYNTHETIC_KNX_MBM_XML, SYNTHETIC_MBS_KNX_XML, SYNTHETIC_ME_MBS_XML]) {
+      const legacy = xml.replace(/ Platform="\d"/, ' Platform="1"');
+      const error = await openIbmaps(legacy, { id: "legacy" }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ProjectServiceError);
+      expect((error as ProjectServiceError).status).toBe(422);
+      expect((error as ProjectServiceError).message).toMatch(/legacy \(V6\) .* project\. MAPS Web only supports 700 Series projects/);
+    }
+  });
+
+  it("stores the platform the MAPS class saves, whichever 700 Series value the file declares", async () => {
+    const cases = [
+      { xml: SYNTHETIC_KNX_MBM_XML, from: "3", to: "2" },
+      { xml: SYNTHETIC_MBS_KNX_XML, from: "3", to: "2" },
+      { xml: SYNTHETIC_ME_MBS_XML, from: "2", to: "3" },
+    ];
+    for (const [i, { xml, from, to }] of cases.entries()) {
+      const meta = await openIbmaps(xml.replace(/ Platform="\d"/, ` Platform="${from}"`), { id: `platform-${i}` });
+      const stored = readFileSync(path.join(dir, "projects", meta.id, "project.ibmaps"), "utf8");
+      expect(stored).toContain(` Platform="${to}"`);
+    }
+  });
+
   it("patches survive a simulated restart", async () => {
     const meta = await loadDemoProject();
     await applyPatches(meta.id, [

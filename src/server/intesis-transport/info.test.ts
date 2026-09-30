@@ -87,6 +87,13 @@ describe("summarizeInfo", () => {
     });
   });
 
+  it("reads the platform like MAPS: PLATFORM, else 700 Series for an APPID unit", () => {
+    expect(summarizeInfo(parseInfoLines("INFO:APPID:4\r\nINFO:END\r\n")).platform).toBe("700 Series");
+    expect(summarizeInfo(parseInfoLines("INFO:APPID:4\r\nINFO:PLATFORM:Other\r\nINFO:END\r\n")).platform).toBe("Other");
+    // Legacy V6 units report COMPID and neither APPID nor PLATFORM.
+    expect(summarizeInfo(parseInfoLines("INFO:COMPID:4\r\nINFO:END\r\n")).platform).toBeUndefined();
+  });
+
   it("detects bootloader and no-app units", () => {
     const bl = summarizeInfo(parseInfoLines("INFO:STATUS:BL\r\nINFO:END\r\n"));
     expect(bl.bootloader).toBe(true);

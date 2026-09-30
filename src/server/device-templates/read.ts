@@ -92,7 +92,7 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
     }
   }
   // Reuse the project's parsers rather than maintaining a second MBM/KNX model.
-  const modelDoc = XmlDocument.parse('<Project InternalProtocol="KNX" ExternalProtocol="Modbus Master"><IBOX/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><RtuNodes><RtuNode/></RtuNodes><Signals/></ExternalProtocol></Project>');
+  const modelDoc = XmlDocument.parse('<Project Platform="2" InternalProtocol="KNX" ExternalProtocol="Modbus Master"><IBOX/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><RtuNodes><RtuNode/></RtuNodes><Signals/></ExternalProtocol></Project>');
   appendChild(modelDoc.find(["IBOX"])!, element("Conversions", [], conversions.map(copy)));
   for (const obj of knx) appendChild(modelDoc.find(["InternalProtocol"])!, copy(obj));
   const deviceCopy = copy(device);

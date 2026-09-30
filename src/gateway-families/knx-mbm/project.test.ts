@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { setAttr, XmlDocument } from "@/core/project-format";
 import { SYNTHETIC_KNX_MBM_XML } from "./fixtures/synthetic-project";
 import { describeProjectFamily, isKnxMbmProject } from "./detect";
+import { generateKnxMbmXbl } from "./xbl";
 import { projectFromXml } from "./from-xml";
 import {
   addConversion,
@@ -33,6 +34,31 @@ describe("detect", () => {
     doc.setAttr([], "InternalProtocol", "BACnet Server");
     expect(isKnxMbmProject(doc)).toBe(false);
     expect(describeProjectFamily(doc)).toBe("BACnet Server ↔ Modbus Master");
+  });
+  it("opens RT and RT_AIR with the 700 Series class and rejects the legacy (V6) platforms, like MAPS", () => {
+    // `ProjectParser.InitializeProject_getPlatform` + `GetProject`: missing,
+    // non-integer and unknown values are KTS; NONE shares the KTS branch.
+    const cases: [string | undefined, boolean][] = [
+      ["2", true],
+      ["3", true],
+      [" 2 ", true],
+      ["0", false],
+      ["1", false],
+      ["4", false],
+      ["RT", false],
+      [undefined, false],
+    ];
+    for (const [platform, supported] of cases) {
+      const doc = parseFixture();
+      if (platform === undefined) doc.root.attrs = doc.root.attrs.filter(([name]) => name !== "Platform");
+      else doc.setAttr([], "Platform", platform);
+      expect(isKnxMbmProject(doc), `Platform ${platform}`).toBe(supported);
+    }
+  });
+  it("the XBL generator refuses a legacy (V6) project", () => {
+    const doc = parseFixture();
+    doc.setAttr([], "Platform", "1");
+    expect(() => generateKnxMbmXbl(doc.serialize())).toThrow(/Not a KNX ↔ Modbus Master project/);
   });
 });
 

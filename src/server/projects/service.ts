@@ -34,7 +34,9 @@ import { hasValidProjectPassword } from "./password";
 import {
   detectFamily,
   familyById,
-  supportedFamiliesText,
+  normalizeProject,
+  normalizeProjectXml,
+  unsupportedProjectMessage,
   type FamilyId,
   type ProjectPatch,
 } from "./families";
@@ -115,31 +117,48 @@ export async function getProjectView(id: string): Promise<ProjectView> {
   return readProjectView(id, { locked: false });
 }
 
+/**
+ * The project view together with the exact XML it was built from (normalized
+ * like `readProjectXml`): what the deploy validates is what it sends.
+ */
+export async function getProjectSnapshot(id: string): Promise<{ view: ProjectView; xml: string }> {
+  return readProjectSnapshot(id, { locked: false });
+}
+
 /** `locked`: the caller already holds the project lock (writes return the new view). */
-async function readProjectView(id: string, { locked }: { locked: boolean }): Promise<ProjectView> {
+async function readProjectView(id: string, options: { locked: boolean }): Promise<ProjectView> {
+  return (await readProjectSnapshot(id, options)).view;
+}
+
+async function readProjectSnapshot(
+  id: string,
+  { locked }: { locked: boolean },
+): Promise<{ view: ProjectView; xml: string }> {
   const store = getProjectStore();
   const stored = await store.get(id);
   if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
   // A family backfill rewrites the meta, so that read (meta + XML) happens
   // entirely under the lock: otherwise a newer meta could pair with an older XML.
   if (!stored.family && !locked) {
-    return withProjectLock(store.storageId(id), () => readProjectView(id, { locked: true }));
+    return withProjectLock(store.storageId(id), () => readProjectSnapshot(id, { locked: true }));
   }
-  const xml = await store.readXml(id);
-  const doc = XmlDocument.parse(xml);
+  const storedXml = await store.readXml(id);
+  const doc = XmlDocument.parse(storedXml);
+  if (!detectFamily(doc)) throw new ProjectServiceError(422, unsupportedProjectMessage(doc));
+  const xml = normalizeProject(doc) ? doc.serialize() : storedXml;
   const meta = withRevision(await withFamily(store, stored, doc, true));
   const hasCompleteBlob = await store.hasCompleteBlob(id);
   const base = { meta, hasCompleteBlob, passwordValid: hasValidProjectPassword(doc), mapsVersion: projectMapsVersion(doc) };
   if (meta.family === "mbs-knx") {
     const project = mbsKnxProjectFromXml(doc);
-    return { ...base, family: "mbs-knx", project, issues: familyById("mbs-knx").validate(project) };
+    return { xml, view: { ...base, family: "mbs-knx", project, issues: familyById("mbs-knx").validate(project) } };
   }
   if (meta.family === "me-mbs") {
     const project = meMbsProjectFromXml(doc);
-    return { ...base, family: "me-mbs", project, issues: familyById("me-mbs").validate(project) };
+    return { xml, view: { ...base, family: "me-mbs", project, issues: familyById("me-mbs").validate(project) } };
   }
   const project = knxMbmProjectFromXml(doc);
-  return { ...base, family: "knx-mbm", project, issues: familyById("knx-mbm").validate(project) };
+  return { xml, view: { ...base, family: "knx-mbm", project, issues: familyById("knx-mbm").validate(project) } };
 }
 
 /** Open a local .ibmaps XML text as a project. */
@@ -149,13 +168,10 @@ export async function openIbmaps(
 ): Promise<ProjectMeta> {
   const doc = XmlDocument.parse(xml);
   const family = detectFamily(doc);
-  if (!family) {
-    throw new ProjectServiceError(
-      422,
-      `The file is not a supported project. Supported families: ${supportedFamiliesText()}.`,
-    );
-  }
-  return persistNewProject(opts.id, xml, family.id, {
+  if (!family) throw new ProjectServiceError(422, unsupportedProjectMessage(doc));
+  // Stored as MAPS saves it once loaded.
+  const stored = normalizeProject(doc) ? doc.serialize() : xml;
+  return persistNewProject(opts.id, stored, family.id, {
     name: opts.name ?? opts.id,
     source: opts.source ?? "file",
     completeBlob: opts.completeBlob,
@@ -215,9 +231,7 @@ export async function applyPatches(
     const originalXml = await store.readXml(id);
     let doc = XmlDocument.parse(originalXml);
     const family = detectFamily(doc);
-    if (!family) {
-      throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
-    }
+    if (!family) throw new ProjectServiceError(422, unsupportedProjectMessage(doc));
     for (const patch of patches) {
       if (!family.accepts(patch)) {
         throw new ProjectServiceError(
@@ -232,6 +246,7 @@ export async function applyPatches(
       if (templatePatch.type === "applyDeviceTemplate") getPreviewTemplate(templatePatch.token, id, revisionOf(stored));
       if (templatePatch.type === "undoDeviceTemplate") doc = XmlDocument.parse(templateUndoXml(templatePatch.token, id, revisionOf(stored)));
     }
+    normalizeProject(doc);
     family.applyPatches(doc, patches);
     const nextXml = doc.serialize();
     if (patches.length === 1 && patches[0].type === "moveSignal" && nextXml === originalXml) {
@@ -245,10 +260,18 @@ export async function applyPatches(
   });
 }
 
+/**
+ * The project XML as MAPS would save it after loading it (`normalizeProject`):
+ * what exports and the deploy send. The stored text itself when nothing changes.
+ */
+export async function readProjectXml(id: string): Promise<string> {
+  return normalizeProjectXml(await getProjectStore().readXml(id));
+}
+
 /** Rebuild the "complete" blob with the current XML and the ORIGINAL XBL. */
 export async function exportCompleteBlob(id: string): Promise<Uint8Array> {
   const store = getProjectStore();
-  const xml = await store.readXml(id);
+  const xml = await readProjectXml(id);
   const zip = buildProjectZip(`${id}.ibmaps`, xml);
   if (await store.hasCompleteBlob(id)) {
     const original = parseCompleteBlob(await store.readCompleteBlob(id));
@@ -356,8 +379,7 @@ export async function exportPollPlanXlsx(
   if (view.family !== "knx-mbm") {
     throw new ProjectServiceError(422, "Poll plan export is only available for KNX ↔ Modbus Master projects.");
   }
-  const store = getProjectStore();
-  const xml = await store.readXml(id);
+  const xml = await readProjectXml(id);
   const body = await buildPollPlanXlsx(XmlDocument.parse(xml), { projectName: view.meta.name });
   return {
     filename: `${safeDownloadName(view.meta.name)} poll-plan.xlsx`,
@@ -376,10 +398,10 @@ export async function importSignalsXlsx(
   return withProjectLock(store.storageId(id), async () => {
     const stored = await store.get(id);
     if (!stored) throw new ProjectServiceError(404, `Project "${id}" not found`);
-    const xml = await store.readXml(id);
-    const doc = XmlDocument.parse(xml);
+    const doc = XmlDocument.parse(await store.readXml(id));
     const family = detectFamily(doc);
-    if (!family) throw new ProjectServiceError(422, `Project "${id}" is not a supported project.`);
+    if (!family) throw new ProjectServiceError(422, unsupportedProjectMessage(doc));
+    normalizeProject(doc);
     const result = await applySignalsXlsx(doc, family.id, data, mode);
     await store.writeXml(id, doc.serialize());
     const now = new Date().toISOString();

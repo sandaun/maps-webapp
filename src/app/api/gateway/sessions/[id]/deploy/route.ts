@@ -10,10 +10,10 @@ const bodySchema = z.object({ projectId: z.string().min(1).max(200) });
 /**
  * Deploy (SENDCMPLT — WRITES configuration to the gateway). All gates run
  * server-side: the project family must have a verified deploy descriptor
- * (knx-mbm / me-mbs), a genuine per-family capability artefact
- * (`knxMbmXblVerified` / `meMbsXblVerified`), and a session whose gateway
- * reports the family's unit AppId (4 / 64). Progress is streamed over the
- * session SSE events endpoint.
+ * (knx-mbm / me-mbs / mbs-knx), a genuine per-family capability artefact,
+ * and a session whose 700 Series gateway runs one of the project class's
+ * AppIds, as MAPS checks it (`deploy/gateway-compat.ts`). Progress is
+ * streamed over the session SSE events endpoint.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
