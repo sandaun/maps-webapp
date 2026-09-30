@@ -326,7 +326,7 @@ ja existeix i què es pot compartir.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
 7. **XLSX de MAPS** — MBS–KNX **[implementat 2026-09-30; importat a MAPS, OK]**,
-   KNX–MBM **[implementat 2026-09-30]**, ME–MBS pendent. L'XLSX ha de ser el de MAPS en els dos sentits.
+   KNX–MBM i ME–MBS **[implementat 2026-09-30]**. L'XLSX ha de ser el de MAPS en els dos sentits.
    - **Versió (B3).** MAPS escriu la seva `ProductVersion` i en importar exigeix
      que coincideixi exactament (`ExcelParser.ExcelScanInformation`, `:122`).
      La webapp té la seva versió (`package.json`, a les propietats del fitxer);
@@ -377,9 +377,23 @@ ja existeix i què es pot compartir.
      l'accepta i falla a mitja importació). La base es compara amb la del
      dispositiu. L'adreça de grup es reescriu amb el seu format de nivells, no
      amb el text desat; només difereix amb l'adreça 0.
-   - **Pendent ME–MBS:** format de MAPS (14 columnes) i import només en mode
-     Replace amb `RestoreUserConfig` (actiu i, en mode CUSTOM, l'adreça), no
-     afegint senyals. Cal un XLSX real de MAPS per validar-ho.
+   - **ME–MBS.** Export amb les 14 columnes de MAPS: les 9 del Modbus Slave
+     (longitud 1/-1 com 16, String com "-", sense longitud de cadena), el "#",
+     "Group" ("G<n> - <nom>", "Indoor/Outdoor Unit <n>" o "-") i "Controller"
+     del costat ME, i "Sig Specific Index" / "Sig Internal Index"; sense
+     conversions. Import com MAPS: només "Replace signals" (`IsFixedRows`; la
+     pantalla no ofereix triar), sense afegir cap senyal: `RestoreUserConfig`
+     busca el primer senyal generat amb el mateix controlador, grup, unitat,
+     interior, senyal i especificació i en restaura l'estat, i l'adreça en mode
+     CUSTOM; les files sense correspondència s'ignoren. Validació com
+     `CheckAllowedValue` (adreça fins a 82500), noms de grup i controlador, la
+     comprovació "no objects for this signal" i el "#" consecutiu.
+   - **Divergències ME–MBS:** un text de Group o Controller que MAPS no pot
+     llegir es marca com a cel·la dolenta en lloc de fer fallar la lectura; una
+     adreça per sobre de 32767 es guarda tal qual (MAPS la desborda a `short`).
+     Encara sense un XLSX real de MAPS per contrastar-ho: les files esperades
+     surten del codi descompilat.
+
 8. **ETS/ESF** per a les famílies amb KNX.
    - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta
      per a MBS–KNX, on el KNX és el costat extern.

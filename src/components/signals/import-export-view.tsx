@@ -43,7 +43,8 @@ export function ImportExportView({
   // picks the MAPS that will read it; the project's by default.
   const [targetVersion, setTargetVersion] = React.useState(mapsVersion);
   const targetVersionValid = isMapsVersion(targetVersion);
-  // MAPS "Add signals" / "Replace signals" (`frmImport`); ME–MBS is not a MAPS table yet.
+  // MAPS "Add signals" / "Replace signals" (`frmImport`). ME–MBS signals are
+  // generated: MAPS hides the choice and always replaces (`IsFixedRows`).
   const replaceAvailable = family !== "me-mbs";
   const [importMode, setImportMode] = React.useState<"add" | "replace">("add");
 
@@ -59,7 +60,7 @@ export function ImportExportView({
     setBusy(true);
     setError(null);
     try {
-      await importSignalsXlsx(projectId, file, replaceAvailable ? importMode : "add");
+      await importSignalsXlsx(projectId, file, replaceAvailable ? importMode : "replace");
       onImported();
       loadHistory();
     } catch (err) {
@@ -138,7 +139,7 @@ export function ImportExportView({
           <h2 className="font-display text-[17px] font-light text-hms-blue">Import signals from XLSX</h2>
           <p className="mb-3.5 mt-1.5 text-[12.5px] leading-[1.55] text-fg-muted">
             {family === "me-mbs"
-              ? "Bring in a signal table prepared offline. Rows are appended like MAPS desktop Add from Excel."
+              ? "Bring in a signal table exported by MAPS desktop. Like MAPS, each row restores the state (and, in custom address mode, the address) of its generated signal; no signal is added."
               : "Bring in a signal table exported by MAPS desktop or prepared offline, like MAPS Import from Excel."}
           </p>
           {replaceAvailable ? (

@@ -53,21 +53,28 @@ export const KNX_SIGNAL_HEADERS = [
   "Conversions",
 ] as const;
 
+/**
+ * ME–MBS columns as MAPS writes them: the Modbus Slave side
+ * (`InternalMbs.GetInternalCols`, 9 columns), the ME side
+ * (`ExternalME.GetExternalCols`: its own "#", "Group", "Controller") and the
+ * project's two specific values (`IntesisProjectMbsMe_RT.AddSpecificExcelColumnValues`).
+ * No conversion columns: conversions are disabled for this project.
+ */
 export const ME_SIGNAL_HEADERS = [
   "#",
   "Active",
   "Description",
-  "Data length",
+  "Data Length",
   "Format",
   "Address",
   "Bit",
-  "R/W",
-  "String length",
-  "Controller",
+  "Read / Write",
+  "String Length",
+  "#",
   "Group",
-  "Unit",
-  "Spec",
-  "Status",
+  "Controller",
+  "Sig Specific Index",
+  "Sig Internal Index",
 ] as const;
 
 /**
@@ -406,22 +413,49 @@ export function knxSignalRow(project: KnxMbmProject, signal: KnxMbmSignal): stri
   ];
 }
 
+/**
+ * The Group cell (`MeObject.GenerateRow`, MeObject.cs:112-140): "-" for a
+ * controller signal, "Indoor Unit N" / "Outdoor Unit N" for a unit's error
+ * code, else "G<n> - <group description>" ("G<n>" without one).
+ */
+export function meGroupCell(project: MeMbsProject, signal: MeMbsSignal): string {
+  const { groupIndex, unitId, isIndoor, g50Index } = signal.me;
+  if (groupIndex === -1 && unitId === -1) return "-";
+  if (unitId !== -1) return isIndoor ? `Indoor Unit ${unitId + 1}` : `Outdoor Unit ${unitId + 1 - 50}`;
+  const description = project.me.controllers[g50Index]?.groups[groupIndex]?.description ?? "";
+  return description ? `G${groupIndex + 1} - ${description}` : `G${groupIndex + 1}`;
+}
+
+/** The Controller cell (MeObject.cs:97-110). */
+export function meControllerCell(signal: MeMbsSignal): string {
+  return signal.me.g50Index === -1 ? "-" : `Controller ${signal.me.g50Index + 1}`;
+}
+
+/**
+ * An ME–MBS row as MAPS writes it (`MbsObject.GenerateRow` without string
+ * format, `MeObject.GenerateRow`, `AddSpecificExcelSignalValues`). MAPS loads
+ * a length of 1 or -1 as 16 bits (1 also as Unsigned), shows String as no
+ * format and never shows a string length.
+ */
 export function meSignalRow(project: MeMbsProject, signal: MeMbsSignal): string[] {
+  const { modbus, me } = signal;
+  const oneBit = modbus.lenBits === 1;
+  const format = oneBit ? 0 : modbus.format;
   return [
     String(signal.id + 1),
     boolCell(signal.active),
     signal.description,
-    dashNumber(signal.modbus.lenBits),
-    formatCell(signal.modbus.format),
-    dashNumber(signal.modbus.address),
-    dashNumber(signal.modbus.bit),
-    readWriteCell(signal.modbus.readWrite),
-    dashNumber(signal.modbus.stringLength),
-    String(signal.me.g50Index),
-    String(signal.me.groupIndex),
-    String(signal.me.unitId),
-    String(signal.me.signalSpecIndex),
-    boolCell(signal.me.isStatus),
+    oneBit || modbus.lenBits === -1 ? "16" : String(modbus.lenBits),
+    format === MB_FORMATS.STRING ? "-" : formatCell(format),
+    String(modbus.address),
+    format === MB_FORMATS.BITFIELDS ? dashNumber(modbus.bit) : "-",
+    readWriteCell(modbus.readWrite),
+    "-",
+    String(signal.id + 1),
+    meGroupCell(project, signal),
+    meControllerCell(signal),
+    String(me.signalSpecIndex),
+    String(me.signalIndex),
   ];
 }
 
