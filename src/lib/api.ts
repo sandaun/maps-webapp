@@ -106,9 +106,20 @@ export interface ProjectHistoryEntry {
   who: string;
 }
 
-export async function importSignalsXlsx(projectId: string, file: File): Promise<ProjectView> {
+/** The signals table in the MAPS format, for the MAPS version that will import it. */
+export function signalsXlsxUrl(projectId: string, mapsVersion: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/export/xlsx?mapsVersion=${encodeURIComponent(mapsVersion)}`;
+}
+
+/** MAPS "Add signals" (`add`) or "Replace signals" (`replace`). */
+export async function importSignalsXlsx(
+  projectId: string,
+  file: File,
+  mode: "add" | "replace" = "add",
+): Promise<ProjectView> {
   const form = new FormData();
   form.append("file", file);
+  form.append("mode", mode);
   return request<ProjectView>(`/api/projects/${encodeURIComponent(projectId)}/import/xlsx`, {
     method: "POST",
     body: form,

@@ -3,6 +3,7 @@ import { XmlDocument } from "@/core/project-format";
 import { runXblPipeline } from "@/gateway-families/knx-mbm/xbl/pipeline";
 import { functionCell, POLL_PLAN_HEADERS } from "./maps-grid-values";
 import {
+  APP_VERSION,
   newWorkbook,
   styleHeaderRow,
   workbookToBuffer,
@@ -24,7 +25,8 @@ export async function buildPollPlanXlsx(
   writeFileHeaders(sheet, {
     title: "MAPS Web Modbus poll plan",
     projectName: opts.projectName,
-    version: "0.1.0",
+    versionLabel: "MAPS Web Version",
+    version: APP_VERSION,
     internalProtocol: "KNX",
     externalProtocol: "Modbus Master",
     timestamp: (opts.now ?? new Date()).toLocaleDateString(),

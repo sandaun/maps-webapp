@@ -34,7 +34,7 @@ beforeEach(() => {
   mocks.list.mockResolvedValue(projects);
   mocks.view.mockImplementation(async (id: string) => ({
     meta: projects.find((project) => project.id === id), project: { signals: [] },
-    family: "knx-mbm", issues: [], hasCompleteBlob: false, passwordValid: false,
+    family: "knx-mbm", issues: [], hasCompleteBlob: false, passwordValid: false, mapsVersion: "1.2.34.0",
   } as unknown as ProjectView));
   mocks.remove.mockResolvedValue(undefined);
 });

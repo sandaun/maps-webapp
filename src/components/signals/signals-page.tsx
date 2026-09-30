@@ -108,6 +108,7 @@ export function SignalsPageChrome({
             projectId={view.meta.id}
             projectName={view.meta.name}
             signalCount={signalCount}
+            mapsVersion={view.mapsVersion}
             lastImport={view.meta.lastImport}
             onImported={() => void refresh()}
           />

@@ -8,6 +8,7 @@ import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthet
 import { SYNTHETIC_ME_MBS_EMPTY_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-empty-project";
 import type { MbsKnxProject } from "@/gateway-families/mbs-knx";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
+import { parseSignalsXlsx } from "@/server/exports/xlsx-signals";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { refsFromSelection } from "@/core/signals/conversion-refs";
 import { resetProjectStoreForTests } from "../persistence";
@@ -513,6 +514,12 @@ describe("project service — me-mbs family", () => {
     expect(history.some((e) => e.text.includes("Imported"))).toBe(true);
   });
 
+  it("refuses a knx-mbm Replace signals import for now with 422", async () => {
+    const meta = await loadDemoProject();
+    const file = await exportSignalsXlsx(meta.id);
+    expect((await rejection(importSignalsXlsx(meta.id, new Uint8Array(file.body), "x.xlsx", "replace"))).status).toBe(422);
+  });
+
   it("exports an ESF with the synthetic sending address", async () => {
     const meta = await loadDemoProject();
     const file = await exportEsf(meta.id);
@@ -628,10 +635,45 @@ describe("project service — mbs-knx family", () => {
     expect((await rejection(applyPatches(meta.id, [{ type: "updateSignal", id: 0, patch: { description: "x" } }]))).status).toBe(409);
   });
 
-  it("refuses the XLSX and ESF exports for now with 422", async () => {
+  it("exports and re-imports an MBS–KNX XLSX, appending rows and recording lastImport", async () => {
     const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
-    expect((await rejection(exportSignalsXlsx(meta.id))).status).toBe(422);
-    expect((await rejection(importSignalsXlsx(meta.id, new Uint8Array(), "x.xlsx"))).status).toBe(422);
+    const file = await exportSignalsXlsx(meta.id);
+    const after = await importSignalsXlsx(meta.id, new Uint8Array(file.body), "signals.xlsx");
+    expect(mbsKnxProjectOf(after).signals).toHaveLength(10);
+    expect(after.meta.lastImport).toMatchObject({ fileName: "signals.xlsx", rows: 5 });
+    expect(after.meta.revision).toBe((meta.revision ?? 0) + 1);
+  });
+
+  it("writes the target MAPS version in B3: the project's by default, or the one asked", async () => {
+    const xml = SYNTHETIC_MBS_KNX_XML.replace('Version="1.2.34.0" CompatibilityVersion', 'Version="1.2.31.0" CompatibilityVersion');
+    const meta = await openIbmaps(xml, { id: "mk" });
+    const view = await getProjectView(meta.id);
+    expect(view.mapsVersion).toBe("1.2.31.0");
+    const b3 = async (file: { body: Buffer }) => (await parseSignalsXlsx(new Uint8Array(file.body))).version;
+    expect(await b3(await exportSignalsXlsx(meta.id))).toBe("1.2.31.0");
+    expect(await b3(await exportSignalsXlsx(meta.id, { mapsVersion: "1.2.34.0" }))).toBe("1.2.34.0");
+    expect((await rejection(exportSignalsXlsx(meta.id, { mapsVersion: "1.2.34" }))).status).toBe(422);
+  });
+
+  it("replaces the signals from an XLSX and records it", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const file = await exportSignalsXlsx(meta.id);
+    const after = await importSignalsXlsx(meta.id, new Uint8Array(file.body), "signals.xlsx", "replace");
+    expect(mbsKnxProjectOf(after).signals).toHaveLength(5);
+    expect(after.meta.lastImport).toMatchObject({ fileName: "signals.xlsx", rows: 5, mode: "replace" });
+    expect(after.meta.lastImport?.warning).toBeUndefined();
+    expect((await listProjectHistory(meta.id)).some((e) => e.text === "Replaced signals from signals.xlsx")).toBe(true);
+  });
+
+  it("warns when the file comes from a MAPS newer than the reference", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
+    const file = await exportSignalsXlsx(meta.id, { mapsVersion: "1.2.40.0" });
+    const after = await importSignalsXlsx(meta.id, new Uint8Array(file.body), "new.xlsx");
+    expect(after.meta.lastImport?.warning).toContain("MAPS 1.2.40.0, newer than MAPS 1.2.34.0");
+  });
+
+  it("refuses the ESF export for now with 422", async () => {
+    const meta = await openIbmaps(SYNTHETIC_MBS_KNX_XML, { id: "mk" });
     expect((await rejection(exportEsf(meta.id))).status).toBe(422);
   });
 });

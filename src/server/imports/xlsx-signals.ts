@@ -18,33 +18,45 @@ import {
   parseSignalsXlsx,
   rowMap,
   type ParsedSignalsSheet,
+  type SignalsXlsxFamily,
 } from "../exports/xlsx-signals";
 import { importedConversions } from "./xlsx-conversions";
+import { applyMbsKnxXlsx } from "./xlsx-mbs-knx";
 import {
   indexFromString,
   parseBoolCell,
   parseDeviceCell,
   parseDptCell,
   parseFlagCell,
+  KNX_SIGNAL_HEADERS,
+  ME_SIGNAL_HEADERS,
   parseListening,
   parsePriorityCell,
 } from "../exports/maps-grid-values";
+
+/** MAPS `frmImport`: "Add signals" (`ImportExcelMode.ADD`) or "Replace signals" (`REPLACE`). */
+export type ImportMode = "add" | "replace";
 
 export interface ImportXlsxResult {
   rows: number;
   appended: number;
   updated: number;
+  /** Signals removed first by a "Replace signals" import. */
+  removed?: number;
+  /** B3 of the file: the MAPS version that wrote it. */
+  fileVersion?: string;
 }
 
 /**
  * Apply a MAPS Excel signal table like `AddObjectsFromExcel` /
- * `ManageRowFromDataGridView`: append ordinary rows; virtual rows (data
- * length `-`) update the matching virtual signal.
+ * `ManageRowFromDataGridView`: append ordinary rows; in KNX–MBM, virtual rows
+ * (data length `-`) update the matching virtual signal. MBS–KNX: `xlsx-mbs-knx.ts`.
  */
 export async function applySignalsXlsx(
   doc: XmlDocument,
-  family: "knx-mbm" | "me-mbs",
+  family: SignalsXlsxFamily,
   data: Uint8Array,
+  mode: ImportMode = "add",
 ): Promise<ImportXlsxResult> {
   const parsed = await parseSignalsXlsx(data);
   const expected = expectedProtocols(family);
@@ -57,8 +69,39 @@ export async function applySignalsXlsx(
       `This Excel file is ${parsed.internalProtocol} ↔ ${parsed.externalProtocol}, not a ${expected.internal} ↔ ${expected.external} table.`,
     );
   }
+  return { ...applyFamily(doc, family, parsed, mode), fileVersion: parsed.version };
+}
+
+function applyFamily(
+  doc: XmlDocument,
+  family: SignalsXlsxFamily,
+  parsed: ParsedSignalsSheet,
+  mode: ImportMode,
+): ImportXlsxResult {
+  if (family === "mbs-knx") return applyMbsKnxXlsx(doc, parsed, mode);
+  if (mode === "replace") {
+    throw new ProjectServiceError(422, '"Replace signals" is not available yet for this kind of project.');
+  }
+  requireHeaders(parsed, family === "knx-mbm" ? KNX_SIGNAL_HEADERS : ME_SIGNAL_HEADERS);
   if (family === "knx-mbm") return applyKnx(doc, parsed);
   return applyMe(doc, parsed.headers, parsed.rows);
+}
+
+/**
+ * KNX–MBM and ME–MBS read the columns by our header names, so a table with
+ * other names (one exported by MAPS desktop: "Group Address", "Read Func"…)
+ * would import default values. Such a table is rejected instead.
+ */
+function requireHeaders(parsed: ParsedSignalsSheet, expected: readonly string[]): void {
+  const missing = expected.filter(
+    (header) => header !== "Conv. Id" && header !== "Conversions" && !parsed.headers.includes(header),
+  );
+  if (missing.length === 0) return;
+  throw new ProjectServiceError(
+    422,
+    `This Excel file does not have the columns ${missing.map((h) => `"${h}"`).join(", ")}. ` +
+      "Tables exported by MAPS desktop cannot be imported yet for this kind of project.",
+  );
 }
 
 function applyKnx(doc: XmlDocument, parsed: ParsedSignalsSheet): ImportXlsxResult {

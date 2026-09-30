@@ -9,14 +9,14 @@ import { buildKnxEsf } from "@/server/exports/esf-knx";
 import { parseSignalsXlsx, buildSignalsXlsx } from "@/server/exports/xlsx-signals";
 import { buildPollPlanXlsx } from "@/server/exports/xlsx-poll-plan";
 import { conversionSheetRows } from "@/server/exports/maps-grid-values";
-import { cellText, loadWorkbook } from "@/server/exports/xlsx-workbook";
+import { cellText, loadWorkbook, workbookToBuffer } from "@/server/exports/xlsx-workbook";
 
 const NOW = new Date(2026, 0, 1);
 
 describe("signals XLSX", () => {
   it("round-trips a knx-mbm table with desktop headers and appends on import", async () => {
     const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
-    const buf = await buildSignalsXlsx("knx-mbm", project, { now: NOW });
+    const buf = await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW });
     const parsed = await parseSignalsXlsx(new Uint8Array(buf));
     expect(parsed.internalProtocol).toBe("KNX");
     expect(parsed.externalProtocol).toBe("Modbus Master");
@@ -38,7 +38,7 @@ describe("signals XLSX", () => {
       additionalAddresses: [2563, 4361],
       additionalAddressLevels: [2, 1],
     } });
-    const buf = new Uint8Array(await buildSignalsXlsx("knx-mbm", projectFromXml(source), { now: NOW }));
+    const buf = new Uint8Array(await buildSignalsXlsx({ family: "knx-mbm", project: projectFromXml(source) }, { now: NOW }));
     const parsed = await parseSignalsXlsx(buf);
     expect(parsed.rows[0]?.[5]).toBe("1/515,4361");
     const imported = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
@@ -54,7 +54,7 @@ describe("signals XLSX", () => {
     const source = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
     updateSignal(source, 0, { knx: { groupAddress: 2563, groupAddressLevel: 2 } });
     updateSignal(source, 1, { knx: { groupAddress: 4361, groupAddressLevel: 1 } });
-    const buf = new Uint8Array(await buildSignalsXlsx("knx-mbm", projectFromXml(source), { now: NOW }));
+    const buf = new Uint8Array(await buildSignalsXlsx({ family: "knx-mbm", project: projectFromXml(source) }, { now: NOW }));
     const parsed = await parseSignalsXlsx(buf);
     expect(parsed.rows.map((row) => row[4])).toEqual(["1/515", "4361"]);
 
@@ -69,7 +69,7 @@ describe("signals XLSX", () => {
 
   it("exports knx-mbm conversions like MAPS: Conv. Id + Conversions columns and a Conversions sheet", async () => {
     const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
-    const buf = await buildSignalsXlsx("knx-mbm", project, { now: NOW });
+    const buf = await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW });
     const parsed = await parseSignalsXlsx(new Uint8Array(buf));
     expect(parsed.headers.slice(-2)).toEqual(["Conv. Id", "Conversions"]);
     expect(parsed.rows[0]?.slice(-2)).toEqual(["-", "-"]);
@@ -101,13 +101,25 @@ describe("signals XLSX", () => {
 
   it("exports me-mbs rows with InternalMbs-style columns", async () => {
     const project = meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML));
-    const buf = await buildSignalsXlsx("me-mbs", project, { now: NOW });
+    const buf = await buildSignalsXlsx({ family: "me-mbs", project }, { now: NOW });
     const parsed = await parseSignalsXlsx(new Uint8Array(buf));
     expect(parsed.internalProtocol).toBe("Modbus Slave");
     expect(parsed.headers[0]).toBe("#");
     expect(parsed.rows.length).toBe(project.signals.length);
     // ME–MBS disables conversions, so MAPS writes no Conversions sheet.
     expect((await loadWorkbook(new Uint8Array(buf))).getWorksheet("Conversions")).toBeUndefined();
+  });
+
+  it("rejects a KNX–MBM table with the MAPS desktop headers instead of importing defaults", async () => {
+    const project = projectFromXml(XmlDocument.parse(SYNTHETIC_KNX_MBM_XML));
+    const workbook = await loadWorkbook(new Uint8Array(await buildSignalsXlsx({ family: "knx-mbm", project }, { now: NOW })));
+    workbook.getWorksheet("Signals")!.getRow(7).getCell(5).value = "Group Address";
+    const data = new Uint8Array(await workbookToBuffer(workbook));
+    const doc = XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
+    const before = doc.serialize();
+    await expect(applySignalsXlsx(doc, "knx-mbm", data)).rejects.toMatchObject({ status: 422 });
+    await expect(applySignalsXlsx(doc, "knx-mbm", data)).rejects.toThrow(/does not have the columns "Sending"/);
+    expect(doc.serialize()).toBe(before);
   });
 });
 

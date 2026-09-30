@@ -325,12 +325,45 @@ ja existeix i què es pot compartir.
      al registre i aporta la seva renumeració; no s'activa automàticament.
    - Afecta KNX–MBM i MBS–KNX. A ME–MBS no, perquè els senyals es deriven del
      model.
-7. **XLSX a MBS–KNX.**
-   - **Nosaltres:** KNX–MBM i ME–MBS ja el tenen (`server/exports/xlsx-signals.ts`,
-     `server/imports/xlsx-signals.ts`). MBS–KNX respon amb un 422
-     (`server/projects/service.ts`).
-   - **MAPS:** `IntesisProjectMBSKNX_RT.AddObjectsFromExcel` /
-     `CheckExcelRowIntegrity` (`:868-930`).
+7. **XLSX de MAPS** — MBS–KNX **[implementat 2026-09-30; prova a MAPS pendent]**,
+   KNX–MBM i ME–MBS pendents. L'XLSX ha de ser el de MAPS en els dos sentits.
+   - **Versió (B3).** MAPS escriu la seva `ProductVersion` i en importar exigeix
+     que coincideixi exactament (`ExcelParser.ExcelScanInformation`, `:122`).
+     La webapp té la seva versió (`package.json`, a les propietats del fitxer);
+     `MAPS_REFERENCE_VERSION` (1.2.34.0) és la versió de MAPS contrastada. B3
+     porta la **versió de MAPS de destinació**: la `<Header Version>` del
+     projecte per defecte, editable al camp "Target MAPS version" de
+     l'exportació (quatre números, sense límit, com MAPS). En importar
+     s'accepta qualsevol versió; si és més nova que la de referència, avís a
+     "Last import".
+   - **Format comú.** Capçalera "Intesis MAPS Excel signals file" / "Intesis
+     MAPS Version"; timestamp com a data d'Excel (format 14), com ClosedXML.
+     Els fitxers de MAPS porten XML amb prefixos (`<x:worksheet>`,
+     `<ap:Properties>`): `loadWorkbook` els normalitza.
+   - **MBS–KNX.** Export amb els noms de la graella de MAPS i els valors de
+     `MbsObject.GenerateRow` / `KnxComObject.GenerateRowExternal`: DPT amb
+     descripció (`ConvertDPTValueToString`), flags buits amb dos espais,
+     "Conv. Id" buit sense conversions. Idèntic cel·la per cel·la a
+     `modbus-slave-to-knx.xlsx` (MAPS 1.2.23) exportant la mateixa plantilla.
+     Import per posició (19 columnes), amb els noms de MAPS o els de MAPS Web
+     anteriors; validació com `CheckAllowedValue` dels dos costats i el "#"
+     consecutiu (`frmImport.CheckConfigIdConsecutivity`); una fila dolenta
+     rebutja el fitxer sense tocar res. "Add signals" afegeix les files tal
+     com venen (`AddObjectsFromExcel`); "Replace signals" abans esborra tots
+     els senyals, fixos inclosos (`ReplaceObjectsFromExcel`, `:868`), i les
+     conversions dels senyals esborrats no bloquegen la llista nova.
+   - **Divergències MBS–KNX:** R/W "-" (`NOT_DEFINED`) es rebutja. El DPT es
+     valida sobre el text i cada component ha de cabre en el seu byte; MAPS
+     accepta `1.257` i el converteix en `2.001`.
+   - **Pendent KNX–MBM:** import per posició (9 columnes amb un altre nom),
+     validació de cel·les i "#", files virtuals que només actualitzen actiu,
+     descripció, adreces i prioritat, i que no s'afegeixen si no troben
+     correspondència (`ManageRowFromDataGridView`); export amb el format de
+     MAPS; "Replace signals" conservant els virtuals i les seves conversions.
+     Ara una taula de MAPS es rebutja (422) en lloc d'importar valors per defecte.
+   - **Pendent ME–MBS:** format de MAPS (14 columnes) i import només en mode
+     Replace amb `RestoreUserConfig` (actiu i, en mode CUSTOM, l'adreça), no
+     afegint senyals. Cal un XLSX real de MAPS per validar-ho.
 8. **ETS/ESF** per a les famílies amb KNX.
    - **Export:** existeix per a KNX–MBM (`server/exports/esf-knx.ts`). Falta
      per a MBS–KNX, on el KNX és el costat extern.

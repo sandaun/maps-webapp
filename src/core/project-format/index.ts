@@ -3,6 +3,7 @@ export { buildCompleteBlob, parseCompleteBlob, type CompleteBlob } from "./compl
 export { buildProjectZip, extractIbmaps, type IbmapsFile } from "./zip";
 export { XmlDocument } from "./xml/document";
 export { appendChildIndented } from "./xml/append-indented";
+export { compareMapsVersions, isMapsVersion, MAPS_REFERENCE_VERSION, projectMapsVersion } from "./maps-version";
 export {
   appendChild,
   element,

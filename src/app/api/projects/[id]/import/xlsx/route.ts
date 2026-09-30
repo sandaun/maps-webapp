@@ -17,8 +17,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (file.size > MAX_UPLOAD_BYTES) {
       return NextResponse.json({ error: "File too large" }, { status: 413 });
     }
+    const mode = form.get("mode") ?? "add";
+    if (mode !== "add" && mode !== "replace") {
+      return NextResponse.json({ error: "'mode' must be 'add' or 'replace'" }, { status: 400 });
+    }
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const view = await importSignalsXlsx(id, bytes, file.name);
+    const view = await importSignalsXlsx(id, bytes, file.name, mode);
     return NextResponse.json(view);
   } catch (error) {
     return errorResponse(error);

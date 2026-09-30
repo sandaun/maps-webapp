@@ -337,8 +337,9 @@ mateix XML i els mateixos errors abans i després.
 - **Signals**: taula editable amb columnes MBS (actiu, descripció, bits,
   format, adreça, bit, R/W) i KNX (DPT, GA, GA addicionals, U/T/Ri/W/R,
   prioritat), conversions. Afegir i esborrar files.
-  Queda fora de la primera iteració: moure files, autoenumeració, import/export XLSX i
-  import ETS/ESF.
+  Moure files i import/export XLSX s'hi han afegit després
+  (`docs/plans/gaps-families-v11.md` punts 6 i 7). Queda fora: autoenumeració,
+  export ESF i import ETS/ESF.
 - **Diagnostics / Deploy**: comuns, amb l'AppId esperat = 7.
 
 ## 9. Fitxers de referència i verificació

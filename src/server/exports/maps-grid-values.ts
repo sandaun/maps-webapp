@@ -8,10 +8,12 @@ import { conversionCode } from "@/core/signals/conversion-code";
 import type { SignalConversionRefs } from "@/core/signals/conversion-refs";
 import type { KnxMbmProject, KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
 import type { MeMbsProject, MeMbsSignal } from "@/gateway-families/me-mbs/model";
-import { formatDpt, parseDpt } from "@/protocols/knx/dpt";
+import type { MbsKnxSignal } from "@/gateway-families/mbs-knx/model";
+import { COMMON_DPT_OPTIONS, decodeDpt, formatDpt, parseDpt } from "@/protocols/knx/dpt";
 import { formatGroupAddress, formatGroupAddressAtLevel, formatListeningAddresses, groupAddressLevelOf, parseGroupAddress } from "@/protocols/knx/address";
 import type { MbmConfig, MbmRtuNode } from "@/protocols/modbus/master/nodes";
 import { nodeForPort } from "@/protocols/modbus/master";
+import { FORMATS as MB_FORMATS } from "@/protocols/modbus/slave";
 
 export const KNX_SIGNAL_HEADERS = [
   "#",
@@ -60,6 +62,37 @@ export const ME_SIGNAL_HEADERS = [
   "Unit",
   "Spec",
   "Status",
+] as const;
+
+/**
+ * MBS–KNX columns as MAPS writes them: the grid's `HeaderText`
+ * (`IntesisExcel.WriteColumnHeaders`) — the Modbus Slave side
+ * (`InternalMbs.GetInternalCols`, 9 columns), the KNX side
+ * (`ExternalKnx.GetExternalCols`, 10 columns, with its own "#") and the two
+ * conversion columns (`IntesisConversion.GetColumnHeaders`).
+ */
+export const MBS_KNX_SIGNAL_HEADERS = [
+  "#",
+  "Active",
+  "Description",
+  "Data Length",
+  "Format",
+  "Address",
+  "Bit",
+  "Read / Write",
+  "String Length",
+  "#",
+  "DPT",
+  "Group Address",
+  "Additional Addresses",
+  "U",
+  "T",
+  "Ri",
+  "W",
+  "R",
+  "Priority",
+  "Conv. Id",
+  "Conversions",
 ] as const;
 
 export const CONVERSION_HEADERS = [
@@ -325,6 +358,62 @@ export function meSignalRow(project: MeMbsProject, signal: MeMbsSignal): string[
     String(signal.me.unitId),
     String(signal.me.signalSpecIndex),
     boolCell(signal.me.isStatus),
+  ];
+}
+
+const DPT_LABELS = new Map(COMMON_DPT_OPTIONS.map((option) => [option.value, option.label]));
+
+/**
+ * The DPT cell (`IntesisKnx.ConvertDPTValueToString`): "9.001: temperature (ºC)",
+ * "1.x: (1-bit)"; empty for main type 0 or subtype 0 (except DPT 14), and
+ * "main.sub: " with no text for a DPT `GetDPTDescriptionFromValueString` does
+ * not name.
+ */
+export function dptCell(dpt: number): string {
+  const { main, sub } = decodeDpt(dpt);
+  if (main === 0) return "";
+  if (sub === 0 && main !== 14) return "";
+  return DPT_LABELS.get(dpt) ?? `${formatDpt(dpt)}: `;
+}
+
+/** A flag cell of the KNX side: the flag's letter, or two spaces (`KnxComObject.GenerateRowExternal`). */
+function knxFlagCell(on: boolean, token: string): string {
+  return on ? token : "  ";
+}
+
+/**
+ * An MBS–KNX row as MAPS writes it (`MbsObject.GenerateRow`,
+ * `KnxComObject.GenerateRowExternal`, `PopulateExtraParameters`): the bit only
+ * for BitFields and the string length only for String, "-" otherwise; "Conv. Id"
+ * empty and "Conversions" "-" when the row has no conversions.
+ */
+export function mbsKnxSignalRow(signal: MbsKnxSignal): string[] {
+  const { knx, modbus } = signal;
+  const sending = knx.groupAddress > 0 ? formatGroupAddressAtLevel(knx.groupAddress, knx.groupAddressLevel ?? 3) : "";
+  const listening = formatListeningAddresses(knx.additionalAddresses, knx.additionalAddressLevels, ",");
+  const code = conversionCode(signal.conversions);
+  return [
+    String(signal.id + 1),
+    boolCell(signal.active),
+    signal.description,
+    dashNumber(modbus.lenBits),
+    formatCell(modbus.format),
+    String(modbus.address),
+    modbus.format === MB_FORMATS.BITFIELDS ? dashNumber(modbus.bit) : "-",
+    readWriteCell(modbus.readWrite),
+    modbus.format === MB_FORMATS.STRING ? dashNumber(modbus.stringLength) : "-",
+    String(signal.id + 1),
+    dptCell(knx.dpt),
+    sending,
+    listening,
+    knxFlagCell(knx.flags.u, "U"),
+    knxFlagCell(knx.flags.t, "T"),
+    knxFlagCell(knx.flags.ri, "Ri"),
+    knxFlagCell(knx.flags.w, "W"),
+    knxFlagCell(knx.flags.r, "R"),
+    priorityCell(knx.priority),
+    code === "-" ? "" : code,
+    conversionsButtonCell(signal.conversions),
   ];
 }
 
