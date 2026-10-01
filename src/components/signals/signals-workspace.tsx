@@ -1,11 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { SignalSelectionBarContext, SignalsSelectionBar, type SignalSelectionActions } from "./signals-selection-bar";
+import { useWorkspaceChrome } from "@/lib/workspace-chrome";
+import { SignalsSelectionBar, type SignalSelectionActions } from "./signals-selection-bar";
+import { SignalsActionLayer, SignalsActionLayerContext } from "./signals-action-layer";
 
 /** Filters and headers stay put; the grid hosts selection actions above its bottom edge. */
 export function SignalsWorkspace({ children, ...actions }: SignalSelectionActions & { children: React.ReactNode }) {
   const workspaceRef = React.useRef<HTMLDivElement>(null);
+  const { undoVisible } = useWorkspaceChrome();
+  const [measuredInset, setMeasuredInset] = React.useState<number | null>(null);
   const { selectedCount, matchingCount, pageFullySelected, onClear } = actions;
   const showSelectAllMatching = pageFullySelected && matchingCount > selectedCount;
 
@@ -19,9 +23,10 @@ export function SignalsWorkspace({ children, ...actions }: SignalSelectionAction
   }
 
   return (
-    <SignalSelectionBarContext.Provider value={selectedCount > 0 ? {
-      bar: <SignalsSelectionBar {...actions} onClear={clearSelection} />,
-      inset: showSelectAllMatching ? 112 : 80,
+    <SignalsActionLayerContext.Provider value={selectedCount > 0 || undoVisible ? {
+      bar: <SignalsActionLayer selection={selectedCount > 0 ? <SignalsSelectionBar {...actions} onClear={clearSelection} /> : null}
+        selectionHeight={showSelectAllMatching ? 76 : 44} onInset={setMeasuredInset} />,
+      inset: measuredInset ?? (showSelectAllMatching ? 112 : 80) + (undoVisible ? 52 : 0),
     } : null}>
       <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         onKeyDown={(event) => {
@@ -34,6 +39,6 @@ export function SignalsWorkspace({ children, ...actions }: SignalSelectionAction
       >
         {children}
       </div>
-    </SignalSelectionBarContext.Provider>
+    </SignalsActionLayerContext.Provider>
   );
 }

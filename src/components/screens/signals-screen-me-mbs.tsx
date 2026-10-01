@@ -112,7 +112,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
       id: p.id,
       patch: { active: !active },
     }));
-    if (patches.length > 0) void runPatch(patches, active ? "Enable" : "Disable", inverses);
+    if (patches.length > 0) void runPatch(patches, `${active ? "Enabled" : "Disabled"} ${patches.length} signal${patches.length === 1 ? "" : "s"}`, inverses);
   }
 
   const errorCount = view.issues.filter((i) => i.severity === "error").length;
@@ -213,7 +213,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           onApply={async (patches, inverses) => {
             await applyPatches(patches);
             chrome.bumpDirty(patches.length);
-            chrome.pushUndo({ label: "Number addresses", patches: inverses });
+            chrome.pushUndo({ label: "Numbered addresses", patches: inverses });
           }}
         />
       )}

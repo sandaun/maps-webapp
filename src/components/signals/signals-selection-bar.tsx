@@ -21,9 +21,6 @@ export interface SignalSelectionActions {
   reorder?: SignalReorder;
 }
 
-/** The grid hosts the bar outside its scroll pane and leaves room below the last row. */
-export const SignalSelectionBarContext = React.createContext<{ bar: React.ReactNode; inset: number } | null>(null);
-
 interface SelectionAction {
   id: string;
   group: "state" | "edit" | "order" | "delete";

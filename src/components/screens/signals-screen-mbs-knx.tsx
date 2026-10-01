@@ -162,7 +162,7 @@ export function MbsKnxSignalsView({
     try {
       await applyPatches(patches);
       chrome.bumpDirty(patches.length);
-      if (inverses) chrome.pushUndo({ label: "conversions", patches: inverses });
+      if (inverses) chrome.pushUndo({ label: "Updated conversions", patches: inverses });
       return true;
     } catch (err) {
       setAssignError(err instanceof Error ? err.message : "Could not save the conversions.");
@@ -202,7 +202,7 @@ export function MbsKnxSignalsView({
       .filter((id) => byId.get(id)?.active !== active)
       .map((id) => ({ type: "updateSignal" as const, id, patch: { active } }));
     const inverses = patches.map((p) => ({ type: "updateSignal" as const, id: p.id, patch: { active: !active } }));
-    if (patches.length > 0) void runPatch(patches, active ? "Enable" : "Disable", inverses);
+    if (patches.length > 0) void runPatch(patches, `${active ? "Enabled" : "Disabled"} ${patches.length} signal${patches.length === 1 ? "" : "s"}`, inverses);
   }
 
   function removeChecked() {
@@ -354,7 +354,7 @@ export function MbsKnxSignalsView({
           selectedIds={checkedList}
           rowId={rowId}
           onClose={() => setBulkOpen(false)}
-          onApply={(patches, inverses) => runPatch(patches, "Edit field", inverses)}
+          onApply={(patches, inverses) => runPatch(patches, "Edited signal fields", inverses)}
         />
       )}
       {autoNumberOpen && (
@@ -392,7 +392,7 @@ export function MbsKnxSignalsView({
           onApply={async (patches, inverses) => {
             await applyPatches(patches);
             chrome.bumpDirty(patches.length);
-            chrome.pushUndo({ label: "Number addresses", patches: inverses });
+            chrome.pushUndo({ label: "Numbered addresses", patches: inverses });
           }}
         />
       )}

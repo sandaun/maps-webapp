@@ -8,7 +8,7 @@ import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { refsFromSelection } from "@/core/signals/conversion-refs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
-import { UndoToast } from "@/components/signals/undo-toast";
+import { UndoPill } from "@/components/signals/undo-pill";
 import { SignalsScreen } from "./signals-screen";
 
 const mocks = vi.hoisted(() => ({
@@ -62,7 +62,7 @@ function renderSignals() {
     <WorkspaceChromeProvider>
       <TooltipProvider delayDuration={0}>
         <SignalsScreen />
-        <UndoToast />
+        <UndoPill />
       </TooltipProvider>
     </WorkspaceChromeProvider>,
   );

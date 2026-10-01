@@ -48,7 +48,7 @@ export function AddSignalsControl({ project, selected, applyPatches, onAdded }: 
       const next = await applyPatches([{ type: "addSignals", options }]);
       const added = next.project.signals.slice(plan.insertIndex, plan.insertIndex + options.count);
       chrome.bumpDirty(options.count);
-      chrome.pushUndo({ label: options.count === 1 ? "Add signal" : `Add ${options.count} signals`,
+      chrome.pushUndo({ label: options.count === 1 ? "Added 1 signal" : `Added ${options.count} signals`,
         patches: added.map((s) => ({ type: "removeSignal", id: s.id })) });
       setDialog(null);
       triggerRef.current?.focus();
