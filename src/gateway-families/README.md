@@ -28,6 +28,12 @@ Rules:
   - `knx-mbm` — KNX ↔ Modbus Master (IN701KNX; XBL verified, live deploy tested).
   - `me-mbs` — Mitsubishi Electric AC ↔ Modbus Slave (770 Air,
     `IntesisProjectMbsMe_RT`; XBL verified, live deploy tested).
+  - `mbs-knx` — Modbus Slave ↔ KNX (IN701KNX, AppId 7;
+    XBL verified, live deploy tested).
 
 To add a new family, follow the step-by-step playbook at
 `docs/reference/adding-a-gateway-family.md`.
+Its Phase 2 Diagnostics checklist is mandatory: register console prefixes,
+classify traffic on both ports, and wire/test the signals viewer's runtime
+ids, reads, writes and spontaneous values. The shared screen alone does not
+provide support for a new family.

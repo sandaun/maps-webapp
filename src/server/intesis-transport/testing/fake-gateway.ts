@@ -60,6 +60,8 @@ export interface FakeGatewayConfig {
   /** Optional greeting bytes on connect (e.g. 00 00, PROTOCOL.md §7.4). */
   greeting?: Uint8Array;
   infoBody?: string;
+  /** Scripted bus lines for a different gateway family. */
+  monitorLines?: string[];
   /** Receive-a-project scripting for SENDCMPLT/SENDPROJ uploads. */
   sendScript?: FakeGatewaySendScript;
 }
@@ -85,6 +87,7 @@ export class FakeGateway implements Duplex {
   private debugOn = false;
   private sponsOn = false;
   closed = false;
+  readonly consoleCommands: string[] = [];
 
   constructor(private readonly config: FakeGatewayConfig) {
     this.skt = config.sktCounter ?? 0;
@@ -200,6 +203,7 @@ export class FakeGateway implements Duplex {
       if (i < 0) return;
       const line = this.inbox.slice(0, i);
       this.inbox = this.inbox.slice(i + 2);
+      this.consoleCommands.push(line);
       if (line === "INFO?") {
         this.respondEncrypted(`SKT${this.skt++} - OK\r\n`);
         this.respondEncrypted((this.config.infoBody ?? FAKE_INFO_BODY) + "INFO:END\r\n");
@@ -232,14 +236,14 @@ export class FakeGateway implements Duplex {
           this.respondEncrypted(`RECVCMPLT:READY:${n}\r\n`);
           this.stage = "xmodem";
         }
-      } else if (/^[01](KX|MM):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
+      } else if (/^[01](KX|MM|MS):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
         // Monitor toggles and upload pre-commands: the real firmware ACKs
         // `<port><PREFIX>:OK` and ignores the unprefixed form in silence.
         this.respondEncrypted(`${line.slice(0, 3)}:OK\r\n`);
         this.updatePushes(line);
-      } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}\?/.test(line)) {
+      } else if (/^[01](KX|MM|MS):[0-9A-Fa-f]{4,8}\?/.test(line)) {
         this.handleSignalRead(line);
-      } else if (/^[01](KX|MM):[0-9A-Fa-f]{4,8}=/.test(line)) {
+      } else if (/^[01](KX|MM|MS):[0-9A-Fa-f]{4,8}=/.test(line)) {
         this.handleSignalWrite(line);
       } else if (line === "RESET!") {
         this.respondEncrypted("OK\r\n");
@@ -253,7 +257,7 @@ export class FakeGateway implements Duplex {
 
   /** Signal read `<side><PREFIX>:<idHex>?` → `<same id>=<value>;<flags>`. */
   private handleSignalRead(line: string): void {
-    const m = /^([01](?:KX|MM):[0-9A-Fa-f]{4,8})\?/.exec(line);
+    const m = /^([01](?:KX|MM|MS):[0-9A-Fa-f]{4,8})\?/.exec(line);
     if (!m) return;
     const id = m[1].toUpperCase();
     // Without bus data the real firmware answers 0 (console-protocol.md §4).
@@ -262,7 +266,7 @@ export class FakeGateway implements Duplex {
 
   /** Signal write `<side><PREFIX>:<idHex>=<value>[;]` → `<prefix>:OK`. */
   private handleSignalWrite(line: string): void {
-    const m = /^([01])(KX|MM):([0-9A-Fa-f]{4,8})=([^;]*);?/.exec(line);
+    const m = /^([01])(KX|MM|MS):([0-9A-Fa-f]{4,8})=([^;]*);?/.exec(line);
     if (!m) return;
     const id = `${m[1]}${m[2]}:${m[3]}`.toUpperCase();
     this.signalValues.set(id, m[4]);
@@ -293,6 +297,10 @@ export class FakeGateway implements Duplex {
       // session enables SPONS and COMMS on both ports in sequence.
       const timer = setInterval(() => {
         if (this.closed) return;
+        if (this.config.monitorLines) {
+          for (const pushed of this.config.monitorLines) this.respondEncrypted(`${pushed}\r\n`);
+          return;
+        }
         this.commsTick++;
         const n = this.commsTick;
         if (this.debugOn && n % 13 === 0) {

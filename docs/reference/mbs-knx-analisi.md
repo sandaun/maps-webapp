@@ -446,6 +446,34 @@ Observacions:
 
 ## 12. Obert
 
+**Diagnòstic (2026-10-01).** Corregits el registre de prefixos del monitor
+(`0MS`, `1KX`) i el visor, que només acceptava KNX–MBM. El visor MBS–KNX
+fa servir els MBS actius ordenats per adreça/bit i els KNX actius en ordre
+de projecte per construir els identificadors de lectura/escriptura i
+associar els pushes. Els errors d'activació són visibles; les peticions
+de monitor es serialitzen per evitar solapaments durant el muntatge o
+quan es canvien les opcions.
+
+Prova a `10.113.51.173`, firmware 2.0.1.0 / AppId 7: projecte rebut amb
+12 senyals actius, monitor activat i lectures correctes de tres senyals
+als dos costats (`1KX`, `0MS`, valors 0). Modbus configurat només en RTU;
+cap trama de bus durant els 5 s d'observació. No s'ha escrit cap valor al
+bus ni desplegat configuració. Trànsit, pushes i escriptures coberts amb
+la passarel·la simulada i proves de la UI; manca observar-los amb trànsit
+real. El checklist obligatori per a noves famílies és a
+`adding-a-gateway-family.md`, fase 2.
+
+El visor també aplica `GetWriteEnabled` de MAPS: MBS permet escriptura
+en Trigger i Read/Write; KNX extern quan té U o W. Els camps de només
+lectura es poden refrescar, i els valors editats es marquen pendents
+fins que l'usuari prem Enter. Regressió: l'escriptura de 0 al MBS Read
+de la fila `OnOff_Read` es rebutjava amb `0MS:ERR`; la UI ja no la permet.
+
+Verificació final: 1.044 tests passats i 46 omesos; `pnpm typecheck`,
+`pnpm lint` i `pnpm build` correctes. La suite completa s'ha repetit amb
+dos workers després d'un timeout de 5 s en una prova de Signals aliena
+al canvi durant l'execució en paral·lel amb la compilació.
+
 - La unitat es queda amb MBS–KNX per continuar provant. Si cal tornar-la a
   KNX–MBM: canviar el firmware amb MAPS i desplegar la còpia de
   `roundtrip-test`.

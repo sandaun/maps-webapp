@@ -96,3 +96,27 @@ pnpm build
 
 Són exactament els quatre passos que executa el job de CI
 `Lint · Typecheck · Test · Build` a cada PR contra `staging` i `main`.
+
+## Implementació o ampliació d'una família
+
+Segueix la [guia de noves famílies](docs/reference/adding-a-gateway-family.md),
+inclòs el checklist de Diagnostics de la fase 2. Reutilitzar el transport o
+la pantalla no garanteix que una combinació de protocols estigui suportada.
+
+Abans de donar la família per acabada, documenta al seu fitxer de referència:
+
+- Les fonts de MAPS contrastades: prefixos, ids de runtime, lectures,
+  escriptures i permisos de cada costat (intern i extern poden diferir).
+- Les proves del monitor i del visor: activació i errors visibles, refresh,
+  escriptures permeses i bloquejades, valors espontanis, drafts pendents i
+  desactivació; regressions de les famílies existents.
+- Què s'ha verificat amb hardware i què queda pendent. Distingir lectures
+  de memòria cau, trànsit de bus i escriptures reals; els tests simulats no
+  substitueixen aquestes proves.
+
+Una verificació de XML, XBL o deploy no valida Diagnostics. Sense hardware,
+les proves físiques poden quedar pendents de manera explícita; la implementació
+i els tests del monitor i del visor continuen sent obligatoris. Una combinació
+no suportada ha de mostrar una limitació clara, no un visor buit que sembli vàlid.
+
+Recull aquesta evidència a l'apartat de famílies de la plantilla de PR.

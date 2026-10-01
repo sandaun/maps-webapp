@@ -33,3 +33,20 @@
 - [ ] `pnpm build`
 - [ ] Els commits segueixen conventional commits (el hook `commit-msg` ho valida)
 - [ ] La branca base és `staging` (només les releases van directes a `main`)
+
+## Família de passarel·la: implementació o ampliació
+
+<!-- Omple aquesta secció si afegeixes o amplies una família; esborra-la si no aplica.
+     Guia: docs/reference/adding-a-gateway-family.md, fase 2 / Diagnostics.
+     Enllaça el document de la família i els tests; no marquis proves físiques com
+     verificades només perquè passen els tests simulats. -->
+
+- [ ] Prefixos, ids de runtime i permisos de cada costat contrastats amb MAPS
+- [ ] Monitor: activació, filtres, errors visibles i desactivació provats
+- [ ] Visor: senyals, refresh, escriptures permeses/bloquejades, pushes i drafts provats
+- [ ] Regressions de les famílies existents cobertes
+- [ ] Proves físiques i limitacions pendents documentades explícitament
+
+**Fonts de MAPS, document de la família i tests:**
+
+**Hardware: proves fetes i proves pendents (cache / bus / escriptures):**
