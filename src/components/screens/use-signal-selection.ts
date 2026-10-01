@@ -64,6 +64,7 @@ export function useSignalSelection(signalIds: number[]) {
   React.useEffect(() => {
     const onPatched = (event: Event) => {
       const { patches, before, next } = (event as CustomEvent<ProjectPatchedDetail>).detail;
+      if (patches.some((patch) => patch.type === "addSignals")) { clear(); return; }
       const move = patches.find((patch) => patch.type === "moveSignal");
       if (!move) return;
       if (!before) { clear(); return; }

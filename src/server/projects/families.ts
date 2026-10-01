@@ -1,4 +1,6 @@
 import "server-only";
+import type { AddSignalsPatch } from "@/core/signals/add-signals";
+import { addPlannedSignals } from "./add-signals";
 import type { ApplyDeviceTemplate } from "@/core/device-templates/types";
 import { applyDeviceTemplate } from "@/server/device-templates/apply";
 import { getPreviewTemplate } from "@/server/device-templates/cache";
@@ -137,6 +139,7 @@ type MeGroupPatch = Partial<
 
 /** Patch ops a KNX ↔ Modbus Master project accepts. */
 export type KnxMbmPatch =
+  | AddSignalsPatch
   | ApplyDeviceTemplate
   | { type: "undoDeviceTemplate"; token: string }
   | ProjectPasswordPatch
@@ -211,6 +214,7 @@ type MbsKnxSignalPatchInput = Omit<MbsKnxSignalPatch, "conversionRefs"> & { conv
 
 /** Patch ops a KNX ↔ Modbus Slave project accepts. */
 export type MbsKnxPatch =
+  | AddSignalsPatch
   | ProjectPasswordPatch
   | SignalMovePatch
   | { type: "setGeneralInfo"; name?: string; description?: string }
@@ -253,6 +257,7 @@ interface FamilyEntry {
 }
 
 const KNX_MBM_TYPES = new Set([
+  "addSignals",
   "applyDeviceTemplate",
   "undoDeviceTemplate",
   "moveSignal",
@@ -323,6 +328,7 @@ const ME_MBS: FamilyEntry = {
 };
 
 const MBS_KNX_TYPES = new Set([
+  "addSignals",
   "moveSignal",
   "setProjectPassword",
   "setGeneralInfo",
@@ -483,6 +489,9 @@ function applyKnxMbmPatch(doc: XmlDocument, patch: KnxMbmPatch): void {
       break;
     case "updateMbmConfig":
       updateMbmConfig(doc, patch.patch);
+      break;
+    case "addSignals":
+      addPlannedSignals(doc, "knx-mbm", patch.options);
       break;
     case "addSignal":
       knxAddSignal(doc);
@@ -729,6 +738,9 @@ function applyMbsKnxPatch(doc: XmlDocument, patch: MbsKnxPatch): boolean {
       break;
     case "updateTcpConfig":
       mbsKnxUpdateTcpConfig(doc, patch.patch);
+      break;
+    case "addSignals":
+      addPlannedSignals(doc, "mbs-knx", patch.options);
       break;
     case "addSignal":
       mbsKnxAddSignal(doc);

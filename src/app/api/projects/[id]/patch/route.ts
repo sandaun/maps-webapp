@@ -273,6 +273,15 @@ const patchSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setKnxExtendedAddresses"), enabled: z.boolean() }),
   z.object({ type: z.literal("updateMbmConfig"), patch: mbmConfigPatchSchema }),
   z.object({ type: z.literal("addSignal") }),
+  z.object({ type: z.literal("addSignals"), options: z.object({
+    count: z.number().int().min(1).max(500),
+    afterId: z.number().int().min(0).optional(),
+    device: z.object({ port: z.number().int().min(0), deviceIndex: z.number().int().min(0) }).optional(),
+    profile: z.enum(["maps", "unsigned16", "unsigned32"]).optional(),
+    active: z.boolean().optional(),
+    groupAddress: z.number().int().min(1).max(65535).optional(),
+    address: z.number().int().min(0).max(65535).optional(),
+  }).strict() }),
   z.object({ type: z.literal("removeSignal"), id: z.number().int().min(0) }),
   z.object({ type: z.literal("moveSignal"), id: z.number().int().min(0), count: z.number().int().min(1).optional().default(1), toIndex: z.number().int().min(0) }),
   z.object({

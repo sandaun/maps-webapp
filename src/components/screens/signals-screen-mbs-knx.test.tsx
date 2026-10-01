@@ -149,7 +149,7 @@ describe("SignalsScreen (mbs-knx)", () => {
     renderSignals();
     fireEvent.click(screen.getByRole("button", { name: /Add signal/ }));
     await waitFor(() => expect(mocks.applyPatches).toHaveBeenCalledTimes(1));
-    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([{ type: "addSignal" }]);
+    expect(mocks.applyPatches.mock.calls[0][0]).toEqual([{ type: "addSignals", options: { count: 1 } }]);
     const added = applySent().at(-1)!;
     expect(added).toMatchObject({ active: false, modbus: { lenBits: 16, readWrite: 2 }, knx: { groupAddress: 2055 } });
   });

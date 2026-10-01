@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { AddSignalsControl } from "@/components/signals/add-signals-control";
 import type { ValidationIssue } from "@/core/validation/issue";
 import type { ProjectPatchInput, ProjectView } from "@/lib/project-types";
 import { usePatch } from "@/lib/current-project";
@@ -73,6 +74,7 @@ function SignalsView({
   const chrome = useWorkspaceChrome();
   const { setTab, signalId, editConversions } = useSignalsTab();
   const { mbm, signals } = view.project;
+  const [addedFocus, setAddedFocus] = React.useState<number | undefined>(undefined);
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<SignalMapFilter>("all");
   const [hideDisabled, setHideDisabled] = React.useState(false);
@@ -270,7 +272,11 @@ function SignalsView({
         ]}
         activeFilter={filter}
         onFilter={setFilter}
-        onAdd={() => void runPatch([{ type: "addSignal" }])}
+        addControl={<AddSignalsControl project={view.project} selected={checkedIds} applyPatches={applyPatches} onAdded={(index, id) => {
+          setSearch(""); setFilter("all"); setHideDisabled(false);
+          if (conversionFilter || signalId !== undefined) router.replace(signalsHref("map"), { scroll: false });
+          setPage(Math.floor(index / PAGE_SIZE)); setAddedFocus(id);
+        }} />}
         columnsOpen={colsMenu}
         onToggleColumns={() => setColsMenu((v) => !v)}
         onImportExport={() => setTab("import")}
@@ -321,7 +327,7 @@ function SignalsView({
           compact={compact}
           onToggleCompact={toggleCompact}
           fitRows={rows}
-          focusId={signalId}
+          focusId={addedFocus ?? signalId}
           reorder={reorder}
         />
       </div>

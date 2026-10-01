@@ -1,3 +1,4 @@
+import { knxMbmColumns } from "@/components/signals/columns-knx-mbm";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
@@ -431,7 +432,7 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
-  // Renders 102 rows: under a loaded full-suite run it can pass the 5 s default.
+  // Selection semantics do not depend on protocol cells; keep this large fixture narrow.
   it("selects the current page from the header, then all matching rows", { timeout: 15_000 }, () => {
     const view = buildKnxView();
     if (view.family !== "knx-mbm") throw new Error("expected knx");
@@ -441,6 +442,9 @@ describe("SignalsScreen (knx-mbm)", () => {
       description: `Extra ${i}`,
     }));
     view.project.signals = [...view.project.signals, ...extra];
+    window.localStorage.setItem("signals-hidden:knx-mbm:v1", JSON.stringify(Object.fromEntries(
+      knxMbmColumns(view.project).filter((column) => column.group !== "project").map((column) => [column.id, true]),
+    )));
     mocks.view = view;
     renderSignals();
 
