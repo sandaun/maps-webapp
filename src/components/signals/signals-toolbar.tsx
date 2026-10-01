@@ -26,6 +26,7 @@ export function SignalsToolbar({
   activeFilter,
   onFilter,
   onAdd,
+  addControl,
   columnsOpen,
   onToggleColumns,
   onImportExport,
@@ -39,6 +40,7 @@ export function SignalsToolbar({
   activeFilter: SignalMapFilter;
   onFilter: (value: SignalMapFilter) => void;
   onAdd?: () => void;
+  addControl?: React.ReactNode;
   columnsOpen: boolean;
   onToggleColumns: () => void;
   onImportExport: () => void;
@@ -82,6 +84,7 @@ export function SignalsToolbar({
         );
       })}
       <div className="flex-1" />
+      {addControl}
       {onAdd ? (
         <ToolbarButton onClick={onAdd}>+ Add signal</ToolbarButton>
       ) : null}

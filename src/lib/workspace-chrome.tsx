@@ -7,7 +7,7 @@ import type { ProjectPatchInput } from "./project-types";
 const SIDEBAR_KEY = "maps.sidebarCollapsed";
 
 /** Patches that can renumber signal IDs. */
-const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode", "moveSignal", "undoDeviceTemplate"]);
+const SIGNAL_REMOVING = new Set<ProjectPatchInput["type"]>(["removeSignal", "removeDevice", "removeNode", "moveSignal", "addSignals", "undoDeviceTemplate"]);
 
 const sidebarListeners = new Set<() => void>();
 

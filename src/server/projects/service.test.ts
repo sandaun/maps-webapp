@@ -51,6 +51,25 @@ function knxProjectOf(view: ProjectView): KnxMbmProject {
 }
 
 describe("project service", () => {
+  it.each([SYNTHETIC_KNX_MBM_XML, SYNTHETIC_MBS_KNX_XML])("adds an aligned batch, persists it and undoes the whole insertion", async (xml) => {
+    const meta = await openIbmaps(xml, { id: "add-batch" });
+    const before = await getProjectView(meta.id);
+    const next = await applyPatches(meta.id, [{ type: "addSignals", options: { count: 3, afterId: 0, profile: "unsigned32" } }], { expectedRevision: before.meta.revision });
+    expect(next.meta.revision).toBe(before.meta.revision! + 1);
+    expect(next.project.signals).toHaveLength(before.project.signals.length + 3);
+    const added = next.project.signals.slice(1, 4);
+    expect(added.map((s) => s.id)).toEqual([1, 2, 3]);
+    expect(added[1].modbus.address - added[0].modbus.address).toBe(2);
+    resetProjectStoreForTests();
+    expect((await getProjectView(meta.id)).project.signals).toEqual(next.project.signals);
+    const restored = await applyPatches(meta.id, added.map((s) => ({ type: "removeSignal", id: s.id })));
+    expect(restored.project.signals).toEqual(before.project.signals);
+    const history = await listProjectHistory(meta.id);
+    await expect(applyPatches(meta.id, [{ type: "addSignals", options: { count: 2, groupAddress: 32767 } }])).rejects.toMatchObject({ status: 422 });
+    expect((await getProjectView(meta.id)).meta.revision).toBe(restored.meta.revision);
+    expect(await listProjectHistory(meta.id)).toEqual(history);
+  });
+
   it.each([SYNTHETIC_KNX_MBM_XML, SYNTHETIC_MBS_KNX_XML])("moves a block atomically and leaves no-op moves unchanged", async (xml) => {
     const meta = await openIbmaps(xml, { id: "block-test" });
     await applyPatches(meta.id, [{ type: "addSignal" }]);

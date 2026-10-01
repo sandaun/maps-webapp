@@ -119,6 +119,7 @@ export type ConversionListInput = "filters" | "operations";
 
 /** Mirror of `ProjectPatch` in `src/server/projects/families.ts`. */
 export type ProjectPatchInput =
+  | import("@/core/signals/add-signals").AddSignalsPatch
   | import("@/core/device-templates/types").ApplyDeviceTemplate
   | { type: "undoDeviceTemplate"; token: string }
   | { type: "setProjectPassword"; password: string }
