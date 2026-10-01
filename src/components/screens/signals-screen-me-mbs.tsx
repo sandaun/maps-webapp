@@ -19,7 +19,7 @@ import { SignalsWorkspace } from "@/components/signals/signals-workspace";
 import { ME_COLUMN_GROUPS, ME_GROUP_LABELS, ME_GROUP_LABELS_COMPACT } from "@/components/signals/types";
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
 import { useGridCompact } from "@/components/signals/use-grid-compact";
-import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
+import { useFilteredSignals, type SignalMapFilter } from "@/components/signals/use-filtered-signals";
 import type { ValidationIssue } from "@/core/validation/issue";
 import { columnGroupsFor } from "@/components/signals/column-groups";
 
@@ -42,6 +42,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
   const { setTab, signalId } = useSignalsTab();
   const { project } = view;
   const { signals } = project;
+  const [focusRevision, setFocusRevision] = React.useState(0);
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<SignalMapFilter>("all");
   const [hideDisabled, setHideDisabled] = React.useState(false);
@@ -73,7 +74,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
   const hasWarning = React.useCallback((row: (typeof rows)[number]) => warnIds.has(row.signal.id), [warnIds]);
   const searchText = React.useCallback((row: (typeof rows)[number]) => row.searchText, []);
   const rowId = React.useCallback((row: (typeof rows)[number]) => row.signal.id, []);
-  const { page, setPage, pageRows, pageCount, visibleIds, pageIds, filtered } = usePagedSignals(
+  const { visibleIds, filtered } = useFilteredSignals(
     rows,
     search,
     filter,
@@ -122,7 +123,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
     <SignalsWorkspace
       selectedCount={checkedIds.size}
       matchingCount={visibleIds.length}
-      pageFullySelected={pageIds.length > 0 && pageIds.every((id) => checkedIds.has(id))}
+      pageFullySelected={visibleIds.length > 0 && visibleIds.every((id) => checkedIds.has(id))}
       onEnable={() => setActiveForChecked(true)}
       onDisable={() => setActiveForChecked(false)}
       onClear={clear}
@@ -160,7 +161,7 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
       )}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <SignalsGrid
-          rows={pageRows}
+          rows={filtered}
           columns={columns}
           groupLabels={ME_GROUP_LABELS}
           compactGroupLabels={ME_GROUP_LABELS_COMPACT}
@@ -168,9 +169,9 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           rowActive={(row) => row.signal.active}
           rowError={(row) => errorIds.has(row.signal.id)}
           selected={checkedIds}
-          pageIds={pageIds}
+          pageIds={visibleIds}
           onToggle={(id, shiftKey) => toggle(id, shiftKey ? visibleIds : undefined)}
-          onTogglePage={() => toggleAll(pageIds)}
+          onTogglePage={() => toggleAll(visibleIds)}
           applyPatches={applyPatches}
           tabOrder={ME_TAB_ORDER}
           widthStorageKey="signals-grid-widths:me-mbs:v1"
@@ -178,6 +179,8 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
           onToggleCompact={toggleCompact}
           fitRows={rows}
           focusId={signalId}
+          focusRevision={focusRevision}
+          filterKey={`${search}:${filter}:${hideDisabled}`}
         />
       </div>
       <SignalsFooter
@@ -188,10 +191,12 @@ export function MeMbsSignalsView({ view, onCheckTable }: { view: View; onCheckTa
         warnings={warnCount}
         hideDisabled={hideDisabled}
         onToggleHideDisabled={() => setHideDisabled((v) => !v)}
-        page={page}
-        pageCount={pageCount}
-        onPrev={() => setPage((p) => Math.max(0, p - 1))}
-        onNext={() => setPage((p) => p + 1)}
+        onGoToSignal={(id) => {
+          if (!filtered.some((row) => row.signal.id === id)) return false;
+          setFocusRevision((revision) => revision + 1);
+          setTab("map", { signal: id });
+          return true;
+        }}
       />
       {autoNumberOpen && project.mbs.addressMode === ADDRESS_MODES.CUSTOM && (
         <AutoNumberDialog

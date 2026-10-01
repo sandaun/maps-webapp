@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { createPortal } from "react-dom";
 import { GripVertical } from "lucide-react";
 import { PROJECT_PATCHED_EVENT, PROJECT_REPLACED_EVENT, type ProjectPatchedDetail } from "@/lib/project-events";
@@ -36,6 +37,8 @@ export interface SignalsGridProps<R> {
   onToggleCompact?: () => void;
   fitRows?: R[];
   focusId?: number;
+  focusRevision?: number;
+  filterKey?: string;
   /** Drag handle per row; Move Up/Down of the selection lives in the bulk toolbar. */
   reorder?: SignalReorder;
 }
@@ -142,6 +145,8 @@ export function SignalsGrid<R>({
   onToggleCompact,
   fitRows,
   focusId,
+  focusRevision = 0,
+  filterKey,
   reorder,
 }: SignalsGridProps<R>) {
   const chrome = useWorkspaceChrome();
@@ -191,11 +196,56 @@ export function SignalsGrid<R>({
   const moveBlocked = !reorder || reorder.blocked || editing !== null ||
     Object.values(status).some((cell) => cell.kind === "saving");
 
-  const movedRow = reorder?.moved;
+  const virtualized = rows.length > 60;
+  const editingIndex = editing ? rows.findIndex((row) => rowId(row) === editing.id) : -1;
+  // TanStack owns viewport updates; it must not be memoized by React Compiler.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => gridRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    getItemKey: (index) => rowId(rows[index]),
+    initialRect: { width: 0, height: 600 },
+    overscan: 8,
+    useFlushSync: false,
+    scrollMargin: GROUP_HEADER_H + COL_HEADER_H,
+    scrollPaddingStart: GROUP_HEADER_H + COL_HEADER_H,
+    enabled: virtualized,
+    rangeExtractor: (range) => {
+      const indexes = defaultRangeExtractor(range);
+      // Scrolling must never unmount an open editor or lose its draft.
+      if (editingIndex >= 0 && !indexes.includes(editingIndex)) indexes.push(editingIndex);
+      return indexes.sort((a, b) => a - b);
+    },
+  });
+  const renderedRows = virtualized
+    ? virtualizer.getVirtualItems().map((item) => ({ row: rows[item.index], rowIndex: item.index, top: item.start - GROUP_HEADER_H - COL_HEADER_H }))
+    : rows.map((row, rowIndex) => ({ row, rowIndex, top: undefined }));
+
+  const jumpTo = React.useCallback((id: number) => {
+    const index = rows.findIndex((row) => rowId(row) === id);
+    if (index < 0) return;
+    if (virtualized) virtualizer.scrollToIndex(index, { align: "auto" });
+    else gridRef.current?.querySelector(`[data-signal-id="${id}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [rowId, rows, virtualized, virtualizer]);
   React.useEffect(() => {
-    if (!movedRow) return;
-    gridRef.current?.querySelector(`[data-signal-id="${movedRow.id}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [movedRow]);
+    gridRef.current?.scrollTo?.({ top: 0 });
+  }, [filterKey]);
+  const lastFocus = React.useRef<{ id?: number; revision: number; filterKey?: string } | null>(null);
+  React.useEffect(() => {
+    const previous = lastFocus.current;
+    if (previous?.id === focusId && previous?.revision === focusRevision && previous?.filterKey === filterKey) return;
+    lastFocus.current = { id: focusId, revision: focusRevision, filterKey };
+    if (focusId !== undefined) jumpTo(focusId);
+  }, [focusId, focusRevision, filterKey, jumpTo]);
+
+  const movedRow = reorder?.moved;
+  const lastMoved = React.useRef(movedRow);
+  React.useEffect(() => {
+    if (!movedRow || movedRow === lastMoved.current) return;
+    lastMoved.current = movedRow;
+    jumpTo(movedRow.id);
+  }, [movedRow, jumpTo]);
 
   const widthOf = React.useCallback(
     (col: GridColumn<R>) => widths[col.id] ?? col.width,
@@ -307,6 +357,7 @@ export function SignalsGrid<R>({
     const col = columns.find((c) => c.id === field);
     const row = rows[rowIndex];
     if (!col || !row) return;
+    if (virtualized) virtualizer.scrollToIndex(rowIndex, { align: "auto" });
     startEdit(row, col);
   }
 
@@ -377,7 +428,7 @@ export function SignalsGrid<R>({
     },
   ) {
     const editable = col.kind !== "none";
-    const textTone = opts.active ? (col.textTone ?? "muted") : "subtle";
+    const textTone = opts.active || col.id === "id" ? (col.textTone ?? "muted") : "subtle";
     const textColor = {
       body: "text-text-body",
       strong: "text-hms-blue",
@@ -787,7 +838,7 @@ export function SignalsGrid<R>({
   return (
     <>
       {reorder?.error && <p role="alert" className="px-4 py-2 text-sm text-error">{reorder.error}</p>}
-      <div ref={gridRef} inert={reorder?.moving || undefined} aria-busy={reorder?.moving} className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
+      <div ref={gridRef} inert={reorder?.moving || undefined} aria-busy={reorder?.moving} aria-label="Signal map" data-testid="signals-scroll" className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
         <div className="min-w-max">
         <div className="sticky top-0 z-20 flex" style={{ height: GROUP_HEADER_H }}>
           {groups.map((g) => (
@@ -898,7 +949,8 @@ export function SignalsGrid<R>({
             </div>
           ))}
         </div>
-        {rows.map((row, rowIndex) => {
+        <div className="relative" style={virtualized ? { height: virtualizer.getTotalSize() } : undefined}>
+        {renderedRows.map(({ row, rowIndex, top }) => {
           const id = rowId(row);
           const err = rowError?.(row);
           const active = rowActive(row);
@@ -915,9 +967,9 @@ export function SignalsGrid<R>({
             <div
               key={id}
               data-signal-id={id}
-              ref={focusId === id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
               className={cn("flex", dropTarget === id && "relative outline-2 -outline-offset-2 outline-hms-accent")}
-              style={{ height: ROW_HEIGHT }}
+              aria-rowindex={rowIndex + 3}
+              style={{ height: ROW_HEIGHT, ...(virtualized ? { position: "absolute", top, left: 0, width: "100%" } as const : {}) }}
               onDragOver={(event) => {
                 if (moveBlocked || draggedId.current === null) return;
                 event.preventDefault();
@@ -936,6 +988,7 @@ export function SignalsGrid<R>({
             </div>
           );
         })}
+        </div>
         {rows.length === 0 && (
           <div className="px-4 py-6 text-center text-sm text-fg-muted">No signals match the current filters.</div>
         )}

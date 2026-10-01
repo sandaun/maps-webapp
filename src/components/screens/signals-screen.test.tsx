@@ -1,4 +1,3 @@
-import { knxMbmColumns } from "@/components/signals/columns-knx-mbm";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
@@ -432,8 +431,8 @@ describe("SignalsScreen (knx-mbm)", () => {
     ]);
   });
 
-  // Selection semantics do not depend on protocol cells; keep this large fixture narrow.
-  it("selects the current page from the header, then all matching rows", { timeout: 15_000 }, () => {
+  // Renders 102 rows: under a loaded full-suite run it can pass the 5 s default.
+  it("selects every matching signal from the header, including unrendered rows", { timeout: 15_000 }, () => {
     const view = buildKnxView();
     if (view.family !== "knx-mbm") throw new Error("expected knx");
     const extra = Array.from({ length: 100 }, (_, i) => ({
@@ -442,15 +441,10 @@ describe("SignalsScreen (knx-mbm)", () => {
       description: `Extra ${i}`,
     }));
     view.project.signals = [...view.project.signals, ...extra];
-    window.localStorage.setItem("signals-hidden:knx-mbm:v1", JSON.stringify(Object.fromEntries(
-      knxMbmColumns(view.project).filter((column) => column.group !== "project").map((column) => [column.id, true]),
-    )));
     mocks.view = view;
     renderSignals();
 
     fireEvent.click(screen.getByLabelText("Select all signals"));
-    expect(screen.getByText("100 signals selected")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Select all 102 matching" }));
     expect(screen.getByText("102 signals selected")).toBeInTheDocument();
   });
 

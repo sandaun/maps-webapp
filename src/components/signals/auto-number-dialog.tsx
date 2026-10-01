@@ -77,7 +77,7 @@ export function AutoNumberDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-hms-blue/40 p-4" role="presentation">
       <div role="dialog" aria-modal="true" aria-labelledby="auto-number-title" className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-lg border border-border bg-white p-5 shadow-lg">
         <h2 id="auto-number-title" className="font-display text-base font-medium text-hms-blue">Number addresses</h2>
-        <p className="mt-1 text-xs text-fg-muted">Selected signals are numbered in table order, including other pages.</p>
+        <p className="mt-1 text-xs text-fg-muted">Selected signals are numbered in table order, including rows outside the viewport.</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="text-xs font-medium text-text-body">Address field
             <Select className="mt-1" size="sm" value={field} onValueChange={changeField} options={[

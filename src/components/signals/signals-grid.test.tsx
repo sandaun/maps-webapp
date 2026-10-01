@@ -1,6 +1,6 @@
 import * as React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceChromeProvider, useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ProjectPatchInput } from "@/lib/project-types";
@@ -159,4 +159,68 @@ describe("shared signal reordering", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(apply).not.toHaveBeenCalled();
   });
+});
+
+
+describe("virtual signal map", () => {
+  afterEach(() => vi.restoreAllMocks());
+  function renderLarge(focusId?: number) {
+    const rows = Array.from({ length: 5000 }, (_, id) => ({ id, name: `Signal ${id + 1}` }));
+    const apply = vi.fn().mockResolvedValue({});
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(155060);
+    if (!HTMLElement.prototype.scrollTo) Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: () => {} });
+    const scrollTo = vi.spyOn(HTMLElement.prototype, "scrollTo").mockImplementation(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object") this.scrollTop = options.top ?? 0;
+      this.dispatchEvent(new Event("scroll"));
+    });
+    const rendered = render(<WorkspaceChromeProvider><TooltipProvider>
+      <SignalsGrid rows={rows} columns={columns} groupLabels={KNX_GROUP_LABELS} rowId={(row) => row.id} rowActive={() => true}
+        selected={new Set()} pageIds={rows.map((row) => row.id)} onToggle={() => {}} onTogglePage={() => {}}
+        applyPatches={apply} tabOrder={["name"]} widthStorageKey="virtual-test" focusId={focusId} />
+    </TooltipProvider></WorkspaceChromeProvider>);
+    const scroll = screen.getByTestId("signals-scroll");
+    Object.defineProperty(scroll, "clientHeight", { value: 600, configurable: true });
+    Object.defineProperty(scroll, "scrollHeight", { value: 155060, configurable: true });
+    return { ...rendered, scroll, scrollTo, apply };
+  }
+
+  it("renders a bounded viewport for 5000 rows and shows the last row on scroll", async () => {
+    const { container, scroll } = renderLarge();
+    expect(container.querySelectorAll("[data-signal-id]").length).toBeLessThan(60);
+    expect(screen.getByText("Signal 1")).toBeInTheDocument();
+    fireEvent.scroll(scroll, { target: { scrollTop: 154460 } });
+    await waitFor(() => expect(screen.getByText("Signal 5000")).toBeInTheDocument());
+    expect(container.querySelectorAll("[data-signal-id]").length).toBeLessThan(60);
+    expect(screen.queryByText("Signal 1")).not.toBeInTheDocument();
+  });
+
+  it("keeps an edited draft mounted when its row leaves the viewport", async () => {
+    const { scroll, apply } = renderLarge();
+    fireEvent.click(screen.getByText("Signal 1"));
+    const editor = screen.getByLabelText("Edit Name signal 0");
+    fireEvent.change(editor, { target: { value: "Unsaved draft" } });
+    fireEvent.scroll(scroll, { target: { scrollTop: 154460 } });
+    await waitFor(() => expect(screen.getByText("Signal 5000")).toBeInTheDocument());
+    expect(screen.getByLabelText("Edit Name signal 0")).toHaveValue("Unsaved draft");
+    fireEvent.keyDown(editor, { key: "Enter" });
+    await waitFor(() => expect(apply).toHaveBeenCalledWith([{ type: "updateSignal", id: 0, patch: { description: "Unsaved draft" } }]));
+  });
+
+  it("navigates with Tab across the old page boundary", async () => {
+    const { scroll } = renderLarge();
+    fireEvent.scroll(scroll, { target: { scrollTop: 2850 } });
+    await waitFor(() => expect(screen.getByText("Signal 100")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Signal 100"));
+    fireEvent.keyDown(screen.getByLabelText("Edit Name signal 99"), { key: "Tab" });
+    await waitFor(() => expect(screen.getByLabelText("Edit Name signal 100")).toHaveFocus());
+  });
+  it("opens an offscreen deep link without mounting the whole map", async () => {
+    const { container, scroll } = renderLarge(4999);
+    await waitFor(() => expect(screen.getByText("Signal 5000")).toBeInTheDocument());
+    expect(scroll.scrollTop).toBeGreaterThan(150000);
+    expect(container.querySelectorAll("[data-signal-id]").length).toBeLessThan(60);
+  });
+
 });

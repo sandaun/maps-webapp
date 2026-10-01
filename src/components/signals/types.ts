@@ -86,7 +86,6 @@ export const BAND_STYLE: Record<BandId, { bg: string; color: string; border: str
   },
 };
 
-export const PAGE_SIZE = 100;
 export const ROW_HEIGHT = 31;
 export const GROUP_HEADER_H = 29;
 export const COL_HEADER_H = 31;
