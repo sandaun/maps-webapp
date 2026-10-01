@@ -1,147 +1,44 @@
 "use client";
 
 import * as React from "react";
-import type { SignalReorder } from "./use-signal-reorder";
+import { useWorkspaceChrome } from "@/lib/workspace-chrome";
+import { SignalsSelectionBar, type SignalSelectionActions } from "./signals-selection-bar";
+import { SignalsActionLayer, SignalsActionLayerContext } from "./signals-action-layer";
 
-/**
- * Viewport-filling Signals layout: the table pane scrolls; bulk actions stay
- * pinned above the grid.
- */
-export function SignalsWorkspace({
-  selectedCount,
-  matchingCount,
-  pageFullySelected,
-  onEnable,
-  onDisable,
-  onDelete,
-  onClear,
-  onEditField,
-  onAutoNumber,
-  onConversions,
-  onSelectAllMatching,
-  reorder,
-  children,
-}: {
-  selectedCount: number;
-  matchingCount: number;
-  pageFullySelected: boolean;
-  onEnable: () => void;
-  onDisable: () => void;
-  onDelete?: () => void;
-  onClear: () => void;
-  onEditField?: () => void;
-  onAutoNumber?: () => void;
-  /** KNX–MBM: assign conversions to the selection. */
-  onConversions?: () => void;
-  onSelectAllMatching: () => void;
-  /** Move Up/Down of the selection (families that keep their own signal order). */
-  reorder?: SignalReorder;
-  children: React.ReactNode;
-}) {
-  const [confirmDeleteCount, setConfirmDeleteCount] = React.useState<number | null>(null);
-  const confirmDelete = confirmDeleteCount === selectedCount;
+/** Filters and headers stay put; the grid hosts selection actions above its bottom edge. */
+export function SignalsWorkspace({ children, ...actions }: SignalSelectionActions & { children: React.ReactNode }) {
+  const workspaceRef = React.useRef<HTMLDivElement>(null);
+  const { undoVisible } = useWorkspaceChrome();
+  const [measuredInset, setMeasuredInset] = React.useState<number | null>(null);
+  const { selectedCount, matchingCount, pageFullySelected, onClear } = actions;
+  const showSelectAllMatching = pageFullySelected && matchingCount > selectedCount;
 
-  const showSelectAllMatching =
-    pageFullySelected && matchingCount > selectedCount && matchingCount > 0;
+  function clearSelection() {
+    const focused = document.activeElement;
+    // Clearing removes the focused toolbar button; return focus to the table.
+    if (focused instanceof HTMLElement && focused.closest('[aria-label="Bulk signal actions"]')) {
+      workspaceRef.current?.querySelector<HTMLElement>('[data-testid="signals-scroll"]')?.focus({ preventScroll: true });
+    }
+    onClear();
+  }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {selectedCount > 0 && (
-        <div
-          role="toolbar"
-          aria-label="Bulk signal actions"
-          className="flex shrink-0 items-center gap-3 border-b border-[#C9DEF0] bg-[#F5FAFE] px-6 py-2.5"
-        >
-          <span className="text-[12.5px] font-bold text-hms-blue">
-            {selectedCount} signal{selectedCount === 1 ? "" : "s"} selected
-          </span>
-          {showSelectAllMatching && (
-            <button
-              type="button"
-              className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
-              onClick={onSelectAllMatching}
-            >
-              Select all {matchingCount} matching
-            </button>
-          )}
-          {onEditField ? (
-            <button
-              type="button"
-              className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
-              onClick={onEditField}
-            >
-              Edit field…
-            </button>
-          ) : null}
-          {onAutoNumber ? (
-            <button type="button" className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover" onClick={onAutoNumber}>
-              Number addresses…
-            </button>
-          ) : null}
-          {onConversions ? (
-            <button
-              type="button"
-              className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
-              onClick={onConversions}
-            >
-              Conversions…
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
-            onClick={onEnable}
-          >
-            Enable
-          </button>
-          <button
-            type="button"
-            className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover"
-            onClick={onDisable}
-          >
-            Disable
-          </button>
-          {reorder
-            ? ([-1, 1] as const).map((direction) => (
-                <button
-                  key={direction}
-                  type="button"
-                  title={reorder.filtered ? "Clear filters to reorder signals" : undefined}
-                  disabled={!reorder.canMoveSelection(direction)}
-                  className="text-[12.5px] font-bold text-hms-accent hover:text-hms-accent-hover disabled:cursor-default disabled:opacity-40 disabled:hover:text-hms-accent"
-                  onClick={() => reorder.moveSelection(direction)}
-                >
-                  {direction < 0 ? "Move up" : "Move down"}
-                </button>
-              ))
-            : null}
-          {onDelete ? (
-            <button
-              type="button"
-              className="text-[12.5px] font-bold text-error hover:opacity-80"
-              onClick={() => {
-                if (!confirmDelete) {
-                  setConfirmDeleteCount(selectedCount);
-                  return;
-                }
-                setConfirmDeleteCount(null);
-                onDelete();
-              }}
-            >
-              {confirmDelete ? "Confirm delete" : `Delete ${selectedCount}`}
-            </button>
-          ) : null}
-          <div className="flex-1" />
-          <button
-            type="button"
-            className="text-[12.5px] text-fg-muted hover:text-text-body"
-            onClick={onClear}
-          >
-            Clear selection
-          </button>
-        </div>
-      )}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
-    </div>
+    <SignalsActionLayerContext.Provider value={selectedCount > 0 || undoVisible ? {
+      bar: <SignalsActionLayer selection={selectedCount > 0 ? <SignalsSelectionBar {...actions} onClear={clearSelection} /> : null}
+        selectionHeight={showSelectAllMatching ? 76 : 44} onInset={setMeasuredInset} />,
+      inset: measuredInset ?? (showSelectAllMatching ? 112 : 80) + (undoVisible ? 52 : 0),
+    } : null}>
+      <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented || selectedCount === 0) return;
+          // Editors, pickers and dialogs own Escape while they are open.
+          if ((event.target as HTMLElement).closest('input, textarea, [role="combobox"], [role="dialog"]')) return;
+          event.preventDefault();
+          clearSelection();
+        }}
+      >
+        {children}
+      </div>
+    </SignalsActionLayerContext.Provider>
   );
 }

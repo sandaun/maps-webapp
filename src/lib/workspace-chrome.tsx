@@ -45,7 +45,11 @@ export interface WorkspaceChromeState {
   bumpDirty: (n?: number) => void;
   undo: UndoEntry | null;
   pushUndo: (entry: UndoEntry) => void;
-  clearUndo: () => void;
+  clearUndo: (entry?: UndoEntry) => void;
+  undoVisible: boolean;
+  setUndoVisible: (visible: boolean) => void;
+  undoContainer: HTMLElement | null;
+  setUndoContainer: (container: HTMLElement | null) => void;
 }
 
 const WorkspaceChromeContext = React.createContext<WorkspaceChromeState | null>(null);
@@ -58,6 +62,8 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
   );
   const [dirtyCount, setDirtyCount] = React.useState(0);
   const [undo, setUndo] = React.useState<UndoEntry | null>(null);
+  const [undoDismissed, setUndoDismissed] = React.useState(false);
+  const [undoContainer, setUndoContainer] = React.useState<HTMLElement | null>(null);
 
   const setSidebarCollapsed = React.useCallback((collapsed: boolean) => {
     writeSidebarCollapsed(collapsed);
@@ -69,9 +75,12 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
 
   const pushUndo = React.useCallback((entry: UndoEntry) => {
     setUndo(entry);
+    setUndoDismissed(false);
   }, []);
 
-  const clearUndo = React.useCallback(() => setUndo(null), []);
+  // An in-flight undo must not dismiss a newer action saved before it finished.
+  const clearUndo = React.useCallback((entry?: UndoEntry) => setUndo((current) => !entry || current === entry ? null : current), []);
+  const setUndoVisible = React.useCallback((visible: boolean) => setUndoDismissed(!visible), []);
 
   // Deleting or moving signals renumbers IDs, so an earlier undo would
   // target different signals even when the signal count stays unchanged.
@@ -101,8 +110,12 @@ export function WorkspaceChromeProvider({ children }: { children: React.ReactNod
       undo,
       pushUndo,
       clearUndo,
+      undoVisible: undo !== null && !undoDismissed,
+      setUndoVisible,
+      undoContainer,
+      setUndoContainer,
     }),
-    [sidebarCollapsed, setSidebarCollapsed, dirtyCount, bumpDirty, undo, pushUndo, clearUndo],
+    [sidebarCollapsed, setSidebarCollapsed, dirtyCount, bumpDirty, undo, pushUndo, clearUndo, undoDismissed, setUndoVisible, undoContainer],
   );
 
   return <WorkspaceChromeContext.Provider value={value}>{children}</WorkspaceChromeContext.Provider>;
@@ -119,6 +132,10 @@ export function useWorkspaceChrome(): WorkspaceChromeState {
       undo: null,
       pushUndo: () => {},
       clearUndo: () => {},
+      undoVisible: false,
+      setUndoVisible: () => {},
+      undoContainer: null,
+      setUndoContainer: () => {},
     };
   }
   return ctx;

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { BAND_STYLE, COL_HEADER_H, GROUP_HEADER_H, ROW_HEIGHT, type BandId, type GridColumn } from "./types";
 import { createCellSaveQueue, type CellStatus } from "./cell-queue";
 import type { SignalReorder } from "./use-signal-reorder";
+import { SignalsActionLayerContext } from "./signals-action-layer";
 
 export interface SignalsGridProps<R> {
   rows: R[];
@@ -149,6 +150,7 @@ export function SignalsGrid<R>({
   filterKey,
   reorder,
 }: SignalsGridProps<R>) {
+  const actionLayer = React.useContext(SignalsActionLayerContext);
   const chrome = useWorkspaceChrome();
   const { bumpDirty, pushUndo } = chrome;
   const reorderable = reorder !== undefined;
@@ -210,6 +212,7 @@ export function SignalsGrid<R>({
     useFlushSync: false,
     scrollMargin: GROUP_HEADER_H + COL_HEADER_H,
     scrollPaddingStart: GROUP_HEADER_H + COL_HEADER_H,
+    scrollPaddingEnd: actionLayer?.inset ?? 0,
     enabled: virtualized,
     rangeExtractor: (range) => {
       const indexes = defaultRangeExtractor(range);
@@ -287,7 +290,7 @@ export function SignalsGrid<R>({
         await applyPatches([{ type: "updateSignal", id: payload.signalId, patch: payload.patch }]);
         bumpDirty(1);
         pushUndo({
-          label: payload.field,
+          label: `Updated ${payload.field}`,
           patches: [{ type: "updateSignal", id: payload.signalId, patch: payload.inverse }],
         });
       },
@@ -838,8 +841,9 @@ export function SignalsGrid<R>({
   return (
     <>
       {reorder?.error && <p role="alert" className="px-4 py-2 text-sm text-error">{reorder.error}</p>}
-      <div ref={gridRef} inert={reorder?.moving || undefined} aria-busy={reorder?.moving} aria-label="Signal map" data-testid="signals-scroll" className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white">
-        <div className="min-w-max">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div ref={gridRef} tabIndex={-1} inert={reorder?.moving || undefined} aria-busy={reorder?.moving} aria-label="Signal map" data-testid="signals-scroll" className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-white focus:outline-none" style={{ scrollPaddingBottom: actionLayer?.inset }}>
+        <div className="min-w-max" style={{ paddingBottom: actionLayer?.inset }}>
         <div className="sticky top-0 z-20 flex" style={{ height: GROUP_HEADER_H }}>
           {groups.map((g) => (
             <div
@@ -993,6 +997,8 @@ export function SignalsGrid<R>({
           <div className="px-4 py-6 text-center text-sm text-fg-muted">No signals match the current filters.</div>
         )}
         </div>
+      </div>
+      {actionLayer && <div className="pointer-events-none absolute inset-x-4 bottom-4 z-30">{actionLayer.bar}</div>}
       </div>
       {tooltip
         ? createPortal(

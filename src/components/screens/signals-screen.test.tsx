@@ -15,7 +15,7 @@ import { ADDRESS_MODES } from "@/protocols/modbus/slave";
 import type { ProjectView } from "@/lib/project-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkspaceChromeProvider } from "@/lib/workspace-chrome";
-import { UndoToast } from "@/components/signals/undo-toast";
+import { UndoPill } from "@/components/signals/undo-pill";
 import { SignalsScreen } from "./signals-screen";
 
 const mocks = vi.hoisted(() => ({
@@ -85,7 +85,7 @@ function renderSignals() {
     <WorkspaceChromeProvider>
       <TooltipProvider delayDuration={0}>
         <SignalsScreen />
-        <UndoToast />
+        <UndoPill />
       </TooltipProvider>
     </WorkspaceChromeProvider>,
   );
@@ -481,7 +481,7 @@ describe("SignalsScreen (knx-mbm)", () => {
     );
   });
 
-  it("undos the last inline save from the toast", async () => {
+  it("undoes the last inline edit from the pill", async () => {
     mocks.applyPatches.mockResolvedValue(buildKnxView());
     mocks.view = buildKnxView();
     renderSignals();

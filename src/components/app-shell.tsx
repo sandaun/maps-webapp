@@ -3,7 +3,7 @@
 import { DemoBanner } from "@/components/demo-banner";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
-import { UndoToast } from "@/components/signals/undo-toast";
+import { UndoPill } from "@/components/signals/undo-pill";
 import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
 import { bindGatewayProject } from "@/lib/gateway-api";
@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-      <UndoToast />
+      <UndoPill />
     </div>
   );
 }
