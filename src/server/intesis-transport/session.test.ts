@@ -330,6 +330,35 @@ describe("diagnostics console and monitor", () => {
     session.close();
   });
 
+  it("enables MBS–KNX on the correct ports and streams its traffic", async () => {
+    const fake = new FakeGateway({
+      password: "",
+      infoBody: "INFO:APPID:7\r\n",
+      monitorLines: ["0MS:RTUB [Rx] 01 03 00 01 00 01 D5 CA", "1KX:00010001=1;0"],
+    });
+    const session = new GatewaySession(fake, { password: "", ...TEST_TIMEOUTS });
+    try {
+      await session.connect();
+      const lines: string[] = [];
+      await session.setMonitor(true, (line) => lines.push(line));
+      expect(session.monitoring).toBe(true);
+      expect(fake.consoleCommands.filter((line) => /:(SPONS|COMMS)=1$/.test(line))).toEqual([
+        "0MS:SPONS=1", "1KX:SPONS=1", "0MS:COMMS=1", "1KX:COMMS=1",
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(lines).toContain("0MS:RTUB [Rx] 01 03 00 01 00 01 D5 CA");
+      expect(lines).toContain("1KX:00010001=1;0");
+      expect((await session.runConsoleCommand("0MS:00000000?", FAST)).lines).toEqual(["0MS:00000000=0.00;0"]);
+      await session.setMonitor(false);
+      expect(session.monitoring).toBe(false);
+      const count = lines.length;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(lines.length).toBe(count);
+    } finally {
+      session.close();
+    }
+  });
+
   it("refuses the monitor for an application without known console prefixes", async () => {
     const fake = new FakeGateway({ password: "admin", infoBody: "INFO:APPID:999\r\n" });
     const session = new GatewaySession(fake, { password: "admin", ...TEST_TIMEOUTS });

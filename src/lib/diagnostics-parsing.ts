@@ -49,9 +49,9 @@ const TIMEOUT_RE = /Timeout|NO RESPONSE/;
 
 /** Parse one raw monitor line (SPONS/COMMS push) into a traffic frame. */
 export function parseMonitorLine(line: string, i: number, at: string): MonitorFrame {
-  const proto: MonitorProto = line.startsWith("1MM:")
+  const proto: MonitorProto = /^[0-2](MM|MS):/.test(line)
     ? "MODBUS"
-    : line.startsWith("0KX:")
+    : /^[0-2]KX:/.test(line)
       ? "KNX"
       : "SYS";
 

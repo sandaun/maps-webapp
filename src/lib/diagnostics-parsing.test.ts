@@ -14,6 +14,14 @@ import {
 } from "./diagnostics-parsing";
 
 describe("parseMonitorLine", () => {
+  it("recognises MBS–KNX bus frames and spontaneous values on reversed ports", () => {
+    expect(parseMonitorLine("0MS:RTUB [Rx] 01 03 00 01 00 01 D5 CA", 0, "")).toMatchObject({ proto: "MODBUS", dir: "RX" });
+    expect(parseMonitorLine("1KX: [Tx] BC 11 01 08 03 E1 00 81", 1, "")).toMatchObject({ proto: "KNX", dir: "TX" });
+    expect(parseMonitorLine("1KX:00010001=1;0", 2, "")).toMatchObject({ proto: "KNX", obj: "00010001" });
+    expect(parseMonitorLine("0MS:00000000=1;0", 3, "")).toMatchObject({ proto: "MODBUS", obj: "00000000" });
+    expect(parseMonitorLine("2MS:TCP [Rx] 00 01", 4, "")).toMatchObject({ proto: "MODBUS", dir: "RX" });
+  });
+
   it("parses a Modbus COMMS Tx line", () => {
     const frame = parseMonitorLine("1MM:RTUB [Tx] 01 03 00 01 00 01 D5 CA", 0, "2026-09-02T10:00:00.000Z");
     expect(frame).toMatchObject({

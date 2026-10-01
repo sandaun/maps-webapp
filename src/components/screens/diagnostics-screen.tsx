@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import type { KnxMbmSignal } from "@/gateway-families/knx-mbm/model";
-import { formatGroupAddress } from "@/protocols/knx/address";
+import { diagnosticSignals, diagnosticStreamValues, signalCommand, type DiagnosticSignal } from "@/lib/diagnostics-signals";
 import { useCurrentProject } from "@/lib/current-project";
 import {
   sendConsoleCommand,
@@ -19,10 +18,6 @@ import {
   formatUptime,
   isFailureText,
   isTimeoutText,
-  knxConsoleId,
-  mbmConsoleId,
-  parseKnxPush,
-  parseMbmPush,
   parseMonitorLine,
   parseReadValue,
   rollingRates,
@@ -94,17 +89,6 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-/** Prototype MAPPING cell: `1/0/1 ⇄ s<deviceIndex>:<address>`. */
-function signalMapping(signal: KnxMbmSignal): string {
-  const ga = signal.knx.groupAddress > 0 ? formatGroupAddress(signal.knx.groupAddress) : "—";
-  const device = signal.modbus.isBroadcast
-    ? "BC"
-    : signal.modbus.deviceIndex >= 0
-      ? String(signal.modbus.deviceIndex)
-      : "—";
-  return `${ga} ⇄ s${device}:${signal.modbus.address}`;
-}
-
 /**
  * Live diagnostics: bus traffic monitor (SPONS/COMMS pushes over SSE), a
  * signals viewer with read/write cells against the current project, and the
@@ -151,13 +135,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const liveStatus = status ?? session;
   const monitoring = liveStatus.connected && liveStatus.monitoring;
 
-  /* ----- signals of the current project (knx-mbm only) ----- */
-  const signals = view?.family === "knx-mbm" ? view.project.signals : null;
+  /* ----- family-specific runtime signal ids ----- */
+  const signals = React.useMemo(() => diagnosticSignals(view), [view]);
   const activeSignals = React.useMemo(() => signals?.filter((s) => s.active) ?? [], [signals]);
-  const activeIndexById = React.useMemo(
-    () => new Map(activeSignals.map((s, index) => [s.id, index])),
-    [activeSignals],
-  );
   const tableSignals = React.useMemo(
     () => (activeSignals.length > 0 ? activeSignals : (signals ?? [])).slice(0, SV_MAX_SIGNALS),
     [activeSignals, signals],
@@ -166,22 +146,39 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   /* ----- monitor lifecycle: stream only while this screen is open ----- */
   // Bus frames (COMMS=1) are on by default; firmware debug lines (DEBUG=1)
   // are opt-in, like the MAPS "Debug" checkbox.
+  const [monitorError, setMonitorError] = React.useState<string | null>(null);
   const [streams, setStreams] = React.useState({ comms: true, debug: false });
   const streamsRef = React.useRef(streams);
+  // StrictMode replays setup/cleanup; rapid toolbar clicks also overlap.
+  // The server rejects concurrent operations, so apply toggles in order.
+  const monitorQueue = React.useRef<Promise<unknown>>(Promise.resolve());
+  const queueMonitor = React.useCallback((enabled: boolean, options = streamsRef.current) => {
+    const operation = monitorQueue.current.then(() => setGatewayMonitor(session.id, enabled, options));
+    monitorQueue.current = operation.catch(() => {});
+    return operation;
+  }, [session.id]);
   React.useEffect(() => {
     if (!session.connected) return;
-    setGatewayMonitor(session.id, true, streamsRef.current).catch(() => {});
+    let disposed = false;
+    queueMonitor(true)
+      .then(() => { if (!disposed) setMonitorError(null); })
+      .catch((err) => { if (!disposed) setMonitorError(errorMessage(err, "Could not start the monitor")); });
     return () => {
-      setGatewayMonitor(session.id, false).catch(() => {});
+      disposed = true;
+      queueMonitor(false).catch(() => {});
     };
-  }, [session.id, session.connected]);
+  }, [session.connected, queueMonitor]);
 
   function toggleStream(key: "comms" | "debug") {
     const next = { ...streams, [key]: !streams[key] };
     setStreams(next);
     streamsRef.current = next;
     // Re-enabling re-applies the toggles (setMonitor disables first).
-    if (session.connected) setGatewayMonitor(session.id, true, next).catch(() => {});
+    if (session.connected) {
+      queueMonitor(true, next)
+        .then(() => setMonitorError(null))
+        .catch((err) => setMonitorError(errorMessage(err, "Could not start the monitor")));
+    }
   }
 
   /* ----- traffic buffer (own copy so Clear/Pause are local) ----- */
@@ -283,31 +280,10 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   );
 
   /* ----- live signal values from the stream ----- */
-  const streamValues = React.useMemo(() => {
-    const values = new Map<string, string>();
-    if (!signals) return values;
-    const byKnxObject = new Map(
-      signals.map((s) => [`${s.id + 1}:${s.knx.groupAddress}`, s] as const),
-    );
-    const byObjIdx = new Map(signals.map((s) => [s.id + 1, s] as const));
-    for (const frame of frames) {
-      const knx = parseKnxPush(frame.dec);
-      if (knx) {
-        const signal =
-          byKnxObject.get(`${knx.objIdx}:${knx.groupAddress}`) ?? byObjIdx.get(knx.objIdx);
-        if (signal) values.set(`${signal.id}|knx`, knx.value);
-        continue;
-      }
-      const mbm = parseMbmPush(frame.dec);
-      if (mbm) {
-        // Best-effort (docs/reference/console-protocol.md §2): the MBM extId is
-        // the index among active signals in config order.
-        const signal = activeSignals[mbm.extId];
-        if (signal) values.set(`${signal.id}|mb`, mbm.value);
-      }
-    }
-    return values;
-  }, [frames, signals, activeSignals]);
+  const streamValues = React.useMemo(
+    () => diagnosticStreamValues(signals, frames),
+    [frames, signals],
+  );
 
   // Values confirmed by console reads/writes override the stream snapshot.
   const [valueOverrides, setValueOverrides] = React.useState<Record<string, string>>({});
@@ -435,11 +411,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     window.addEventListener("pointerup", onUp);
   }
 
-  async function writeSignal(signal: KnxMbmSignal, side: "knx" | "mb", value: string) {
-    const command =
-      side === "knx"
-        ? `0KX:${knxConsoleId(signal.id + 1, signal.knx.groupAddress)}=${value}`
-        : `1MM:${mbmConsoleId(activeIndexById.get(signal.id) ?? signal.id)}=${value};`;
+  async function writeSignal(signal: DiagnosticSignal, side: "knx" | "mb", value: string) {
+    const command = signalCommand(signal, side, value);
+    if (!command) return;
     try {
       const result = await sendConsoleCommand(session.id, command);
       const answer = result.lines.map((line) => line.trim()).find((line) => line !== "") ?? "";
@@ -469,7 +443,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
 
   function onValueKey(
     event: React.KeyboardEvent<HTMLInputElement>,
-    signal: KnxMbmSignal,
+    signal: DiagnosticSignal,
     side: "knx" | "mb",
   ) {
     if (event.key !== "Enter") return;
@@ -488,20 +462,13 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     setRefreshing(true);
     try {
       for (const signal of tableSignals.slice(0, SV_REFRESH_MAX)) {
-        const knxResult = await sendConsoleCommand(
-          session.id,
-          `0KX:${knxConsoleId(signal.id + 1, signal.knx.groupAddress)}?`,
-        ).catch(() => null);
+        const knxCommand = signalCommand(signal, "knx");
+        const mbCommand = signalCommand(signal, "mb");
+        if (!knxCommand || !mbCommand) continue;
+        const knxResult = await sendConsoleCommand(session.id, knxCommand).catch(() => null);
         const knxValue = knxResult?.lines.map(parseReadValue).find((v) => v !== null);
-        const activeIndex = activeIndexById.get(signal.id);
-        let mbValue: string | null | undefined;
-        if (activeIndex !== undefined) {
-          const mbResult = await sendConsoleCommand(
-            session.id,
-            `1MM:${mbmConsoleId(activeIndex)}?`,
-          ).catch(() => null);
-          mbValue = mbResult?.lines.map(parseReadValue).find((v) => v !== null);
-        }
+        const mbResult = await sendConsoleCommand(session.id, mbCommand).catch(() => null);
+        const mbValue = mbResult?.lines.map(parseReadValue).find((v) => v !== null);
         setValueOverrides((prev) => {
           const next = { ...prev };
           if (knxValue) next[`${signal.id}|knx`] = knxValue;
@@ -542,7 +509,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const svNeedle = svFilter.trim().toLowerCase();
   const shownSignals = svNeedle
     ? tableSignals.filter((s) =>
-        `${s.description} ${signalMapping(s)}`.toLowerCase().includes(svNeedle),
+        `${s.description} ${s.mapping}`.toLowerCase().includes(svNeedle),
       )
     : tableSignals;
 
@@ -558,6 +525,11 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
 
   return (
     <div className="flex h-full min-h-[540px] flex-col">
+      {monitorError && (
+        <p role="alert" className="shrink-0 border-b border-border bg-error-bg px-[18px] py-[9px] text-sm text-error">
+          Monitor could not start: {monitorError}
+        </p>
+      )}
       {/* ---------- toolbar ---------- */}
       <div className="flex shrink-0 flex-wrap items-center gap-[9px] border-b border-border bg-white px-[18px] py-[9px]">
         <button
@@ -922,13 +894,13 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                   className="w-[190px] shrink-0"
                 />
                 <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-fg-subtle">
-                  type a value and press Enter to write from that side
+                  editable cells: type a value and press Enter to send
                 </span>
               </div>
               {signals === null ? (
                 <p className="px-[14px] py-4 text-[12px] leading-[1.6] text-fg-muted">
-                  No KNX ↔ Modbus Master project is open — open a project to read and write its
-                  signals from here.
+                  Open a KNX ↔ Modbus Master or KNX ↔ Modbus Slave project to read and write
+                  its signals from here.
                 </p>
               ) : tableSignals.length === 0 ? (
                 <p className="px-[14px] py-4 text-[12px] leading-[1.6] text-fg-muted">
@@ -950,11 +922,16 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                     <div className="min-w-[200px] flex-[1.3]">LAST OPERATION</div>
                   </div>
                   {shownSignals.map((signal, index) => {
-                    const mapping = signalMapping(signal);
+                    const mapping = signal.mapping;
                     const stat = opStats[signal.id];
                     const liveKnx = liveValue(signal.id, "knx");
                     const liveMb = liveValue(signal.id, "mb");
-                    const statText = stat
+                    const pendingKnx = drafts[`${signal.id}|knx`] !== undefined;
+                    const pendingMb = drafts[`${signal.id}|mb`] !== undefined;
+                    const pending = pendingKnx || pendingMb;
+                    const statText = pending
+                      ? "Pending — press Enter to send"
+                      : stat
                       ? `${stat.t}  ${stat.ok ? "✓" : "✗"} ${stat.text}`
                       : "—";
                     return (
@@ -988,6 +965,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                             value={drafts[`${signal.id}|knx`] ?? liveKnx ?? ""}
                             placeholder="—"
                             aria-label={`${signal.description || `Signal ${signal.id + 1}`} KNX value`}
+                            disabled={!signal.endpoints.knx}
+                            readOnly={!signal.writable.knx}
+                            title={!signal.writable.knx ? "Read-only from the KNX side" : pendingKnx ? "Pending — press Enter to send" : "Type a value and press Enter to send"}
                             onChange={(event) =>
                               setDrafts((prev) => ({
                                 ...prev,
@@ -995,7 +975,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                               }))
                             }
                             onKeyDown={(event) => onValueKey(event, signal, "knx")}
-                            className="w-[86px] rounded-[3px] border border-bms-border bg-bms-surface px-[7px] py-[3px] font-mono text-[11.5px] text-hms-blue placeholder:text-fg-subtle"
+                            className={cn("w-[86px] rounded-[3px] border border-bms-border bg-bms-surface px-[7px] py-[3px] font-mono text-[11.5px] text-hms-blue placeholder:text-fg-subtle read-only:cursor-default read-only:bg-white", pendingKnx && "border-warning-text")}
                           />
                         </div>
                         <div className="w-[96px] shrink-0">
@@ -1003,6 +983,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                             value={drafts[`${signal.id}|mb`] ?? liveMb ?? ""}
                             placeholder="—"
                             aria-label={`${signal.description || `Signal ${signal.id + 1}`} Modbus value`}
+                            disabled={!signal.endpoints.mb}
+                            readOnly={!signal.writable.mb}
+                            title={!signal.writable.mb ? "Read-only from the Modbus side" : pendingMb ? "Pending — press Enter to send" : "Type a value and press Enter to send"}
                             onChange={(event) =>
                               setDrafts((prev) => ({
                                 ...prev,
@@ -1010,14 +993,16 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                               }))
                             }
                             onKeyDown={(event) => onValueKey(event, signal, "mb")}
-                            className="w-[86px] rounded-[3px] border border-device-border bg-device-surface px-[7px] py-[3px] font-mono text-[11.5px] text-hms-blue placeholder:text-fg-subtle"
+                            className={cn("w-[86px] rounded-[3px] border border-device-border bg-device-surface px-[7px] py-[3px] font-mono text-[11.5px] text-hms-blue placeholder:text-fg-subtle read-only:cursor-default read-only:bg-white", pendingMb && "border-warning-text")}
                           />
                         </div>
                         <div
                           title={statText}
                           className={cn(
                             "min-w-[200px] flex-[1.3] whitespace-normal break-words font-mono text-[10.5px] leading-[1.45]",
-                            stat
+                            pending
+                              ? "text-warning-text"
+                              : stat
                               ? stat.ok
                                 ? "text-success"
                                 : "text-error"

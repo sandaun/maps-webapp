@@ -171,8 +171,60 @@ the phase in `docs/plans/knx-mbm-mvp.md` (or a family doc) — decisions, unknow
    Follow the existing screens — they match the v6 design reference
    (`temp/MAPS Web v6 - standalone.html`; left-aligned, full-width, 372 px
    drawer, mono for addresses — do NOT auto-center content).
-4. Gate: same checks + a smoke test with the real fixture through the API
+4. **Diagnostics is mandatory for every new family**, including both the
+   traffic monitor and the signals viewer. Shared transport/UI does not mean
+   the protocol combination is already supported. Follow the checklist below.
+5. Gate: same checks + a smoke test with the real fixture through the API
    (open → view → patch → re-fetch).
+
+### Diagnostics (every family)
+
+- Register the gateway's **AppId and internal/external console prefixes** in
+  `src/server/intesis-transport/console-prefixes.ts`, from MAPS `GetPrefix()`.
+  For MBS–KNX (AppId 7), these are `0MS` and `1KX`; KNX–MBM uses `0KX` and
+  `1MM`. Check `SPONS`, `COMMS` and optional `DEBUG`, startup, toggling and
+  cleanup. Startup failures must be visible to the user. Serialize lifecycle
+  calls so StrictMode or rapid toggles cannot leave the monitor off.
+- Extend `src/lib/diagnostics-parsing.ts` to classify both ports' bus frames,
+  spontaneous values and debug lines under the right protocol/filter.
+  Protocol roles can be reversed; do not assume KNX always means port 0.
+- Add the family's signals viewer mapping to
+  `src/lib/diagnostics-signals.ts` (or extend its endpoint model for new
+  protocols). Include project signals, mapping labels, console reads and
+  writes, and incoming value pushes. Derive **runtime ids from the compiled
+  arrays**, following `PreXBLActions` and MAPS ask/update-value writers.
+  Table ids, active indices and register addresses are not interchangeable.
+  Disabled signals must not produce commands. Honor each protocol's MAPS
+  `GetWriteEnabled()` in both the UI and command builder: read-only cells can
+  still be refreshed, but cannot send writes. Internal and external variants
+  can differ (internal KNX needs W; external KNX accepts U or W). Distinguish
+  unsent input drafts from values confirmed by the gateway.
+  Match the protocol/port and id,
+  not just a group address that several signals may share.
+- Test the monitor end-to-end with the fake gateway, parsers, and the actual
+  Diagnostics screen: viewer rows, refresh, writes, spontaneous updates,
+  startup errors and teardown. Include disabled rows in the middle, reordered
+  addresses, bitfields sharing an address, repeated GAs, and zero values.
+  Include write permissions on each side and drafts that have not been sent.
+  Protect existing families with regression tests.
+- With available hardware, verify `INFO?`, monitor activation and signal
+  **cache reads** against the project received from that unit. Observe real
+  bus traffic when present. Modbus Slave waits for a master's requests and
+  does not poll by itself; a quiet bus is not proof of a broken monitor.
+  Record what was observed and what remains unverified. Bus writes or deploys
+  follow the owner's authorization; offline write tests do not prove a live
+  write. Do not change the gateway configuration to manufacture traffic.
+
+**Gate:** a family is not fully wired until its monitor and signals viewer
+are implemented and their automated tests pass. Unavailable hardware can
+defer physical checks only; record those checks explicitly as pending.
+XML, XBL and deploy verification do not validate Diagnostics.
+Do not silently display an empty viewer as if the project had no signals.
+
+Before marking this gate complete, record the MAPS methods used for prefixes,
+runtime ids, ask/update commands and write permissions, link the automated
+tests, and distinguish live cache reads, bus traffic and physical writes.
+Carry this evidence into the gateway-family section of the PR template.
 
 ### Conversions (every family, unless MAPS disables them)
 
@@ -358,6 +410,13 @@ time):
        synthetic fixture, index
 [ ] 1. Tests: synthetic + real-fixture (skip-if-absent) + XML round-trip
 [ ] 2. Registry entry + patch zod + client types + screens (signals editable)
+[ ] 2. Diagnostics: AppId/prefixes, SPONS/COMMS/DEBUG lifecycle and visible errors
+[ ] 2. Diagnostics: frame classification + viewer mappings, reads/writes/pushes
+       with compiled runtime ids; disabled/reordered/shared-address regression tests
+[ ] 2. Diagnostics: per-side MAPS write permissions enforced in UI + commands;
+       allowed/blocked writes and unsent drafts tested
+[ ] 2. Diagnostics: MAPS method references + automated test evidence recorded;
+       live cache reads, bus traffic and physical writes verified or explicitly pending
 [ ] 2. Conversions: ConversionsEnabled() of the concrete class checked
        → enabled: library + assignment (single + bulk) + issues, direction
          rule from ConversionObject, template's fixed conversions read-only
