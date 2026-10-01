@@ -4,7 +4,7 @@ import * as React from "react";
 import { Columns3 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { SignalMapFilter } from "./use-paged-signals";
+import type { SignalMapFilter } from "./use-filtered-signals";
 
 export interface FilterPill {
   id: SignalMapFilter;
@@ -153,10 +153,7 @@ export function SignalsFooter({
   warnings,
   hideDisabled,
   onToggleHideDisabled,
-  page,
-  pageCount,
-  onPrev,
-  onNext,
+  onGoToSignal,
 }: {
   shown: number;
   active: number;
@@ -165,43 +162,32 @@ export function SignalsFooter({
   warnings: number;
   hideDisabled: boolean;
   onToggleHideDisabled: () => void;
-  page: number;
-  pageCount: number;
-  onPrev: () => void;
-  onNext: () => void;
+  onGoToSignal: (id: number) => boolean;
 }) {
+  const [target, setTarget] = React.useState("");
+  const [jumpError, setJumpError] = React.useState<string | null>(null);
+  function jump(event: React.FormEvent) {
+    event.preventDefault();
+    const number = Number(target);
+    if (!Number.isInteger(number) || target.trim() === "" || number < 0 || !onGoToSignal(number)) {
+      setJumpError("Signal is hidden by filters or does not exist.");
+    } else setJumpError(null);
+  }
   return (
-    <div className="flex shrink-0 items-center gap-4 border-t border-border bg-white px-[18px] py-[7px] text-[11.5px] text-fg-muted">
+    <div className="flex shrink-0 flex-wrap items-center gap-4 border-t border-border bg-white px-[18px] py-[7px] text-[11.5px] text-fg-muted">
       <span>
         <b className="text-hms-blue">{shown}</b> shown · {active} active of {total}
       </span>
       <span className="font-mono">
         {errors} errors · {warnings} warnings
       </span>
-      {pageCount > 1 ? (
-        <span className="flex items-center gap-2">
-          <button
-            type="button"
-            className="font-medium text-hms-accent disabled:text-fg-subtle"
-            disabled={page <= 0}
-            onClick={onPrev}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="font-medium text-hms-accent disabled:text-fg-subtle"
-            disabled={page >= pageCount - 1}
-            onClick={onNext}
-          >
-            Next
-          </button>
-          <span className="font-mono">
-            Page {page + 1} / {pageCount}
-          </span>
-        </span>
-      ) : null}
       <div className="flex-1" />
+      <form onSubmit={jump} className="flex items-center gap-1.5">
+        <label htmlFor="signal-jump">Go to signal #</label>
+        <Input id="signal-jump" type="number" min={0} value={target} onChange={(e) => { setTarget(e.target.value); setJumpError(null); }} className="h-6 w-20" />
+        <button type="submit" className="text-hms-accent">Go</button>
+        {jumpError && <span role="alert" className="text-error">{jumpError}</span>}
+      </form>
       <button
         type="button"
         className="flex cursor-pointer items-center gap-1.5"

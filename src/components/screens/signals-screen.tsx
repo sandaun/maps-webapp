@@ -27,8 +27,7 @@ import { SignalsWorkspace } from "@/components/signals/signals-workspace";
 import { KNX_COLUMN_GROUPS, KNX_GROUP_LABELS, KNX_GROUP_LABELS_COMPACT } from "@/components/signals/types";
 import { useColumnVisibility } from "@/components/signals/use-column-visibility";
 import { useGridCompact } from "@/components/signals/use-grid-compact";
-import { usePagedSignals, type SignalMapFilter } from "@/components/signals/use-paged-signals";
-import { PAGE_SIZE } from "@/components/signals/types";
+import { useFilteredSignals, type SignalMapFilter } from "@/components/signals/use-filtered-signals";
 import { useSignalReorder } from "@/components/signals/use-signal-reorder";
 
 export function SignalsScreen() {
@@ -74,7 +73,7 @@ function SignalsView({
   const chrome = useWorkspaceChrome();
   const { setTab, signalId, editConversions } = useSignalsTab();
   const { mbm, signals } = view.project;
-  const [addedFocus, setAddedFocus] = React.useState<number | undefined>(undefined);
+  const [focusRevision, setFocusRevision] = React.useState(0);
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<SignalMapFilter>("all");
   const [hideDisabled, setHideDisabled] = React.useState(false);
@@ -145,7 +144,7 @@ function SignalsView({
   const hasWarning = React.useCallback((row: (typeof rows)[number]) => warnIds.has(row.signal.id), [warnIds]);
   const searchText = React.useCallback((row: (typeof rows)[number]) => row.searchText, []);
   const rowId = React.useCallback((row: (typeof rows)[number]) => row.signal.id, []);
-  const { page, setPage, pageRows, pageCount, visibleIds, pageIds, filtered } = usePagedSignals(
+  const { visibleIds, filtered } = useFilteredSignals(
     rows,
     search,
     filter,
@@ -208,8 +207,7 @@ function SignalsView({
     selected: checkedIds,
     filtered: !!search.trim() || filter !== "all" || hideDisabled || !!conversionFilter,
     applyPatches,
-    onMoved: (index) => {
-      setPage(Math.floor(index / PAGE_SIZE));
+    onMoved: () => {
       if (signalId !== undefined) router.replace(signalsHref("map"), { scroll: false });
     },
   });
@@ -246,7 +244,7 @@ function SignalsView({
     <SignalsWorkspace
       selectedCount={checkedIds.size}
       matchingCount={visibleIds.length}
-      pageFullySelected={pageIds.length > 0 && pageIds.every((id) => checkedIds.has(id))}
+      pageFullySelected={visibleIds.length > 0 && visibleIds.every((id) => checkedIds.has(id))}
       onEnable={() => setActiveForChecked(true)}
       onDisable={() => setActiveForChecked(false)}
       onDelete={removeChecked}
@@ -272,10 +270,10 @@ function SignalsView({
         ]}
         activeFilter={filter}
         onFilter={setFilter}
-        addControl={<AddSignalsControl project={view.project} selected={checkedIds} applyPatches={applyPatches} onAdded={(index, id) => {
+        addControl={<AddSignalsControl project={view.project} selected={checkedIds} applyPatches={applyPatches} onAdded={(_index, id) => {
           setSearch(""); setFilter("all"); setHideDisabled(false);
-          if (conversionFilter || signalId !== undefined) router.replace(signalsHref("map"), { scroll: false });
-          setPage(Math.floor(index / PAGE_SIZE)); setAddedFocus(id);
+          setFocusRevision((revision) => revision + 1);
+          setTab("map", { signal: id });
         }} />}
         columnsOpen={colsMenu}
         onToggleColumns={() => setColsMenu((v) => !v)}
@@ -310,7 +308,7 @@ function SignalsView({
       )}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <SignalsGrid
-          rows={pageRows}
+          rows={filtered}
           columns={columns}
           groupLabels={KNX_GROUP_LABELS}
           compactGroupLabels={KNX_GROUP_LABELS_COMPACT}
@@ -318,16 +316,18 @@ function SignalsView({
           rowActive={(row) => row.signal.active}
           rowError={(row) => errorIds.has(row.signal.id)}
           selected={checkedIds}
-          pageIds={pageIds}
+          pageIds={visibleIds}
           onToggle={(id, shiftKey) => toggle(id, shiftKey ? visibleIds : undefined)}
-          onTogglePage={() => toggleAll(pageIds)}
+          onTogglePage={() => toggleAll(visibleIds)}
           applyPatches={applyPatches}
           tabOrder={KNX_TAB_ORDER}
           widthStorageKey="signals-grid-widths:knx-mbm:v1"
           compact={compact}
           onToggleCompact={toggleCompact}
           fitRows={rows}
-          focusId={addedFocus ?? signalId}
+          focusId={signalId}
+          focusRevision={focusRevision}
+          filterKey={`${search}:${filter}:${hideDisabled}:${conversionParam}`}
           reorder={reorder}
         />
       </div>
@@ -339,10 +339,12 @@ function SignalsView({
         warnings={warnCount}
         hideDisabled={hideDisabled}
         onToggleHideDisabled={() => setHideDisabled((v) => !v)}
-        page={page}
-        pageCount={pageCount}
-        onPrev={() => setPage((p) => Math.max(0, p - 1))}
-        onNext={() => setPage((p) => p + 1)}
+        onGoToSignal={(id) => {
+          if (!filtered.some((row) => row.signal.id === id)) return false;
+          setFocusRevision((revision) => revision + 1);
+          setTab("map", { signal: id });
+          return true;
+        }}
       />
       {assigningSignal && (
         <ConversionAssignDialog
