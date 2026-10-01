@@ -51,6 +51,34 @@ dos costats, espera 400 ms i després envia `RESET!` (frmMain.cs:3427).
 
 - Costat: `0`=intern, `1`=extern, `2`=extra (segon visor extern / dual RTU+TCP).
 - Prefix per família: KNX–MBM → intern `KX` (KNX), extern `MM` (Modbus Master).
+  MBS–KNX (AppId 7) → intern `MS` (Modbus Slave), extern `KX` (KNX).
+  Comandes de monitor: `0MS:SPONS=1` / `1KX:SPONS=1`, i els mateixos caps
+  per a `COMMS` i `DEBUG`.
+
+Formats d'ID de MBS–KNX (MAPS `PreXBLActions`, `InternalMbs` i `ExternalKnx`):
+
+- Modbus: `0MS:<índex hex8>?` i `0MS:<índex hex8>=<valor>;`.
+  L'índex és la posició entre els MBS actius ordenats per `(Address, Bit)`.
+- KNX: `1KX:<índex+1 hex4><GA hex4>?` i el mateix identificador amb
+  `=<valor>` per escriure (sense `;`). L'índex és la posició entre els KNX
+  actius en ordre de projecte, no el `signal.id` si hi ha files desactivades.
+- Els pushes de valor fan servir aquests mateixos caps i identificadors.
+  Modbus Slave no fa polling: les trames Modbus requereixen un mestre extern.
+- Permisos del visor segons MAPS: `InternalMbs.GetWriteEnabled` (`:1716`)
+  accepta Trigger i Read/Write, però no Read. `ExternalKnx.GetWriteEnabled`
+  (`:980`) accepta U o W. Els camps de només lectura continuen permetent
+  consultes `?`; una edició local encara no és una escriptura confirmada.
+
+Validació del 2026-10-01 a `10.113.51.173` (AppId 7, firmware 2.0.1.0):
+monitor activat i lectures de memòria correctes als dos costats sobre el
+projecte rebut (12 senyals actius). Sense trames de bus durant l'observació;
+configuració Modbus RTU. Les escriptures es proven offline, no sobre el bus.
+
+Comprovació posterior del visor: els valors `1` de la captura eren drafts
+sense enviament. El registre de sessió només contenia `0MS:00000000=0;`,
+rebutjat amb `0MS:ERR` perquè `OnOff_Read` és Read. Les lectures dels tres
+primers senyals continuaven retornant 0 als dos costats. La UI ara aplica
+els permisos de MAPS i marca els drafts com a pendents fins que s'envien.
 
 | Comanda | Funció | Resposta | Efectes | Validada |
 |---|---|---|---|---|

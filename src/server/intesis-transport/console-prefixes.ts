@@ -1,5 +1,6 @@
 import { APP_ID_KNX_MBM } from "@/gateway-families/knx-mbm";
 import { APP_ID_ME_AC_XXX } from "@/gateway-families/me-mbs";
+import { APP_ID_MBS_KNX } from "@/gateway-families/mbs-knx";
 
 /** Console protocol prefixes of a gateway application: port 0 (internal) and 1 (external). */
 export type ConsolePrefixes = readonly [internal: string, external: string];
@@ -14,6 +15,7 @@ export type ConsolePrefixes = readonly [internal: string, external: string];
 const CONSOLE_PREFIXES: Partial<Record<number, ConsolePrefixes>> = {
   [APP_ID_KNX_MBM]: ["KX", "MM"], // InternalKnx / ExternalMbm
   [APP_ID_ME_AC_XXX]: ["MS", "ME"], // InternalMbs / ExternalME
+  [APP_ID_MBS_KNX]: ["MS", "KX"], // InternalMbs / ExternalKnx
 };
 
 /** Prefixes for the connected gateway's AppId; undefined when unknown. */
