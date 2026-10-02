@@ -9,6 +9,7 @@ import {
 } from "./session";
 import { TcpDuplex, type Duplex } from "./transport";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
+import { assertGatewayAvailable } from "../modbus-scan/guard";
 
 /**
  * In-memory manager for live gateway sessions, behind the `GatewaySessions`
@@ -95,6 +96,7 @@ export class GatewayRequestError extends Error {
 /** Maps transport failures to HTTP statuses for the API edge. */
 export function toGatewayRequestError(error: unknown): GatewayRequestError {
   if (error instanceof GatewayRequestError) return error;
+  if (error instanceof Error && typeof (error as { status?: number }).status === "number") return new GatewayRequestError((error as Error & { status: number }).status, error.message);
   if (error instanceof GatewayError) {
     const status =
       error.code === "busy"
@@ -119,6 +121,8 @@ type SessionEventInput =
   | { type: "progress"; receivedBytes: number; totalBytes: number };
 
 interface ManagedSession {
+  password: string;
+  internal?: boolean;
   projectId?: string;
   session: GatewaySession;
   host: string;
@@ -163,6 +167,7 @@ export class GatewaySessionManager implements GatewaySessions {
           emit({ type: "progress", receivedBytes, totalBytes }),
       });
       managed = {
+        password: options.password,
         session,
         host: options.host,
         port,
@@ -187,12 +192,36 @@ export class GatewaySessionManager implements GatewaySessions {
 
   disconnect(id: string): void {
     const managed = this.require(id);
+    assertGatewayAvailable(managed.host);
     managed.session.close();
     this.sessions.delete(id);
   }
 
   list(): GatewaySessionStatus[] {
-    return [...this.sessions.entries()].map(([id, m]) => this.toStatus(id, m));
+    return [...this.sessions.entries()].filter(([, m]) => !m.internal).map(([id, m]) => this.toStatus(id, m));
+  }
+
+  /** Transfer the existing control connection to the worker, then reconnect as needed.
+   * Opening a second control connection can prevent firmware from accepting LOGIN1.
+   * The host lock prevents the browser from disconnecting this owned session.
+   */
+  scanConnector(id: string): () => Promise<GatewaySessionStatus> {
+    const source = this.require(id);
+    const options = { host: source.host, port: source.port, password: source.password };
+    let first = true;
+    return async () => {
+      assertGatewayAvailable(options.host);
+      if (first) {
+        first = false;
+        if (this.sessions.get(id) === source && source.session.connected) {
+          source.internal = true;
+          return this.getStatus(id);
+        }
+      }
+      const status = await this.connect(options);
+      this.require(status.id).internal = true;
+      return status;
+    };
   }
 
   getStatus(id: string): GatewaySessionStatus {
@@ -282,6 +311,7 @@ export class GatewaySessionManager implements GatewaySessions {
   }
 
   private async runExclusive<T>(managed: ManagedSession, op: () => Promise<T>): Promise<T> {
+    assertGatewayAvailable(managed.host);
     if (managed.busy) throw new GatewayRequestError(409, "The session has an operation in progress");
     managed.busy = true;
     try {

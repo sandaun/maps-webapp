@@ -1,6 +1,7 @@
 "use client";
 
 import { DemoBanner } from "@/components/demo-banner";
+import { ModbusScanBanner } from "@/components/devices/modbus-scan-banner";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { UndoPill } from "@/components/signals/undo-pill";
@@ -36,6 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className={cn("flex h-full flex-col", sidebarCollapsed ? "ml-[56px]" : "ml-[228px]")}>
         <Header />
         {!projectsArea && <DemoBanner />}
+        <ModbusScanBanner />
         {/* tabIndex -1: focus target when transient UI (the save bar) closes under the user. */}
         <main
           id="main-content"

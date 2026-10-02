@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Download, Library, Loader2 } from "lucide-react";
+import { Plus, Trash2, Download, Library, Loader2, Radar } from "lucide-react";
 import { DeviceTemplateModal } from "@/components/devices/device-template-modal";
+import { ModbusScanModal } from "@/components/devices/modbus-scan-modal";
 import { downloadDeviceTemplate } from "@/lib/device-templates";
 import { useCurrentProject } from "@/lib/current-project";
 import {
@@ -340,6 +341,7 @@ function TcpNodeCard({ node, nodeIndex }: { node: MbmTcpNode; nodeIndex: number 
 function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmDevice[] }) {
   const { save, busy } = useSave();
   const [templateOpen, setTemplateOpen] = React.useState(false);
+  const [scanOpen, setScanOpen] = React.useState(false);
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -359,8 +361,10 @@ function DeviceTable({ locator, devices }: { locator: NodeLocator; devices: MbmD
           <Library className="h-3.5 w-3.5" aria-hidden />
           Add from template
         </Button>
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setScanOpen(true)}><Radar className="h-3.5 w-3.5" aria-hidden />Add from scan</Button>
       </div>
       {templateOpen && <DeviceTemplateModal initialLocator={locator} onClose={() => setTemplateOpen(false)} />}
+      {scanOpen && <ModbusScanModal initialLocator={locator} onClose={() => setScanOpen(false)} />}
       {devices.length === 0 ? (
         <p className="text-sm text-fg-muted">No devices on this node.</p>
       ) : (

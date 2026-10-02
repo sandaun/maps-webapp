@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { claimGateway, releaseGateway, withScanOwner } from "../modbus-scan/guard";
 import {
   GatewayRequestError,
   GatewaySessionManager,
@@ -18,6 +22,32 @@ function makeManager(configs: Record<string, FakeGatewayConfig>) {
 }
 
 describe("GatewaySessionManager", () => {
+  it("hands the existing connection to the scan and prevents browser disconnection", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "maps-scan-owner-"));
+    const previous = process.env.MAPS_DATA_DIR; process.env.MAPS_DATA_DIR = dataDir;
+    let connections = 0;
+    const manager = new GatewaySessionManager(async () => {
+      connections++; return new FakeGateway({ password: "worker-password" });
+    });
+    try {
+      const source = await manager.connect({ host: "192.0.2.222", password: "worker-password" });
+      const connector = manager.scanConnector(source.id);
+      claimGateway(source.host, "scan-job");
+      const worker = await withScanOwner("scan-job", connector);
+      expect(worker.id).toBe(source.id); expect(connections).toBe(1);
+      expect(manager.list()).toEqual([]);
+      expect(() => manager.disconnect(source.id)).toThrow(/active scan/);
+      withScanOwner("scan-job", () => manager.disconnect(worker.id));
+      const reconnected = await withScanOwner("scan-job", connector);
+      expect(connections).toBe(2); expect(reconnected.id).not.toBe(source.id);
+      expect(manager.list()).toEqual([]);
+      withScanOwner("scan-job", () => manager.disconnect(reconnected.id));
+      releaseGateway(source.host, "scan-job");
+    } finally {
+      if (previous === undefined) delete process.env.MAPS_DATA_DIR; else process.env.MAPS_DATA_DIR = previous;
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
   it("connects, reports status and disconnects (password never serialized)", async () => {
     const manager = makeManager({ "10.0.0.1": { password: "admin" } });
     const status = await manager.connect({ host: "10.0.0.1", password: "admin" });

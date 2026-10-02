@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getGatewaySessionManager } from "@/server/intesis-transport";
 import { errorResponse } from "@/server/projects/http";
+import { getModbusScanService } from "@/server/modbus-scan/service";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,9 @@ const connectSchema = z.object({
 export async function POST(request: Request) {
   try {
     const body = connectSchema.parse(await request.json());
+    await getModbusScanService().checkReconnect(body.host);
     const session = await getGatewaySessionManager().connect(body);
+    await getModbusScanService().reconnect(session.id);
     return NextResponse.json({ session }, { status: 201 });
   } catch (error) {
     return errorResponse(error);

@@ -20,6 +20,7 @@ export function Modal({
   onClose,
   width = 500,
   scrollable = false,
+  closeLabel = "Cancel",
   children,
 }: {
   title: string;
@@ -33,6 +34,7 @@ export function Modal({
   onClose: () => void;
   width?: number;
   scrollable?: boolean;
+  closeLabel?: string;
   children: React.ReactNode;
 }) {
   React.useEffect(() => {
@@ -68,7 +70,7 @@ export function Modal({
         <div className="flex items-center gap-[9px] border-t border-border bg-card-foot px-[22px] py-[14px]">
           <p className="flex-1 text-[11.5px] text-fg-subtle">{foot}</p>
           <Button variant="secondary" size="sm" className="h-8" onClick={onClose}>
-            Cancel
+            {closeLabel}
           </Button>
           <Button size="sm" variant={ctaVariant} className="h-8" onClick={onConfirm} disabled={ctaDisabled}>
             {ctaLabel}

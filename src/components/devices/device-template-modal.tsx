@@ -17,6 +17,9 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
+import { Radio } from "@/components/ui/radio";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select } from "@/components/ui/select";
 
 const PAGE_SIZE = 50;
 
@@ -128,10 +131,7 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Manufacturer" htmlFor="template-manufacturer">
-              <select id="template-manufacturer" className="h-8 w-full rounded border border-border bg-white px-2 text-sm" value={manufacturer} onChange={(e) => { setManufacturer(e.target.value); setSelectedId(""); }}>
-                <option value="">All manufacturers</option>
-                {library?.manufacturers.map((m) => <option key={m}>{m}</option>)}
-              </select>
+              <Select id="template-manufacturer" className="w-full" value={manufacturer} options={[{ value: "", label: "All manufacturers" }, ...(library?.manufacturers ?? []).map((m) => ({ value: m, label: m }))]} onValueChange={(value) => { setManufacturer(value); setSelectedId(""); }} />
             </Field>
             <Field label="Search models" htmlFor="template-search">
               <Input id="template-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedId(""); }} placeholder="Model or manufacturer" />
@@ -142,7 +142,7 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
           {library && <div className="max-h-[42vh] overflow-auto rounded border border-border">
             {entries.length === 0 && <p className="p-4 text-sm text-fg-muted">No matching templates.</p>}
             {entries.map((entry) => <label key={entry.id} className={`flex cursor-pointer items-center gap-3 border-b border-row-rule px-3 py-3 text-sm ${selectedId === entry.id ? "bg-hms-blue/5" : ""}`}>
-              <input type="radio" name="library-template" value={entry.id} checked={selectedId === entry.id} onChange={() => setSelectedId(entry.id)} disabled={busy} />
+              <Radio name="library-template" value={entry.id} checked={selectedId === entry.id} onChange={() => setSelectedId(entry.id)} disabled={busy} />
               <span className="flex-1"><span className="font-medium">{entry.model}</span><span className="block text-xs text-fg-muted">{entry.manufacturer}</span></span>
               <span className="text-xs text-fg-muted">v{entry.version}</span>
             </label>)}
@@ -166,16 +166,14 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
               <span className="ml-4">Template {preview.version} · MAPS {preview.mapsVersion} · {preview.author}</span>
               <span className="ml-4">{preview.signals.length} objects · {preview.conversions.length} conversions · {preview.device.baseRegister}-based registers</span>
             </div>
-            {preview.warnings.map((warning) => <p key={warning} className="rounded border border-border bg-card-foot p-2 text-xs text-text-body">{warning}</p>)}
+            {preview.warnings.map((warning) => <p key={warning} className="rounded border border-warning-border bg-warning-bg p-2 text-xs text-warning-text">{warning}</p>)}
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Device name" htmlFor="template-device-name"><Input id="template-device-name" maxLength={128} value={name} disabled={busy} onChange={(e) => setName(e.target.value)} /></Field>
               <Field label="Connection" htmlFor="template-connection">
-                <select id="template-connection" className="h-8 w-full rounded border border-border bg-white px-2 text-sm" disabled={busy} value={`${locator.kind}:${locator.nodeIndex}`} onChange={(e) => {
-                  const next = nodes.find((n) => `${n.locator.kind}:${n.locator.nodeIndex}` === e.target.value);
+                <Select id="template-connection" className="w-full" disabled={busy} value={`${locator.kind}:${locator.nodeIndex}`} options={nodes.map((n) => ({ value: `${n.locator.kind}:${n.locator.nodeIndex}`, label: n.label }))} onValueChange={(value) => {
+                  const next = nodes.find((n) => `${n.locator.kind}:${n.locator.nodeIndex}` === value);
                   if (next) { setLocator(next.locator); setSlave(freeSlave(next)); }
-                }}>
-                  {nodes.map((n) => <option key={`${n.locator.kind}:${n.locator.nodeIndex}`} value={`${n.locator.kind}:${n.locator.nodeIndex}`}>{n.label}</option>)}
-                </select>
+                }} />
               </Field>
               <Field label="Slave number" htmlFor="template-slave"><Input id="template-slave" type="number" min={locator.kind === "rtu" ? 1 : 0} max={locator.kind === "rtu" ? 254 : 255} value={Number.isNaN(slave) ? "" : slave} disabled={busy} onChange={(e) => setSlave(e.target.value === "" ? NaN : Number(e.target.value))} /></Field>
             </div>
@@ -184,33 +182,31 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
               <label className="flex items-center gap-2"><Checkbox checked={includeDisabled} disabled={busy} onChange={(e) => setIncludeDisabled(e.target.checked)} />Import disabled objects</label>
               <span className="ml-auto text-fg-muted">{enabled.size} / {preview.signals.length} active</span>
             </div>
-            <div className="max-h-[35vh] overflow-auto rounded border border-border">
-              <table className="w-full min-w-[920px] text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-card-foot text-fg-muted">
-                  <tr><th className="border-b border-border p-2" colSpan={5}>KNX mapping</th><th className="border-b border-border p-2" colSpan={6}>Modbus Master registers</th></tr>
-                  <tr>{["Active", "#", "Description", "DPT", "Group address", "Read / Write", "Address", "Bits", "Format", "Byte order", "Details"].map((h) => <th key={h} className="whitespace-nowrap border-b border-border p-2 font-medium">{h}</th>)}</tr>
-                </thead>
-                <tbody>{preview.signals.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((signal) => <tr key={signal.id} className={enabled.has(signal.id) ? "" : "text-fg-subtle"}>
-                  <td className="border-b border-row-rule p-2"><Checkbox aria-label={`Activate object ${signal.id + 1}`} checked={enabled.has(signal.id)} disabled={busy} onChange={(e) => setEnabled((prev) => { const next = new Set(prev); if (e.target.checked) next.add(signal.id); else next.delete(signal.id); return next; })} /></td>
-                  <td className="border-b border-row-rule p-2 font-mono">{signal.id + 1}</td>
-                  <td className="min-w-48 border-b border-row-rule p-2">{signal.description}</td>
-                  <td className="whitespace-nowrap border-b border-row-rule p-2 font-mono">{formatDpt(signal.knx.dpt)}</td>
-                  <td className="whitespace-nowrap border-b border-row-rule p-2 font-mono">{signal.knx.groupAddress ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3) : "Unassigned"}</td>
-                  <td className="border-b border-row-rule p-2 font-mono">{signal.modbus.readFunc < 0 ? "—" : signal.modbus.readFunc} / {signal.modbus.writeFunc < 0 ? "—" : signal.modbus.writeFunc}</td>
-                  <td className="border-b border-row-rule p-2 font-mono">{signal.modbus.address}</td>
-                  <td className="border-b border-row-rule p-2 font-mono">{signal.modbus.lenBits}</td>
-                  <td className="whitespace-nowrap border-b border-row-rule p-2">{FORMAT_LABELS[signal.modbus.format] ?? signal.modbus.format}</td>
-                  <td className="whitespace-nowrap border-b border-row-rule p-2">{BYTE_ORDER_LABELS[signal.modbus.byteOrder] ?? signal.modbus.byteOrder}</td>
-                  <td className="border-b border-row-rule p-2"><details><summary className="cursor-pointer">Mapping</summary><div className="min-w-48 space-y-1 py-2">
+            <Table containerClassName="max-h-[35vh] overflow-auto rounded border border-border" className="min-w-[920px] text-xs">
+                <TableHeader className="sticky top-0 z-10 bg-card-foot">
+                  <tr className="border-b border-border"><TableHead colSpan={5}>KNX mapping</TableHead><TableHead colSpan={6}>Modbus Master registers</TableHead></tr>
+                  <tr>{["Active", "#", "Description", "DPT", "Group address", "Read / Write", "Address", "Bits", "Format", "Byte order", "Details"].map((h) => <TableHead key={h} className="whitespace-nowrap">{h}</TableHead>)}</tr>
+                </TableHeader>
+                <TableBody>{preview.signals.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((signal) => <TableRow key={signal.id} className={enabled.has(signal.id) ? "" : "text-fg-subtle"}>
+                  <TableCell><Checkbox aria-label={`Activate object ${signal.id + 1}`} checked={enabled.has(signal.id)} disabled={busy} onChange={(e) => setEnabled((prev) => { const next = new Set(prev); if (e.target.checked) next.add(signal.id); else next.delete(signal.id); return next; })} /></TableCell>
+                  <TableCell className="font-mono">{signal.id + 1}</TableCell>
+                  <TableCell className="min-w-48">{signal.description}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono">{formatDpt(signal.knx.dpt)}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono">{signal.knx.groupAddress ? formatGroupAddressAtLevel(signal.knx.groupAddress, signal.knx.groupAddressLevel ?? 3) : "Unassigned"}</TableCell>
+                  <TableCell className="font-mono">{signal.modbus.readFunc < 0 ? "—" : signal.modbus.readFunc} / {signal.modbus.writeFunc < 0 ? "—" : signal.modbus.writeFunc}</TableCell>
+                  <TableCell className="font-mono">{signal.modbus.address}</TableCell>
+                  <TableCell className="font-mono">{signal.modbus.lenBits}</TableCell>
+                  <TableCell className="whitespace-nowrap">{FORMAT_LABELS[signal.modbus.format] ?? signal.modbus.format}</TableCell>
+                  <TableCell className="whitespace-nowrap">{BYTE_ORDER_LABELS[signal.modbus.byteOrder] ?? signal.modbus.byteOrder}</TableCell>
+                  <TableCell><details><summary className="cursor-pointer">Mapping</summary><div className="min-w-48 space-y-1 py-2">
                     <p>KNX flags: {Object.entries(signal.knx.flags).filter(([, on]) => on).map(([flag]) => flag.toUpperCase()).join(", ") || "None"}</p>
                     <p>Listening addresses: {signal.knx.additionalAddresses.map((a, i) => formatGroupAddressAtLevel(a, signal.knx.additionalAddressLevels?.[i] ?? 3)).join(", ") || "None"}</p>
                     <p>Bit: {signal.modbus.bit} · Number of bits: {signal.modbus.numOfBits}</p>
                     {signal.modbus.deadband !== undefined && <p>Deadband: {signal.modbus.deadband}</p>}
                     {(["internal", "external"] as const).map((side) => <p key={side}>{side === "internal" ? "KNX" : "Modbus"} conversions: {(["filters", "operations"] as const).flatMap((list) => signal.conversions[side][list].map((r) => `${list === "filters" ? "Filter" : "Operation"} ${r.index + 1}${r.inverted ? " (inverse)" : ""}`)).join(", ") || "None"}</p>)}
-                  </div></details></td>
-                </tr>)}</tbody>
-              </table>
-            </div>
+                  </div></details></TableCell>
+                </TableRow>)}</TableBody>
+              </Table>
             <div className="flex items-center justify-between text-xs text-fg-muted">
               <span>Objects {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, preview.signals.length)} of {preview.signals.length}</span>
               <div className="flex items-center gap-2"><Button size="sm" variant="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</Button><Button size="sm" variant="secondary" disabled={(page + 1) * PAGE_SIZE >= preview.signals.length} onClick={() => setPage(page + 1)}>Next</Button></div>
