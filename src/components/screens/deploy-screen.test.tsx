@@ -164,9 +164,9 @@ describe("DeployScreen (knx-mbm)", () => {
     render(<DeployScreen />);
 
     const button = await screen.findByRole("button", { name: "Deploy to gateway" });
-    await screen.findByText("All gates pass");
+    await screen.findByText("Ready to deploy");
     expect(button).toBeEnabled();
-    expect(screen.getByText(/byte-exact verified \(knxMbmXblVerified\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/knxMbmXblVerified/)).not.toBeInTheDocument();
 
     fireEvent.click(button);
     const dialog = await screen.findByRole("alertdialog");
@@ -200,9 +200,10 @@ describe("DeployScreen (knx-mbm)", () => {
     render(<DeployScreen />);
 
     const button = await screen.findByRole("button", { name: "Deploy to gateway" });
-    await screen.findByText("Blocked by a gate");
+    await screen.findByText("Cannot deploy");
     expect(button).toBeDisabled();
-    expect(screen.getByText(/Missing verified XBL capability \(knxMbmXblVerified\)/)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Deploy is unavailable in this installation.");
+    expect(screen.queryByText(/knxMbmXblVerified/)).not.toBeInTheDocument();
   });
 
   it("links a blocked password gate to Configuration Security", async () => {
@@ -244,11 +245,11 @@ describe("DeployScreen (knx-mbm)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm deploy" }));
 
     expect(await screen.findByText(/the gateway accepted the upload/)).toBeInTheDocument();
-    expect(screen.getByText(/Receive from gateway/)).toBeInTheDocument();
+    expect(screen.getByText(/Receive.*in the header/)).toBeInTheDocument();
     expect(posts).toEqual([{ projectId: "demo", confirmedWarnings: [] }]);
   });
 
-  it("offers the export download and explains the missing gateway blob", async () => {
+  it("offers the export download without internal blob diagnostics", async () => {
     stubFetch({ sessions: [] });
     render(<DeployScreen />);
 
@@ -256,7 +257,8 @@ describe("DeployScreen (knx-mbm)", () => {
       "href",
       "/api/projects/demo/export",
     );
-    expect(screen.getByText("No gateway blob")).toBeInTheDocument();
+    expect(screen.queryByText("Round-trip capability")).not.toBeInTheDocument();
+    expect(screen.queryByText(/gateway blob/i)).not.toBeInTheDocument();
   });
 });
 
@@ -278,9 +280,9 @@ describe("DeployScreen (me-mbs)", () => {
     render(<DeployScreen />);
 
     const button = await screen.findByRole("button", { name: "Deploy to gateway" });
-    await screen.findByText("All gates pass");
+    await screen.findByText("Ready to deploy");
     expect(button).toBeEnabled();
-    expect(screen.getByText(/byte-exact verified \(meMbsXblVerified\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/meMbsXblVerified/)).not.toBeInTheDocument();
 
     fireEvent.click(button);
     const dialog = await screen.findByRole("alertdialog");
@@ -295,9 +297,10 @@ describe("DeployScreen (me-mbs)", () => {
     render(<DeployScreen />);
 
     const button = await screen.findByRole("button", { name: "Deploy to gateway" });
-    await screen.findByText("Blocked by a gate");
+    await screen.findByText("Cannot deploy");
     expect(button).toBeDisabled();
-    expect(screen.getByText(/Missing verified XBL capability/)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Deploy is unavailable in this installation.");
+    expect(screen.queryByText(/Missing verified XBL/)).not.toBeInTheDocument();
   });
 
   it("deploys on confirm and shows the result summary with the verify hint", async () => {
@@ -308,7 +311,7 @@ describe("DeployScreen (me-mbs)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirm deploy" }));
 
     expect(await screen.findByText(/the gateway accepted the upload/)).toBeInTheDocument();
-    expect(screen.getByText(/Receive from gateway/)).toBeInTheDocument();
+    expect(screen.getByText(/Receive.*in the header/)).toBeInTheDocument();
     expect(posts).toEqual([{ projectId: "p1", confirmedWarnings: [] }]);
   });
 });

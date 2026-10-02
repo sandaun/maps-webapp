@@ -3,8 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, Download, Upload, X } from "lucide-react";
-import { exportProjectUrl } from "@/lib/api";
-import type { FamilyId } from "@/lib/project-types";
+import { ApiError, exportProjectUrl } from "@/lib/api";
 import {
   deployGatewayProject,
   getDeployStatus,
@@ -20,71 +19,35 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-/**
- * Deploy screen: export the project file, inspect round-trip capability and —
- * when every server-side gate passes for the project's family — deploy to a
- * connected gateway (SENDCMPLT, a WRITE operation). Both supported families
- * (knx-mbm, me-mbs) share the same gated card; the gate details come from the
- * server, so a family without its verified capability (or an unsupported
- * family) keeps the honest disabled explanation (docs/plans/knx-mbm-mvp.md,
- * Pas 2.6 / 3.4).
- */
+/** Export and deploy the current project, with server checks and confirmation. */
+const DEPLOY_UNAVAILABLE = "Deploy is unavailable in this installation.";
+
 export function DeployScreen() {
   return <ScreenGate>{(view) => <DeployContent {...view} />}</ScreenGate>;
 }
 
-function DeployContent({
-  meta,
-  hasCompleteBlob,
-}: {
-  meta: { id: string; name: string };
-  family: FamilyId;
-  hasCompleteBlob: boolean;
-}) {
+function DeployContent({ meta }: { meta: { id: string; name: string } }) {
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Export project file</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-fg-muted">
-              Download <span className="font-medium text-text-body">{meta.name}</span> as an
-              Intesis MAPS <code>.ibmaps</code> file that the desktop tool can open.
-            </p>
-            <a
-              href={exportProjectUrl(meta.id)}
-              className={buttonVariants({ variant: "secondary", size: "sm" })}
-              download
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              Export .ibmaps
-            </a>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Round-trip capability</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              {hasCompleteBlob ? (
-                <Badge variant="success">Gateway blob available</Badge>
-              ) : (
-                <Badge variant="muted">No gateway blob</Badge>
-              )}
-            </div>
-            <p className="text-sm text-fg-muted">
-              {hasCompleteBlob
-                ? "This project was received from a gateway and its original “complete” blob (XBL + project ZIP) is kept server-side, so an unmodified round-trip back to the gateway would be possible."
-                : "This project has no stored gateway blob. Only the .ibmaps XML is available, so it cannot be sent back to a gateway unmodified."}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
+      <Card>
+        <CardHeader>
+          <CardTitle>Export project file</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-fg-muted">
+            Download <span className="font-medium text-text-body">{meta.name}</span> as an
+            Intesis MAPS <code>.ibmaps</code> file that the desktop tool can open.
+          </p>
+          <a
+            href={exportProjectUrl(meta.id)}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+            download
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden />
+            Export .ibmaps
+          </a>
+        </CardContent>
+      </Card>
       <GatedDeployCard meta={meta} />
     </div>
   );
@@ -119,7 +82,7 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
         if (!cancelled) setStatus(gateStatus);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setStatusError(err instanceof Error ? err.message : "Gate check failed");
+        if (!cancelled) setStatusError(err instanceof Error ? err.message : "Could not check deployment requirements");
       });
     return () => {
       cancelled = true;
@@ -138,7 +101,9 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
       setResult(deployResult);
       setPhase("done");
     } catch (err) {
-      setDeployError(err instanceof Error ? err.message : "Deploy failed");
+      setDeployError(err instanceof ApiError && err.status === 403
+        ? DEPLOY_UNAVAILABLE
+        : err instanceof Error ? err.message : "Deploy failed");
       setPhase("failed");
     }
   }
@@ -153,17 +118,16 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
             Deploy to gateway
             {status &&
               (deployable ? (
-                <Badge variant="success">All gates pass</Badge>
+                <Badge variant="success">Ready to deploy</Badge>
               ) : (
-                <Badge variant="warning">Blocked by a gate</Badge>
+                <Badge variant="warning">Cannot deploy</Badge>
               ))}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-fg-muted">
-            Deploying regenerates the binary XBL configuration from the current project (byte-exact
-            verified generator) and writes it to the gateway with SENDCMPLT. The gateway applies it
-            immediately.
+            Send the current project to the connected gateway. This replaces the configuration
+            currently running on the gateway.
           </p>
 
           {!session && !statusError && (
@@ -181,9 +145,12 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
             </p>
           )}
 
+          {status?.checks.some((check) => check.id === "capability" && !check.ok) && (
+            <p role="alert" className="text-sm text-error">{DEPLOY_UNAVAILABLE}</p>
+          )}
           {status && (
-            <ul aria-label="Deploy gates" className="space-y-1.5">
-              {status.checks.map((check) => (
+            <ul aria-label="Deploy requirements" className="space-y-1.5">
+              {status.checks.filter((check) => check.id !== "capability").map((check) => (
                 <li key={check.id} className="flex items-start gap-2 text-[13px]">
                   {check.ok ? (
                     <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
@@ -191,7 +158,11 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
                     <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-error" aria-hidden />
                   )}
                   <span className="text-text-body">
-                    {check.detail}
+                    {check.id === "session-appid" && check.ok
+                      ? "Connected gateway is compatible with this project"
+                      : check.id === "family" && !check.ok
+                        ? "This gateway type is not supported for deployment"
+                        : check.detail}
                     {check.id === "password" && !check.ok && (
                       <> <Link href="/configuration?section=security" className="font-medium text-hms-accent hover:underline">Set password</Link></>
                     )}
@@ -222,7 +193,7 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
               title={
                 deployable
                   ? `Deploy to ${session.host}`
-                  : "Blocked: a deploy gate does not pass (see above)"
+                  : "Resolve the deployment requirements shown above"
               }
             >
               <Upload className="h-3.5 w-3.5" aria-hidden />
@@ -261,11 +232,10 @@ function GatedDeployCard({ meta }: { meta: { id: string; name: string } }) {
           {phase === "done" && result && (
             <div className="space-y-1.5">
               <p className="text-sm text-success">
-                Deployed “{meta.name}” ({result.bytes} bytes; XBL {result.xblBytes} B, ZIP{" "}
-                {result.zipBytes} B, SW {result.swVersion}) — the gateway accepted the upload.
+                Deployed “{meta.name}” — the gateway accepted the upload.
               </p>
               <p className="text-sm text-fg-muted">
-                Tip: use “Receive from gateway” on the Connection screen afterwards to verify the
+                Tip: use “Receive” in the header afterwards to verify the
                 gateway now runs the new configuration.
               </p>
             </div>
