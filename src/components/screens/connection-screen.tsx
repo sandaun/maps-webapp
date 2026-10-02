@@ -6,23 +6,20 @@ import {
   disconnectGateway,
   gatewayFamily,
   queryGatewayInfo,
-  receiveGatewayProject,
   scanGateways,
   type DiscoveredGateway,
   type GatewayInfoSummary,
   type GatewaySessionStatus,
 } from "@/lib/gateway-api";
 import { FAMILY_LABELS } from "@/lib/project-types";
-import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
-import { useSessionEvents, type TransferProgress } from "@/lib/use-session-events";
+import { useSessionEvents } from "@/lib/use-session-events";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalRow } from "@/components/ui/modal";
-import { TransferProgressBar } from "@/components/session-log";
 
 /** Intesis factory fallback address once the 30 s power-up DHCP window closes. */
 const FACTORY_DEFAULT_IP = "192.168.100.246";
@@ -73,12 +70,11 @@ const HOW_TO_STEPS = [
   },
   {
     title: "Connect",
-    sub: "The default password over IP is admin. Once connected you can receive the configuration stored in the gateway.",
+    sub: "The default password over IP is admin. Once connected, use Receive in the header to open the configuration stored in the gateway.",
   },
 ];
 
 export function ConnectionScreen() {
-  const { setProjectId } = useCurrentProject();
   const { session } = useGatewaySession();
 
   const [gateways, setGateways] = React.useState<DiscoveredGateway[] | null>(null);
@@ -90,9 +86,7 @@ export function ConnectionScreen() {
   const [connecting, setConnecting] = React.useState(false);
   const [connectError, setConnectError] = React.useState<string | null>(null);
 
-  const [receiving, setReceiving] = React.useState(false);
-  const [receiveError, setReceiveError] = React.useState<string | null>(null);
-  const [receivedName, setReceivedName] = React.useState<string | null>(null);
+  const [infoError, setInfoError] = React.useState<string | null>(null);
 
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualIp, setManualIp] = React.useState("");
@@ -101,7 +95,7 @@ export function ConnectionScreen() {
 
   const [logClearedAt, setLogClearedAt] = React.useState<string | null>(null);
 
-  const { log, progress } = useSessionEvents(session?.id ?? null);
+  const { log } = useSessionEvents(session?.id ?? null);
 
   const handleScan = React.useCallback(async () => {
     setScanning(true);
@@ -147,8 +141,7 @@ export function ConnectionScreen() {
     try {
       const next = await connectGateway(host, pw);
       setSelectedAddress(next.host);
-      setReceivedName(null);
-      setReceiveError(null);
+      setInfoError(null);
       return null;
     } catch (err) {
       return errorMessage(err, "Connection failed");
@@ -189,32 +182,15 @@ export function ConnectionScreen() {
     } catch {
       // A dead session is gone either way.
     }
-    setReceivedName(null);
   }
 
   async function handleRefreshInfo() {
     if (!session) return;
+    setInfoError(null);
     try {
       await queryGatewayInfo(session.id);
     } catch (err) {
-      setReceiveError(errorMessage(err, "INFO? query failed"));
-    }
-  }
-
-  async function handleReceive() {
-    if (!session) return;
-    setReceiving(true);
-    setReceiveError(null);
-    setReceivedName(null);
-    try {
-      const meta = await receiveGatewayProject(session.id);
-      setProjectId(meta.id);
-      setReceivedName(meta.name);
-    } catch (err) {
-      // Includes the server-side rejection of unsupported project families.
-      setReceiveError(errorMessage(err, "Receive failed"));
-    } finally {
-      setReceiving(false);
+      setInfoError(errorMessage(err, "INFO? query failed"));
     }
   }
 
@@ -364,14 +340,10 @@ export function ConnectionScreen() {
                 onPasswordChange={setPassword}
                 connecting={connecting}
                 connectError={connectError}
-                receiving={receiving}
-                receiveError={receiveError}
-                receivedName={receivedName}
-                progress={progress}
+                infoError={infoError}
                 onConnect={() => void handleConnect()}
                 onDisconnect={() => void handleDisconnect()}
                 onRefreshInfo={() => void handleRefreshInfo()}
-                onReceive={() => void handleReceive()}
               />
             ) : (
               <>
@@ -505,14 +477,10 @@ function SelectedGateway({
   onPasswordChange,
   connecting,
   connectError,
-  receiving,
-  receiveError,
-  receivedName,
-  progress,
+  infoError,
   onConnect,
   onDisconnect,
   onRefreshInfo,
-  onReceive,
 }: {
   gateway: DiscoveredGateway;
   /** Live session when this gateway is the connected one, else null. */
@@ -521,14 +489,10 @@ function SelectedGateway({
   onPasswordChange: (value: string) => void;
   connecting: boolean;
   connectError: string | null;
-  receiving: boolean;
-  receiveError: string | null;
-  receivedName: string | null;
-  progress: TransferProgress | null;
+  infoError: string | null;
   onConnect: () => void;
   onDisconnect: () => void;
   onRefreshInfo: () => void;
-  onReceive: () => void;
 }) {
   const family = gatewayFamily(gateway.info, gateway.raw);
   // Once connected, the session carries the fresher INFO? summary.
@@ -668,35 +632,16 @@ function SelectedGateway({
           {connectError}
         </p>
       ) : null}
-      {receiveError ? (
+      {infoError ? (
         <p role="alert" className="mt-3 rounded border border-error-border bg-error-bg px-3 py-2 text-xs text-error">
-          {receiveError}
+          {infoError}
         </p>
       ) : null}
-      {receivedName ? (
-        <p className="mt-3 text-[12.5px] text-success">
-          Received “{receivedName}” — it is now the current project.
-        </p>
-      ) : null}
-
-      {receiving && progress ? (
-        <div className="mt-3">
-          <TransferProgressBar progress={progress} />
-        </div>
-      ) : null}
-
       <div className="mt-4 flex flex-wrap gap-[9px]">
         {session ? (
           <>
             <Button className="bg-hms-marine hover:bg-hms-marine/90" onClick={onDisconnect}>
               Disconnect
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={onReceive}
-              disabled={receiving || session.busy || !connected}
-            >
-              {receiving ? "Receiving…" : "Receive project"}
             </Button>
             <Button
               variant="secondary"

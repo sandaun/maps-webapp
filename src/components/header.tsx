@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeftRight, Upload } from "lucide-react";
+import { ArrowLeftRight } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { GatewayTransferActions } from "@/components/gateway-transfer-actions";
+import { usePendingPropertyChanges } from "@/lib/property-drafts";
 import { sectionLabelForPath } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import type { FamilyId } from "@/lib/project-types";
@@ -72,6 +73,7 @@ export function Header() {
   const section = sectionLabelForPath(pathname, view?.family);
   const { session, loading: sessionLoading } = useGatewaySession();
   const { dirtyCount } = useWorkspaceChrome();
+  const pendingCount = dirtyCount + usePendingPropertyChanges();
   const projectsArea = pathname.startsWith("/projects");
   const breadcrumb =
     pathname === "/projects/new"
@@ -85,14 +87,14 @@ export function Header() {
   const protocols = view ? PROTOCOL_LABELS[view.family] : null;
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-white px-5">
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-white px-5 py-2">
       <nav aria-label="Breadcrumb" className="text-sm text-fg-muted">
         <span className="font-display font-medium text-text-body">{breadcrumb[0]}</span>
         <span className="mx-2 text-fg-subtle">/</span>
         <span>{breadcrumb[1]}</span>
       </nav>
 
-      <div className="flex items-center gap-3.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-3.5">
         {protocols ? (
           <span className={cn(CHIP, "gap-1.5 border-border bg-[#F7F8F9]")}>
             <span className="font-mono text-[11px] font-semibold leading-none text-bms-text">{protocols[0]}</span>
@@ -117,18 +119,12 @@ export function Header() {
             </StatusChip>
           )
         ) : null}
-        <StatusChip tone={dirtyCount > 0 ? "warning" : "success"}>
-          {dirtyCount > 0
-            ? `${dirtyCount} change${dirtyCount === 1 ? "" : "s"} pending`
+        <StatusChip tone={pendingCount > 0 ? "warning" : "success"}>
+          {pendingCount > 0
+            ? `${pendingCount} change${pendingCount === 1 ? "" : "s"} pending`
             : "Up to date"}
         </StatusChip>
-        <Button
-          className="h-[34px] rounded-[4px] px-[15px] text-[13px] font-medium"
-          onClick={() => router.push("/deploy")}
-        >
-          <Upload className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-          Deploy
-        </Button>
+        <GatewayTransferActions />
       </div>
     </header>
   );

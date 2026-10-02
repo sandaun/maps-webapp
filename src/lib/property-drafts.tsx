@@ -256,6 +256,14 @@ export function usePropertyDrafts() {
   return context;
 }
 
+/** Unsaved property edits in the current project, including other screens. */
+export function usePendingPropertyChanges(): number {
+  const context = React.useContext(DraftContext);
+  const projectId = context?.view?.meta.id;
+  if (!context || !projectId) return 0;
+  return Object.keys(context.snapshot.projects[projectId]?.edits ?? {}).length;
+}
+
 /**
  * True while a property Save of the current project is in flight: structural
  * mutations of the same project wait for it. Safe outside the provider.
