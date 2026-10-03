@@ -33,8 +33,9 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MAPS Web — KNX ↔ Modbus Master",
-  description: "Configuration tool for Intesis IN-KNX-MBM gateways",
+  title: "MAPS Web",
+  description: "Configuration tool for Intesis gateways",
+  icons: { icon: { url: "/maps-icon.svg", type: "image/svg+xml" } },
 };
 
 export default function RootLayout({

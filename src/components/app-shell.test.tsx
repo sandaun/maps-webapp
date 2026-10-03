@@ -52,7 +52,7 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByText("MAPS")).toBeInTheDocument();
-    expect(screen.getByText("INTESIS · CLOUD")).toBeInTheDocument();
+    expect(screen.getByText("INTESIS")).toBeInTheDocument();
     expect(screen.getByText("Office demo")).toBeInTheDocument();
     expect(screen.getByText("KNX ↔ Modbus Master")).toBeInTheDocument();
     expect(screen.getByText("Gateway workspace")).toBeInTheDocument();
@@ -86,12 +86,12 @@ describe("AppShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
-    expect(screen.queryByText("INTESIS · CLOUD")).not.toBeInTheDocument();
+    expect(screen.queryByText("INTESIS")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Signals" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
-    expect(screen.getByText("INTESIS · CLOUD")).toBeInTheDocument();
+    expect(screen.getByText("INTESIS")).toBeInTheDocument();
   });
 
   it("shows the real session and hides the demo banner when connected", () => {
