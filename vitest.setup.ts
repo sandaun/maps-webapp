@@ -4,7 +4,7 @@ import { afterEach } from "vitest";
 
 // Node 25+ may install a stub `localStorage` without Web Storage methods,
 // which then shadows jsdom's implementation.
-if (typeof window.localStorage?.getItem !== "function") {
+if (typeof window !== "undefined" && typeof window.localStorage?.getItem !== "function") {
   const store = new Map<string, string>();
   const memory: Storage = {
     get length() {
@@ -30,7 +30,7 @@ if (typeof window.localStorage?.getItem !== "function") {
 }
 
 // jsdom has no ResizeObserver; Radix popper measures its content with one.
-if (typeof window.ResizeObserver === "undefined") {
+if (typeof window !== "undefined" && typeof window.ResizeObserver === "undefined") {
   window.ResizeObserver = class {
     observe() {}
     unobserve() {}

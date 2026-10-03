@@ -55,8 +55,10 @@ function rig() {
         const compiled = runXblPipeline(XmlDocument.parse(extractIbmaps(parseCompleteBlob(active).zip).xml));
         for (let repeat = 0; repeat < 2; repeat++) for (const point of compiled.mbm.signals.filter((s) => s.configId >= 2)) {
           const address = point.address - point.base; const at = new Date().toISOString();
-          listener({ type: "monitor", at, line: `1MM:RTUB [Tx] ${frame([1, point.readFunc, address >>> 8, address & 255, 0, 1])}` });
-          listener({ type: "monitor", at, line: `1MM:RTUB [Rx] ${frame(point.readFunc <= 2 ? [1, point.readFunc, 1, 1] : [1, point.readFunc, 2, 0, address])}` });
+          const quantity = point.readFunc <= 2 ? 1 : point.dataLength / 16;
+          const data = Array.from({ length: quantity }, (_, i) => [address + i >>> 8, address + i & 255]).flat();
+          listener({ type: "monitor", at, line: `1MM:RTUB [Tx] ${frame([1, point.readFunc, address >>> 8, address & 255, 0, quantity])}` });
+          listener({ type: "monitor", at, line: `1MM:RTUB [Rx] ${frame(point.readFunc <= 2 ? [1, point.readFunc, 1, 1] : [1, point.readFunc, data.length, ...data])}` });
         }
       }
       return status(id);
@@ -67,6 +69,15 @@ function rig() {
 }
 
 describe("persistent scan and recovery", () => {
+  it("captures complete 32/64-bit values through temporary RTU signals and restores the backup", async () => {
+    const r = rig(); const input = scanInputSchema.parse({ ...settings(), ranges: [], targets: [{ function: 3, address: 10, quantity: 2 }, { function: 4, address: 20, quantity: 4 }] });
+    const job = await r.service.start(input); await r.service.settled(job.id);
+    expect(job.state).toBe("completed"); expect(job.processed).toBe(2); expect(job.needsRestore).toBe(false);
+    expect(job.observations).toHaveLength(4);
+    expect(job.observations?.find((o) => o.function === 3)?.values).toEqual([10, 11]);
+    expect(job.observations?.find((o) => o.function === 4)?.values).toEqual([20, 21, 22, 23]);
+    expect(job.restoredHash).toBe(sha(baseline));
+  });
   it("retries a temporary reconnect while firmware applies the uploaded configuration", async () => {
     const r = rig(); const originalConnector = r.sessions.scanConnector;
     r.sessions.scanConnector = (id) => {

@@ -29,7 +29,7 @@ export function buildScanBatch(backup: Uint8Array, input: ScanInput, points: Sca
   for (const point of points) {
     while (used.has(ga)) ga++; assert(ga <= 0x7fff, "No free KNX group address available"); used.add(ga);
     const id = addSignal(doc); const bit = point.function <= 2;
-    updateSignal(doc, id, { active: true, description: `Scan FC${point.function} PDU ${point.address}`, knx: { dpt: bit ? 0x0101 : 0x0701, groupAddress: ga, additionalAddresses: [], flags: { r: true, t: false, ri: false, w: false, u: false } }, modbus: { port: input.locator.nodeIndex, deviceIndex, isBroadcast: false, readFunc: point.function, writeFunc: -1, lenBits: bit ? 1 : 16, format: bit ? -1 : 0, byteOrder: bit ? -1 : 0, bit: -1, numOfBits: -1, address: point.address + base, deadband: 0 } });
+    updateSignal(doc, id, { active: true, description: `Scan FC${point.function} PDU ${point.address}`, knx: { dpt: bit ? 0x0101 : 0x0701, groupAddress: ga, additionalAddresses: [], flags: { r: true, t: false, ri: false, w: false, u: false } }, modbus: { port: input.locator.nodeIndex, deviceIndex, isBroadcast: false, readFunc: point.function, writeFunc: -1, lenBits: bit ? 1 : 16 * (point.quantity ?? 1), format: bit ? -1 : 0, byteOrder: bit ? -1 : 0, bit: -1, numOfBits: -1, address: point.address + base, deadband: 0 } });
   }
   const after = projectFromXml(doc); assert.deepEqual(after.signals.slice(0, before.signals.length), before.signals);
   const errors = validateProject(after).filter((issue) => issue.severity === "error"); assert.equal(errors.length, 0, errors.map((issue) => issue.message).join("; "));

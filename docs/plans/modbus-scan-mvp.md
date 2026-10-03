@@ -1,5 +1,7 @@
 # Add from Modbus scan
 
+The subsequent PDF/AI validation implementation is documented in [modbus-ai-validation.md](../reference/modbus-ai-validation.md). The findings and checkpoint notes below describe the original scan MVP.
+
 Implemented on `codex/modbus-scan`, based on `origin/staging`. Hardware validation precedes the user-requested checkpoint commit; it does not deploy the application automatically.
 
 ## Workflow

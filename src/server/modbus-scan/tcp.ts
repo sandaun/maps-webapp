@@ -24,13 +24,14 @@ export async function readTcpPoint(host: string, port: number, slave: number, po
       if (received.length < 6 + length) return;
       const pdu = received.subarray(7, 6 + length);
       if (pdu[0] === (point.function | 128) && pdu.length === 2) { done(undefined, { exceptionCode: pdu[1] }); return; }
-      const bytes = point.function <= 2 ? 1 : 2;
+      const quantity = point.quantity ?? 1;
+      const bytes = point.function <= 2 ? Math.ceil(quantity / 8) : quantity * 2;
       if (pdu[0] !== point.function || pdu[1] !== bytes || pdu.length !== bytes + 2) { done(new Error("Invalid Modbus TCP response function or length")); return; }
-      done(undefined, { values: [point.function <= 2 ? pdu[2] & 1 : pdu.readUInt16BE(2)] });
+      done(undefined, { values: Array.from({ length: quantity }, (_, i) => point.function <= 2 ? pdu[2 + Math.floor(i / 8)] >>> (i % 8) & 1 : pdu.readUInt16BE(2 + i * 2)) });
     });
     socket.connect(port, host, () => {
       const request = Buffer.alloc(12); request.writeUInt16BE(1, 0); request.writeUInt16BE(6, 4); request[6] = slave;
-      request[7] = point.function; request.writeUInt16BE(point.address, 8); request.writeUInt16BE(1, 10); socket.write(request);
+      request[7] = point.function; request.writeUInt16BE(point.address, 8); request.writeUInt16BE(point.quantity ?? 1, 10); socket.write(request);
     });
   });
 }

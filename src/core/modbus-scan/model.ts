@@ -8,13 +8,16 @@ export const scanInputSchema = z.object({
   locator: z.object({ kind: z.enum(["rtu", "tcp"]), nodeIndex: z.number().int().min(0) }),
   slave: z.number().int().min(1).max(247),
   sessionId: z.string().optional(),
-  ranges: z.array(z.object({ function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]), start: z.number().int().min(0).max(65535), end: z.number().int().min(0).max(65535) })).min(1).max(4),
+  ranges: z.array(z.object({ function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]), start: z.number().int().min(0).max(65535), end: z.number().int().min(0).max(65535) })).max(4).default([]),
+  targets: z.array(z.object({ function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]), address: z.number().int().min(0).max(65535), quantity: z.number().int().min(1).max(4).default(1) })).min(1).max(4096).optional(),
+  observationSeconds: z.number().int().min(0).max(300).optional(),
   batchSize: z.number().int().min(1).max(512).default(256),
   maxPoints: z.number().int().min(1).max(4096).default(1024),
   maxDurationSeconds: z.number().int().min(30).max(1800).default(600),
 });
 export type ScanInput = z.infer<typeof scanInputSchema>;
-export type ScanPoint = { function: ScanFunction; address: number };
+export type ScanPoint = { function: ScanFunction; address: number; quantity?: number };
+export type ScanObservation = ScanPoint & { quantity: number; at: string; values?: number[]; exceptionCode?: number; timeout?: boolean };
 export type ScanState = "preparing" | "scanning" | "restoring" | "restore-pending" | "completed" | "cancelled" | "failed";
 export type ScanResult = ScanPoint & {
   status: "unconfirmed" | "readable" | "exception" | "timeout";
@@ -28,9 +31,22 @@ export interface ScanJob {
   batch: number; batches: number; points: number; processed: number; results: ScanResult[];
   error?: string; recoveryError?: string; imported?: boolean;
   targetFingerprint?: string;
+  observations?: ScanObservation[];
+  observationsTruncated?: boolean;
 }
 export function scanPoints(input: ScanInput): ScanPoint[] {
   const seen = new Set<string>(); const points: ScanPoint[] = [];
+  if (input.targets?.length) {
+    if (input.ranges.length) throw new Error("Choose targeted reads or scan ranges, not both.");
+    for (const target of input.targets) {
+      if (target.function <= 2 && target.quantity !== 1 || target.address + target.quantity > 65536) throw new Error("Invalid targeted read span.");
+      const key = `${target.function}:${target.address}`;
+      if (seen.has(key)) throw new Error("Each targeted function/address must be unique.");
+      seen.add(key); points.push(target);
+    }
+    if (points.length > input.maxPoints) throw new Error("Selected targets exceed the total point limit.");
+    return points;
+  }
   for (const range of input.ranges) {
     if (range.end < range.start) throw new Error("The end address must be at least the start address.");
     if (range.end - range.start + 1 > input.maxPoints) throw new Error("Selected ranges exceed the total point limit.");
@@ -40,6 +56,7 @@ export function scanPoints(input: ScanInput): ScanPoint[] {
     }
   }
   if (points.length > input.maxPoints) throw new Error("Selected ranges exceed the total point limit.");
+  if (!points.length) throw new Error("Select at least one scan range or targeted read.");
   return points;
 }
 export function estimateScan(input: ScanInput) {

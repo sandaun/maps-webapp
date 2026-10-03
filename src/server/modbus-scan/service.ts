@@ -119,36 +119,55 @@ export class ModbusScanService {
     if (status.gateway?.appId !== 4 || (job.serial && job.serial !== status.gateway.serial) || (job.mac && job.mac !== status.gateway.mac)) throw new ScanError(409, "Gateway identity changed. The backup will not be sent to this device.");
   }
   private observe(job: ScanJob, observation: BusObservation, allowed?: Set<string>) {
+    if (job.input.targets?.length) {
+      job.observations ??= [];
+      for (const row of job.results) {
+        if (row.function !== observation.function || allowed && !allowed.has(pointKey(row))) continue;
+        const quantity = row.quantity ?? 1; const offset = row.address - observation.address;
+        if (observation.values ? offset < 0 || offset + quantity > observation.values.length : offset !== 0 || observation.quantity !== quantity) continue;
+        if (job.observations.length >= 10000) { job.observations.shift(); job.observationsTruncated = true; }
+        job.observations.push({ ...observation, address: row.address, quantity, values: observation.values?.slice(offset, offset + quantity) });
+        this.observeResult(row, { ...observation, values: observation.values?.slice(offset, offset + quantity) });
+      }
+      job.processed = job.results.filter((row) => row.attempts >= 2).length;
+      return;
+    }
     for (let i = 0; i < observation.quantity; i++) {
       const key = `${observation.function}:${observation.address + i}`; if (allowed && !allowed.has(key)) continue;
       const row = job.results.find((r) => pointKey(r) === key); if (!row) continue;
+      this.observeResult(row, { ...observation, values: observation.values?.slice(i, i + 1) });
+    }
+    job.processed = job.results.filter((row) => row.attempts >= 2).length;
+  }
+  private observeResult(row: ScanJob["results"][number], observation: BusObservation) {
       row.attempts++; row.lastAt = observation.at;
       if (observation.values) {
-        const value = observation.values[i]; row.samples++; row.lastValue = value;
+        const value = observation.values[0]; row.samples++; row.lastValue = value;
         if (!row.values.includes(value) && row.values.length < 16) row.values.push(value);
         row.changed = row.values.length > 1; row.status = "readable";
       } else if (observation.exceptionCode !== undefined) {
         if (!row.exceptionCodes.includes(observation.exceptionCode)) row.exceptionCodes.push(observation.exceptionCode);
         if (!row.samples) row.status = "exception";
       } else if (observation.timeout) { row.timeouts++; if (!row.samples && !row.exceptionCodes.length) row.status = "timeout"; }
-    }
-    job.processed = job.results.filter((row) => row.attempts >= 2).length;
   }
   private async runTcp(job: ScanJob, view: ProjectView) {
     const node = scanNode(view, job.input) as { port: number; rxTimeout: number; connTimeout: number };
     const started = Date.now(); const signal = this.controllers.get(job.id)!.signal;
     try {
       job.state = "scanning"; await this.store.save(job);
+      do {
       for (let i = 0; i < job.results.length; i++) {
         if (job.cancelRequested || Date.now() - started >= job.input.maxDurationSeconds * 1000) break;
         job.batch = Math.floor(i / job.input.batchSize) + 1;
         const point = job.results[i];
         for (let attempt = 0; attempt < 2 && !job.cancelRequested; attempt++) {
           const result = await this.tcpRead(job.host, node.port, job.input.slave, point, Math.min(30000, Math.max(1000, node.rxTimeout, node.connTimeout)), signal);
-          this.observe(job, { ...point, quantity: 1, at: new Date().toISOString(), ...result });
+          this.observe(job, { ...point, quantity: point.quantity ?? 1, at: new Date().toISOString(), ...result });
         }
         await this.store.save(job);
       }
+      if (job.input.observationSeconds && !job.cancelRequested) await this.wait(500);
+      } while (!job.cancelRequested && Date.now() - started < Math.min(job.input.observationSeconds ?? 0, job.input.maxDurationSeconds) * 1000);
       if (!job.cancelRequested && job.processed < job.points) job.error = "Time limit reached. Remaining points are unconfirmed.";
       job.state = job.cancelRequested ? "cancelled" : "completed";
     } catch (error) { job.error = message(error); job.state = job.cancelRequested ? "cancelled" : "failed"; }
@@ -188,7 +207,8 @@ export class ModbusScanService {
         const decoder = new RtuScanDecoder(job.input.slave, proposal.bus, (observation) => this.observe(job, observation, allowed));
         unsubscribe = this.sessions.subscribe(current!, (event) => { if (event.type === "monitor") try { decoder.feed(event.line, event.at); } catch (error) { captureError = error; } });
         job.state = "scanning"; await this.sessions.setMonitor(current!, true, { comms: true, debug: true }); await this.store.save(job);
-        while (!job.cancelRequested && batch.some((row) => row.attempts < 2) && Date.now() - started < job.input.maxDurationSeconds * 1000) {
+        const captureStarted = Date.now();
+        while (!job.cancelRequested && (batch.some((row) => row.attempts < 2) || Date.now() - captureStarted < (job.input.observationSeconds ?? 0) * 1000) && Date.now() - started < job.input.maxDurationSeconds * 1000) {
           await this.wait(1000); if (captureError) throw captureError;
           if (!this.sessions.getStatus(current!).connected) throw new Error("Gateway connection lost during scan");
           await this.store.save(job);

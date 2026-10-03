@@ -24,3 +24,7 @@ it("times out without manufacturing a zero value", async () => {
   const port = await listen(() => {});
   expect(await readTcpPoint("127.0.0.1", port, 1, { function: 3, address: 10 }, 20, new AbortController().signal)).toEqual({ timeout: true });
 });
+it("reads all words of a float or 64-bit value in one Modbus transaction", async () => {
+  const port = await listen((socket, request) => { expect(request.readUInt16BE(10)).toBe(4); socket.end(response([3, 8, 0x41, 0xc8, 0, 0, 0x12, 0x34, 0xab, 0xcd])); });
+  expect(await readTcpPoint("127.0.0.1", port, 1, { function: 3, address: 104, quantity: 4 }, 1000, new AbortController().signal)).toEqual({ values: [0x41c8, 0, 0x1234, 0xabcd] });
+});
