@@ -9,7 +9,6 @@ import { sectionLabelForPath } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import type { FamilyId } from "@/lib/project-types";
 import { useGatewaySession } from "@/lib/gateway-session";
-import { useWorkspaceChrome } from "@/lib/workspace-chrome";
 import { cn } from "@/lib/utils";
 
 const PROTOCOL_LABELS: Record<FamilyId, readonly [string, string]> = {
@@ -72,8 +71,7 @@ export function Header() {
   const { view } = useCurrentProject();
   const section = sectionLabelForPath(pathname, view?.family);
   const { session, loading: sessionLoading } = useGatewaySession();
-  const { dirtyCount } = useWorkspaceChrome();
-  const pendingCount = dirtyCount + usePendingPropertyChanges();
+  const unsavedCount = usePendingPropertyChanges();
   const projectsArea = pathname.startsWith("/projects");
   const breadcrumb =
     pathname === "/projects/new"
@@ -119,11 +117,11 @@ export function Header() {
             </StatusChip>
           )
         ) : null}
-        <StatusChip tone={pendingCount > 0 ? "warning" : "success"}>
-          {pendingCount > 0
-            ? `${pendingCount} change${pendingCount === 1 ? "" : "s"} pending`
-            : "Up to date"}
-        </StatusChip>
+        {unsavedCount > 0 ? (
+          <StatusChip tone="warning">
+            {unsavedCount} unsaved change{unsavedCount === 1 ? "" : "s"}
+          </StatusChip>
+        ) : null}
         <GatewayTransferActions />
       </div>
     </header>

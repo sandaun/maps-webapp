@@ -17,6 +17,7 @@ import {
   type GatewaySerialPort,
 } from "@/lib/gateway-api";
 import { FAMILY_LABELS } from "@/lib/project-types";
+import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +109,7 @@ const HOW_TO_STEPS = [
 
 export function ConnectionScreen() {
   const { session } = useGatewaySession();
+  const { view } = useCurrentProject();
 
   const [gateways, setGateways] = React.useState<DiscoveredGateway[] | null>(null);
   const [scanning, setScanning] = React.useState(false);
@@ -276,7 +278,11 @@ export function ConnectionScreen() {
     }
   }
 
-  const compatibleCount = rows.filter((gateway) => gatewayFamily(gateway.info, gateway.raw)).length;
+  const matchCount = rows.filter((gateway) => {
+    const info = session?.host === gateway.address ? session.gateway ?? gateway.info : gateway.info;
+    const family = gatewayFamily(info, gateway.raw);
+    return view ? family === view.family : family !== null;
+  }).length;
 
   return (
     <div className="max-w-[1240px]">
@@ -409,7 +415,7 @@ export function ConnectionScreen() {
             <span>
               {gateways === null
                 ? "Not scanned yet"
-                : `${rows.length} gateways found · ${compatibleCount} compatible`}
+                : `${rows.length} gateway${rows.length === 1 ? "" : "s"} found · ${matchCount} ${view ? `template match${matchCount === 1 ? "" : "es"}` : "supported"}`}
             </span>
             <span className="flex-1" />
             <button
@@ -638,9 +644,11 @@ function SelectedGateway({
   onDisconnect: () => void;
   onRefreshInfo: () => void;
 }) {
-  const family = gatewayFamily(gateway.info, gateway.raw);
+  const { view } = useCurrentProject();
   // Once connected, the session carries the fresher INFO? summary.
   const info: GatewayInfoSummary = session?.gateway ?? gateway.info;
+  const family = gatewayFamily(info, gateway.raw);
+  const templateMatch = view !== null && family === view.family;
   const connected = session?.connected ?? false;
 
   const rows: DetailRow[] = [
@@ -653,8 +661,8 @@ function SelectedGateway({
     { k: "Firmware", v: info.appVersion ?? "—", tone: "muted" },
     {
       k: "Template match",
-      v: family ? "compatible" : "not compatible",
-      tone: family ? "success" : "error",
+      v: view ? (templateMatch ? "Match" : "No match") : "No project open",
+      tone: view ? (templateMatch ? "success" : "warning") : "muted",
     },
     ...(info.dhcp !== undefined
       ? [{ k: "Addressing", v: info.dhcp ? "DHCP" : "static", tone: "muted" as RowTone }]
@@ -675,6 +683,10 @@ function SelectedGateway({
   if (!family) {
     warnings.push(
       "This gateway runs a protocol combination this app does not support. You can connect to inspect it, but projects cannot be sent to or received from it.",
+    );
+  } else if (view && !templateMatch) {
+    warnings.push(
+      `This gateway does not match the open project's template (${FAMILY_LABELS[view.family]}). You can connect to inspect it or receive its configuration as another project.`,
     );
   }
   if (info.bootloader) {

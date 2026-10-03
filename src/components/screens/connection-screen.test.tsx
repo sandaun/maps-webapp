@@ -2,6 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionScreen } from "./connection-screen";
 import { chooseOption } from "@/components/ui/select-testing";
+import type { FamilyId } from "@/lib/project-types";
+
+const project = vi.hoisted(() => ({ view: { family: "knx-mbm" } as { family: FamilyId } | null }));
+vi.mock("@/lib/current-project", () => ({ useCurrentProject: () => ({ view: project.view }) }));
 
 function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,7 +63,10 @@ function sessionFor(host: string) {
 
 const RECENT_IPS_KEY = "maps-web:recent-gateway-ips";
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  project.view = { family: "knx-mbm" };
+});
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -143,7 +150,7 @@ describe("ConnectionScreen", () => {
     render(<ConnectionScreen />);
 
     await screen.findByText(/No gateway answered the discovery broadcast/);
-    expect(screen.getByText("0 gateways found · 0 compatible")).toBeInTheDocument();
+    expect(screen.getByText("0 gateways found · 0 template matches")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Connect to an IP address manually →" }),
     ).toBeInTheDocument();
@@ -166,14 +173,52 @@ describe("ConnectionScreen", () => {
 
     // The first gateway is auto-selected: detail rows and password are visible.
     expect(screen.getByText("Template match")).toBeInTheDocument();
-    expect(screen.getByText("compatible")).toBeInTheDocument();
+    expect(screen.getByText("Match")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
 
     // Selecting the incompatible gateway flags it.
     fireEvent.click(screen.getByRole("button", { name: /BACnet gateway/ }));
-    expect(await screen.findByText("not compatible")).toBeInTheDocument();
+    expect(await screen.findByText("No match")).toBeInTheDocument();
     expect(screen.getByText("incompatible family")).toBeInTheDocument();
     expect(screen.getAllByText(/does not support/).length).toBeGreaterThan(0);
+  });
+
+  it.each(["knx-mbm", "me-mbs", "mbs-knx"] as const)("matches only the open %s project template", async (family) => {
+    const me = { ...KNX_MBM_GATEWAY, address: "192.168.1.61", info: {
+      ...KNX_MBM_GATEWAY.info, name: "ME-MBS gateway", appName: "IN-ME-AC-MBS", appId: 64,
+    } };
+    const mbsKnx = { ...KNX_MBM_GATEWAY, address: "192.168.1.62", info: {
+      ...KNX_MBM_GATEWAY.info, name: "MBS-KNX gateway", appName: "IN-MBS-KNX", appId: 7,
+    } };
+    const gateways = [KNX_MBM_GATEWAY, me, mbsKnx];
+    project.view = { family };
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText("3 gateways found · 1 template match");
+    for (const [index, gateway] of gateways.entries()) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(gateway.info.name) }));
+      const matches = index === ["knx-mbm", "me-mbs", "mbs-knx"].indexOf(family);
+      expect(screen.getByText(matches ? "Match" : "No match")).toBeInTheDocument();
+      expect(screen.queryByText("incompatible family")).not.toBeInTheDocument();
+      if (matches) expect(screen.queryByText(/does not match the open project's template/)).not.toBeInTheDocument();
+      else expect(screen.getByText(/does not match the open project's template/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    }
+  });
+
+  it("does not claim a template match without an open project", async () => {
+    project.view = null;
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [KNX_MBM_GATEWAY] };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText("No project open");
+    expect(screen.getByText("1 gateway found · 1 supported")).toBeInTheDocument();
+    expect(screen.queryByText("Match")).not.toBeInTheDocument();
   });
 
   it("connects to the selected gateway with the entered password", async () => {
