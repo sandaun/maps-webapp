@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { X } from "lucide-react";
 import {
   connectGateway,
   disconnectGateway,
@@ -13,7 +15,6 @@ import {
 } from "@/lib/gateway-api";
 import { FAMILY_LABELS } from "@/lib/project-types";
 import { useGatewaySession } from "@/lib/gateway-session";
-import { useSessionEvents } from "@/lib/use-session-events";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,13 +24,40 @@ import { Modal, ModalRow } from "@/components/ui/modal";
 
 /** Intesis factory fallback address once the 30 s power-up DHCP window closes. */
 const FACTORY_DEFAULT_IP = "192.168.100.246";
+const RECENT_IPS_KEY = "maps-web:recent-gateway-ips";
+const RECENT_IPS_LIMIT = 5;
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
 function isIpv4(value: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value.trim());
+  const ip = value.trim();
+  return (
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
+    ip.split(".").every((octet) => Number(octet) <= 255)
+  );
+}
+
+function readRecentIps(): string[] {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY) ?? "[]");
+    if (!Array.isArray(stored)) return [];
+    const ips = stored
+      .filter((ip): ip is string => typeof ip === "string" && isIpv4(ip))
+      .map((ip) => ip.trim());
+    return [...new Set(ips)].slice(0, RECENT_IPS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentIps(ips: string[]) {
+  try {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify(ips));
+  } catch {
+    // Recent addresses still work for this visit when browser storage is blocked.
+  }
 }
 
 function formatTime(iso: string): string {
@@ -93,9 +121,7 @@ export function ConnectionScreen() {
   const [manualPassword, setManualPassword] = React.useState("");
   const [manualError, setManualError] = React.useState<string | null>(null);
 
-  const [logClearedAt, setLogClearedAt] = React.useState<string | null>(null);
-
-  const { log } = useSessionEvents(session?.id ?? null);
+  const [recentIps, setRecentIps] = React.useState<string[]>([]);
 
   const handleScan = React.useCallback(async () => {
     setScanning(true);
@@ -112,7 +138,10 @@ export function ConnectionScreen() {
 
   // Auto-scan on mount; deferred like the gateway-session provider's initial load.
   React.useEffect(() => {
-    const initial = window.setTimeout(() => void handleScan(), 0);
+    const initial = window.setTimeout(() => {
+      setRecentIps(readRecentIps());
+      void handleScan();
+    }, 0);
     return () => window.clearTimeout(initial);
   }, [handleScan]);
 
@@ -159,20 +188,28 @@ export function ConnectionScreen() {
   }
 
   async function handleManualConnect() {
-    if (!isIpv4(manualIp)) {
-      setManualError(`"${manualIp.trim()}" is not a valid IPv4 address.`);
+    const host = manualIp.trim();
+    if (!isIpv4(host)) {
+      setManualError(`"${host}" is not a valid IPv4 address.`);
       return;
     }
+    setManualError(null);
     const pw = manualPassword;
     setManualPassword("");
-    const error = await connectTo(manualIp.trim(), pw);
+    const error = await connectTo(host, pw);
     if (error) {
       setManualError(error);
     } else {
+      updateRecentIps([host, ...recentIps.filter((ip) => ip !== host)].slice(0, RECENT_IPS_LIMIT));
       setManualOpen(false);
       setManualIp("");
       setManualError(null);
     }
+  }
+
+  function updateRecentIps(ips: string[]) {
+    setRecentIps(ips);
+    writeRecentIps(ips);
   }
 
   async function handleDisconnect() {
@@ -194,12 +231,11 @@ export function ConnectionScreen() {
     }
   }
 
-  const visibleLog = logClearedAt ? log.filter((entry) => entry.at > logClearedAt) : log;
   const compatibleCount = rows.filter((gateway) => gatewayFamily(gateway.info, gateway.raw)).length;
 
   return (
     <div className="max-w-[1240px]">
-      <div className="grid gap-[14px] lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-[14px] lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         {/* ---------- Discovered gateways ---------- */}
         <Card className="flex flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-3 border-b border-border px-[18px] py-[14px]">
@@ -243,7 +279,7 @@ export function ConnectionScreen() {
             <span className="w-[118px] shrink-0 overflow-hidden">Address · FW</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="h-[clamp(16rem,50dvh,32rem)] flex-none overflow-auto">
             {scanError ? (
               <p role="alert" className="mx-[18px] mt-3 rounded border border-error-border bg-error-bg px-3 py-2 text-xs text-error">
                 {scanError}
@@ -329,7 +365,7 @@ export function ConnectionScreen() {
           </div>
         </Card>
 
-        {/* ---------- Selected gateway + help + log ---------- */}
+        {/* ---------- Selected gateway + help ---------- */}
         <div className="flex flex-col gap-[14px]">
           <Card className="px-[18px] py-4">
             {selected ? (
@@ -355,6 +391,11 @@ export function ConnectionScreen() {
                 </p>
               </>
             )}
+            <div className="mt-4 border-t border-border pt-3">
+              <Link href="/diagnostics" className="text-xs font-bold text-hms-accent hover:underline">
+                Open Diagnostics →
+              </Link>
+            </div>
           </Card>
 
           <Card className="px-[18px] py-4">
@@ -376,41 +417,6 @@ export function ConnectionScreen() {
                 </li>
               ))}
             </ol>
-          </Card>
-
-          <Card className="px-[18px] py-4">
-            <div className="mb-[11px] flex items-center">
-              <h2 className="flex-1 font-display text-[15px] font-light text-hms-blue">
-                Connection log
-              </h2>
-              <button
-                type="button"
-                className="text-[11.5px] text-hms-accent hover:underline disabled:pointer-events-none disabled:opacity-50"
-                disabled={visibleLog.length === 0}
-                onClick={() => setLogClearedAt(new Date().toISOString())}
-              >
-                Clear
-              </button>
-            </div>
-            <div className="max-h-40 overflow-auto">
-              {visibleLog.length === 0 ? (
-                <p className="font-mono text-[11px] text-fg-subtle">
-                  No activity yet — connect to a gateway to see the conversation.
-                </p>
-              ) : (
-                visibleLog.map((entry, index) => (
-                  <div
-                    key={index}
-                    className="flex gap-[9px] border-t border-row-rule py-[5px] font-mono text-[11px] leading-[1.5]"
-                  >
-                    <span className="shrink-0 text-fg-subtle">{formatTime(entry.at)}</span>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-text-body">
-                      {entry.line}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
           </Card>
         </div>
       </div>
@@ -439,12 +445,45 @@ export function ConnectionScreen() {
                 value={manualIp}
                 onChange={(event) => setManualIp(event.target.value)}
                 placeholder={FACTORY_DEFAULT_IP}
+                disabled={connecting}
                 autoComplete="off"
                 autoFocus
                 aria-label="IP address"
                 className="w-[190px] font-mono"
               />
             </ModalRow>
+            {recentIps.length > 0 ? (
+              <div className="border-b border-row-rule py-[9px]">
+                <p className="mb-2 text-[11px] text-fg-muted">Recent IP addresses</p>
+                <ul className="flex flex-wrap gap-2" aria-label="Recent IP addresses">
+                  {recentIps.map((ip) => (
+                    <li key={ip} className="flex overflow-hidden rounded border border-border">
+                      <button
+                        type="button"
+                        className="px-2 py-1 font-mono text-xs text-hms-accent hover:bg-info-bg disabled:opacity-50"
+                        disabled={connecting}
+                        aria-label={`Use IP address ${ip}`}
+                        onClick={() => {
+                          setManualIp(ip);
+                          setManualError(null);
+                        }}
+                      >
+                        {ip}
+                      </button>
+                      <button
+                        type="button"
+                        className="border-l border-border px-1.5 text-fg-muted hover:bg-row-hover disabled:opacity-50"
+                        disabled={connecting}
+                        aria-label={`Remove IP address ${ip}`}
+                        onClick={() => updateRecentIps(recentIps.filter((recent) => recent !== ip))}
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <ModalRow label="Port" hint="MAPS control port">
               <span className="font-mono text-[12.5px] text-hms-blue">23</span>
             </ModalRow>
@@ -452,6 +491,7 @@ export function ConnectionScreen() {
               <Input
                 type="password"
                 value={manualPassword}
+                disabled={connecting}
                 onChange={(event) => setManualPassword(event.target.value)}
                 autoComplete="off"
                 aria-label="Password"

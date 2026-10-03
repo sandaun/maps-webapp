@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionScreen } from "./connection-screen";
 
 function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
@@ -56,7 +56,23 @@ function sessionFor(host: string) {
   };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+const RECENT_IPS_KEY = "maps-web:recent-gateway-ips";
+
+beforeEach(() => window.localStorage.clear());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function openManualDialog() {
+  fireEvent.click(screen.getByRole("button", { name: "Connect to an IP address manually →" }));
+  return screen.getByRole("dialog", { name: "Connect to an IP address" });
+}
+
+function submitManualIp(dialog: HTMLElement, ip: string) {
+  fireEvent.change(within(dialog).getByLabelText("IP address"), { target: { value: ip } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+}
 
 describe("ConnectionScreen", () => {
   it("auto-scans on mount and shows the honest empty state when no gateway answers", async () => {
@@ -72,6 +88,8 @@ describe("ConnectionScreen", () => {
       screen.getByRole("button", { name: "Connect to an IP address manually →" }),
     ).toBeInTheDocument();
     expect(screen.getByText("No gateway selected")).toBeInTheDocument();
+    expect(screen.queryByText("Connection log")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Diagnostics →" })).toHaveAttribute("href", "/diagnostics");
   });
 
   it("renders discovered gateways and shows the selected gateway details", async () => {
@@ -143,6 +161,10 @@ describe("ConnectionScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
     expect(await within(dialog).findByText(/is not a valid IPv4 address/)).toBeInTheDocument();
 
+    submitManualIp(dialog, "192.168.1.999");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("is not a valid IPv4 address");
+    expect(posted).toBeUndefined();
+
     fireEvent.change(within(dialog).getByLabelText("IP address"), {
       target: { value: "10.0.0.8" },
     });
@@ -156,5 +178,131 @@ describe("ConnectionScreen", () => {
         screen.queryByRole("dialog", { name: "Connect to an IP address" }),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("remembers only successful manual connections, with five unique IPs ordered by most recent use", async () => {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify([
+      "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5",
+    ]));
+    mockFetch((url, init) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      if (url === "/api/gateway/sessions" && init?.method === "POST") {
+        const { host } = JSON.parse(String(init.body));
+        return { session: sessionFor(host) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+
+    let dialog = openManualDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use IP address 10.0.0.3" }));
+    expect(within(dialog).getByLabelText("IP address")).toHaveValue("10.0.0.3");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Password"), { target: { value: "secret" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY)!)).toEqual([
+      "10.0.0.3", "10.0.0.1", "10.0.0.2", "10.0.0.4", "10.0.0.5",
+    ]);
+
+    dialog = openManualDialog();
+    expect(within(dialog).getByLabelText("Password")).toHaveValue("");
+    submitManualIp(dialog, " 10.0.0.6 ");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY)!)).toEqual([
+      "10.0.0.6", "10.0.0.3", "10.0.0.1", "10.0.0.2", "10.0.0.4",
+    ]);
+  });
+
+  it("keeps failed attempts out of history and clears the error after a successful retry", async () => {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify(["10.0.0.1"]));
+    let fail = true;
+    mockFetch((url, init) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      if (url === "/api/gateway/sessions" && init?.method === "POST") {
+        if (fail) throw new Error("Gateway unreachable");
+        return { session: sessionFor("10.0.0.2") };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    const dialog = openManualDialog();
+    submitManualIp(dialog, "10.0.0.2");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Gateway unreachable");
+    expect(JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY)!)).toEqual(["10.0.0.1"]);
+
+    fail = false;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText("Gateway unreachable")).not.toBeInTheDocument();
+    expect(within(openManualDialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY)!)).toEqual(["10.0.0.2", "10.0.0.1"]);
+  });
+
+  it("persists removal of an individual IP across screen mounts", async () => {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify(["10.0.0.1", "10.0.0.2"]));
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    const { unmount } = render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    const dialog = openManualDialog();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove IP address 10.0.0.1" }));
+    expect(within(dialog).queryByRole("button", { name: "Use IP address 10.0.0.1" })).not.toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY)!)).toEqual(["10.0.0.2"]);
+
+    unmount();
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    expect(within(openManualDialog()).getByRole("button", { name: "Use IP address 10.0.0.2" })).toBeInTheDocument();
+  });
+
+  it("still connects and offers recent IPs for this visit when browser storage is blocked", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+    mockFetch((url, init) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      if (url === "/api/gateway/sessions" && init?.method === "POST") {
+        return { session: sessionFor("10.0.0.2") };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    submitManualIp(openManualDialog(), "10.0.0.2");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(within(openManualDialog()).getByRole("button", { name: "Use IP address 10.0.0.2" })).toBeInTheDocument();
+  });
+
+  it.each(["invalid JSON", '{"ip":"10.0.0.1"}'])("ignores malformed stored history: %s", async (stored) => {
+    window.localStorage.setItem(RECENT_IPS_KEY, stored);
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    expect(within(openManualDialog()).queryByRole("list", { name: "Recent IP addresses" })).not.toBeInTheDocument();
+  });
+
+  it("sanitizes stored IPs, removes duplicates and limits suggestions to five", async () => {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify([
+      null, 42, "192.168.1.999", "not-an-ip", " 10.0.0.1 ", "10.0.0.1",
+      "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6",
+    ]));
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    const recent = within(openManualDialog()).getByRole("list", { name: "Recent IP addresses" });
+    expect(within(recent).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(recent).getByRole("button", { name: "Use IP address 10.0.0.1" })).toBeInTheDocument();
+    expect(within(recent).queryByRole("button", { name: "Use IP address 10.0.0.6" })).not.toBeInTheDocument();
   });
 });
