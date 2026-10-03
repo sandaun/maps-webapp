@@ -89,6 +89,29 @@ Hard constraints, enforced in code, not by convention:
   sensitive payloads are never logged.
 - The session manager is in-memory: **single process, single instance**.
 
+## USB console and discovery from WSL
+
+**Connection → USB port** lists serial ports on the computer running the Node
+server. Select the gateway's USB device/console port and connect without a
+password. The adapter follows desktop MAPS: 115200 baud, 8N1, DTR/RTS enabled,
+no TCP login and no encryption. Receive, gated Deploy and Diagnostics reuse
+the existing session protocol. The USB host port for flash drives is a
+different interface.
+
+Windows COM ports are not automatically available to a server running in WSL.
+Run the server natively on Windows to access them, or attach the USB device to
+WSL using usbipd-win. A remote server lists its own ports, not the browser's.
+
+Network **Scan** sends UDP/23 `INFO?` broadcasts; it does not enumerate an IP
+range. WSL2 NAT prevents these broadcasts reaching the physical LAN. Enter a
+known **Direct IP (optional)** to add a unicast query, or use the manual IP
+connection. TCP connection can work even when broadcast discovery cannot.
+
+USB protocol, transfers, monitor, port errors and cleanup are tested offline.
+Connection, INFO queries and reopening the port have also been verified with
+a physical IN-KNX-MBM gateway over USB; real project transfers remain pending. See
+`docs/reference/usb-transport.md` for the source and verification details.
+
 ## Deploy: gated per family, and why
 
 Exporting the edited `.ibmaps` and round-tripping an **unmodified** complete

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionScreen } from "./connection-screen";
+import { chooseOption } from "@/components/ui/select-testing";
 
 function mockFetch(handler: (url: string, init?: RequestInit) => unknown) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -75,6 +76,65 @@ function submitManualIp(dialog: HTMLElement, ip: string) {
 }
 
 describe("ConnectionScreen", () => {
+  it("discovers a known IP by unicast and rejects invalid octets", async () => {
+    const fetch = mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    await screen.findByText(/No gateway answered/);
+    fireEvent.change(screen.getByLabelText("Direct IP (optional)"), { target: { value: "192.168.2.167" } });
+    fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/gateway/discovery", expect.objectContaining({
+      body: JSON.stringify({ targets: ["192.168.2.167"] }),
+    })));
+    await screen.findByRole("button", { name: "Scan again" });
+    fireEvent.change(screen.getByLabelText("Direct IP (optional)"), { target: { value: "999.1.2.3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
+    expect(await screen.findByText(/is not a valid IPv4 address/)).toBeInTheDocument();
+  });
+
+  it("lists server serial ports and connects over USB without a password", async () => {
+    let posted: unknown;
+    mockFetch((url, init) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      if (url === "/api/gateway/serial-ports") return { ports: [
+        { path: "/dev/ttyACM0", manufacturer: "Intesis" },
+        { path: "/dev/ttyACM1", manufacturer: "Intesis" },
+      ], isWsl: true };
+      if (url === "/api/gateway/sessions" && init?.method === "POST") {
+        posted = JSON.parse(String(init.body));
+        return { session: { ...sessionFor("/dev/ttyACM1"), transport: "usb", encrypted: false } };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "USB port" }));
+    const dialog = await screen.findByRole("dialog", { name: "Connect over USB" });
+    const ports = within(dialog).getByRole("combobox", { name: "USB serial port" });
+    await waitFor(() => expect(ports).toHaveTextContent("/dev/ttyACM0"));
+    chooseOption(ports, "/dev/ttyACM1 · Intesis");
+    expect(within(dialog).queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/WSL/)).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(posted).toEqual({ transport: "usb", path: "/dev/ttyACM1" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("disables USB connect when no serial ports are available", async () => {
+    mockFetch((url) => {
+      if (url === "/api/gateway/discovery") return { gateways: [] };
+      if (url === "/api/gateway/serial-ports") return { ports: [], isWsl: true };
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    render(<ConnectionScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "USB port" }));
+    const dialog = await screen.findByRole("dialog", { name: "Connect over USB" });
+    await within(dialog).findByText("No serial ports found");
+    expect(within(dialog).getByRole("combobox", { name: "USB serial port" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Connect" })).toBeDisabled();
+  });
+
   it("auto-scans on mount and shows the honest empty state when no gateway answers", async () => {
     mockFetch((url) => {
       if (url === "/api/gateway/discovery") return { gateways: [] };

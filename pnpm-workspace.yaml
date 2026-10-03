@@ -3,5 +3,7 @@
 # key — the app stays a single pnpm package (see docs/plans/knx-mbm-mvp.md).
 allowBuilds:
   # tsx (scripts/verify-xbl.ts runner) wraps esbuild; its postinstall links the binary.
+  # Native serial transport for the gateway's USB console.
+  '@serialport/bindings-cpp': true
   esbuild: true
   unrs-resolver: true
