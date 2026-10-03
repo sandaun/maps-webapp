@@ -46,6 +46,8 @@ export interface FakeGatewaySendScript {
 }
 
 export interface FakeGatewayConfig {
+  /** USB console starts established without a login or cipher. */
+  usb?: boolean;
   password: string;
   /** Old firmware: answer SKT in cleartext and keep the session unencrypted. */
   cleartext?: boolean;
@@ -90,6 +92,7 @@ export class FakeGateway implements Duplex {
   readonly consoleCommands: string[] = [];
 
   constructor(private readonly config: FakeGatewayConfig) {
+    if (config.usb) this.stage = "established";
     this.skt = config.sktCounter ?? 0;
     if (config.greeting) this.enqueue(config.greeting);
   }
@@ -182,6 +185,9 @@ export class FakeGateway implements Duplex {
   }
 
   private handleEstablished(data: Uint8Array): void {
+    // The receiver ACKs EOT after the scripted download has completed.
+    // That binary ACK is not part of the next console command.
+    if (this.stage === "established" && data.length > 0 && data.every((byte) => byte === 0x06)) return;
     if (this.stage === "xmodem") {
       // The receiver's CRC request ('C') triggers the frame burst; the ACKs
       // that follow are ignored.

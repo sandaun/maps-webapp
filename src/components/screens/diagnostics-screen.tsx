@@ -1035,7 +1035,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       {/* ---------- status bar ---------- */}
       <div className="flex h-[28px] shrink-0 items-center justify-between gap-4 bg-hms-blue px-[14px] font-mono text-[11px] text-[rgba(255,255,255,.85)]">
         <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-          Connected to {session.host}:{session.port}
+          Connected to {session.host}{session.transport === "usb" ? " · USB" : `:${session.port}`}
           {familyLine ? ` · ${familyLine}` : ""}
         </span>
         <span className="whitespace-nowrap">

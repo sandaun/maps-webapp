@@ -57,6 +57,8 @@ export interface SessionEvents {
 }
 
 export interface GatewaySessionOptions extends SessionEvents {
+  /** USB uses the same console/transfer protocol, without the TCP login. */
+  transport?: "tcp" | "usb";
   /** Device password: held in memory only, never logged or persisted. */
   password: string;
   /** Optional `00 00` greeting window on TCP accept (default 500 ms). */
@@ -307,6 +309,7 @@ export class GatewaySession {
     this.login = new ClientLogin(options.password, options.random);
     this.events = { log: options.log, progress: options.progress };
     this.opts = {
+      transport: options.transport ?? "tcp",
       greetingTimeoutMs: options.greetingTimeoutMs ?? 500,
       lineTimeoutMs: options.lineTimeoutMs ?? 10_000,
       transferTimeoutMs: options.transferTimeoutMs ?? 15_000,
@@ -317,6 +320,17 @@ export class GatewaySession {
   /** LOGIN0/1/2 handshake, encryption decision and first INFO? (sonda `fer_login`). */
   async connect(): Promise<ConnectResult> {
     this.assertUsable();
+    if (this.opts.transport === "usb") {
+      this.channel = new Channel(this.link);
+      // MAPS ConnectSerialPort wakes the console with CRLF before INFO?.
+      this.link.write(CRLF);
+      this.events.log?.("USB console opened (115200 8N1; no login)");
+      this.connected = true;
+      const info = await this.queryInfo();
+      this.prefixes = consolePrefixesFor(summarizeInfo(info).appId);
+      this.startKeepAlive();
+      return { info, encrypted: false };
+    }
     // Optional `00 00` greeting on TCP accept (PROTOCOL.md §7.4) — discarded.
     await this.link.read(this.opts.greetingTimeoutMs);
 

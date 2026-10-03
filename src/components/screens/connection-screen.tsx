@@ -5,6 +5,8 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import {
   connectGateway,
+  connectUsbGateway,
+  listGatewaySerialPorts,
   disconnectGateway,
   gatewayFamily,
   queryGatewayInfo,
@@ -12,6 +14,7 @@ import {
   type DiscoveredGateway,
   type GatewayInfoSummary,
   type GatewaySessionStatus,
+  type GatewaySerialPort,
 } from "@/lib/gateway-api";
 import { FAMILY_LABELS } from "@/lib/project-types";
 import { useGatewaySession } from "@/lib/gateway-session";
@@ -20,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Modal, ModalRow } from "@/components/ui/modal";
 
 /** Intesis factory fallback address once the 30 s power-up DHCP window closes. */
@@ -109,6 +113,12 @@ export function ConnectionScreen() {
   const [scanning, setScanning] = React.useState(false);
   const [scanError, setScanError] = React.useState<string | null>(null);
   const [selectedAddress, setSelectedAddress] = React.useState<string | null>(null);
+  const [scanIp, setScanIp] = React.useState("");
+  const [usbOpen, setUsbOpen] = React.useState(false);
+  const [usbPorts, setUsbPorts] = React.useState<GatewaySerialPort[]>([]);
+  const [usbPath, setUsbPath] = React.useState("");
+  const [usbLoading, setUsbLoading] = React.useState(false);
+  const [usbError, setUsbError] = React.useState<string | null>(null);
 
   const [password, setPassword] = React.useState("");
   const [connecting, setConnecting] = React.useState(false);
@@ -123,11 +133,15 @@ export function ConnectionScreen() {
 
   const [recentIps, setRecentIps] = React.useState<string[]>([]);
 
-  const handleScan = React.useCallback(async () => {
+  const handleScan = React.useCallback(async (target?: string) => {
+    if (target && !isIpv4(target)) {
+      setScanError(`"${target}" is not a valid IPv4 address.`);
+      return;
+    }
     setScanning(true);
     setScanError(null);
     try {
-      setGateways(await scanGateways());
+      setGateways(await scanGateways(target ? [target] : undefined));
     } catch (err) {
       setGateways([]);
       setScanError(errorMessage(err, "Scan failed"));
@@ -149,7 +163,7 @@ export function ConnectionScreen() {
   const rows = React.useMemo(() => {
     const list = [...(gateways ?? [])];
     if (session?.gateway && !list.some((gateway) => gateway.address === session.host)) {
-      list.unshift({ address: session.host, info: session.gateway, raw: {} });
+      list.unshift({ address: session.host, info: session.gateway, raw: {}, transport: session.transport });
     }
     return list;
   }, [gateways, session]);
@@ -231,6 +245,37 @@ export function ConnectionScreen() {
     }
   }
 
+  async function refreshUsbPorts() {
+    setUsbLoading(true);
+    setUsbError(null);
+    try {
+      const result = await listGatewaySerialPorts();
+      setUsbPorts(result.ports);
+      setUsbPath((current) => result.ports.some((port) => port.path === current)
+        ? current : (result.ports[0]?.path ?? ""));
+    } catch (error) {
+      setUsbError(errorMessage(error, "Could not list USB serial ports"));
+    } finally {
+      setUsbLoading(false);
+    }
+  }
+
+  async function handleUsbConnect() {
+    setConnecting(true);
+    setUsbError(null);
+    try {
+      const next = await connectUsbGateway(usbPath);
+      setSelectedAddress(next.host);
+      setInfoError(null);
+      setConnectError(null);
+      setUsbOpen(false);
+    } catch (error) {
+      setUsbError(errorMessage(error, "USB connection failed"));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   const compatibleCount = rows.filter((gateway) => gatewayFamily(gateway.info, gateway.raw)).length;
 
   return (
@@ -250,27 +295,39 @@ export function ConnectionScreen() {
             <div className="flex shrink-0 items-center gap-1.5">
               <span className="text-xs text-fg-muted">Connection type</span>
               <span
-                className="rounded-[4px] border border-info-border bg-info-bg px-2.5 py-[5px] text-xs font-bold text-hms-blue"
-                aria-current="true"
+                className={cn("rounded-[4px] border px-2.5 py-[5px] text-xs font-bold text-hms-blue",
+                  session?.transport === "usb" ? "border-border" : "border-info-border bg-info-bg")}
+                aria-current={session?.transport === "usb" ? undefined : "true"}
               >
                 IP
               </span>
-              <span
-                title="USB console connection is not supported yet"
-                className="cursor-not-allowed rounded-[4px] border border-border px-2.5 py-[5px] text-xs text-fg-muted opacity-60"
+              <button
+                type="button"
+                onClick={() => { setUsbOpen(true); void refreshUsbPorts(); }}
+                disabled={connecting}
+                aria-current={session?.transport === "usb" ? "true" : undefined}
+                className={cn("rounded-[4px] border px-2.5 py-[5px] text-xs text-hms-blue hover:bg-info-bg",
+                  session?.transport === "usb" ? "border-info-border bg-info-bg" : "border-border")}
               >
                 USB port
-              </span>
+              </button>
             </div>
             <Button
               variant="secondary"
               size="sm"
               className="h-auto shrink-0 border-hms-accent px-3 py-[7px] text-[12.5px] font-bold text-hms-accent hover:bg-info-bg"
-              onClick={() => void handleScan()}
+              onClick={() => void handleScan(scanIp.trim() || undefined)}
               disabled={scanning}
             >
               {scanning ? "Scanning…" : "Scan again"}
             </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-[18px] py-2">
+            <label htmlFor="scan-direct-ip" className="text-xs text-fg-muted">Direct IP (optional)</label>
+            <Input id="scan-direct-ip" value={scanIp} onChange={(event) => setScanIp(event.target.value)}
+              placeholder="192.168.2.167" autoComplete="off" className="w-[150px] font-mono" />
+            <p className="text-[11px] text-fg-muted">Use a known IP if discovery does not find the gateway.</p>
           </div>
 
           <div className="flex bg-table-header px-[18px] py-[7px] font-mono text-[10.5px] font-semibold uppercase tracking-[.06em] text-fg-muted">
@@ -339,7 +396,7 @@ export function ConnectionScreen() {
                 <p className="mx-auto max-w-[340px] text-[13px] leading-[1.6] text-fg-muted">
                   {gateways === null
                     ? "Not scanned yet. Run a scan to find Intesis gateways on this network."
-                    : "No gateway answered the discovery broadcast. Check the cabling, or connect directly to an IP address."}
+                    : "No gateway answered the discovery broadcast. Enter a known Direct IP and scan again, or connect manually."}
                 </p>
                 <Button className="mt-[14px]" onClick={() => void handleScan()}>
                   Scan the network
@@ -420,6 +477,53 @@ export function ConnectionScreen() {
           </Card>
         </div>
       </div>
+
+      {usbOpen ? (
+        <Modal
+          title="Connect over USB"
+          description="Connect the gateway's USB console cable and select its serial port."
+          foot="No password is required over USB."
+          ctaLabel={connecting ? "Connecting…" : "Connect"}
+          ctaDisabled={connecting || usbLoading || !usbPath}
+          onConfirm={() => void handleUsbConnect()}
+          onClose={() => setUsbOpen(false)}
+        >
+          <ModalRow label="Serial port" hint="USB console">
+            <Select
+              aria-label="USB serial port"
+              value={usbPath}
+              onValueChange={setUsbPath}
+              options={usbPorts.map((port) => ({
+                value: port.path,
+                label: `${port.path}${port.manufacturer ? ` · ${port.manufacturer}` : ""}`,
+              }))}
+              placeholder={usbLoading ? "Loading…" : "No serial ports found"}
+              disabled={usbLoading || connecting || usbPorts.length === 0}
+              className="w-[260px] max-w-[65%] shrink-0 font-mono"
+            />
+          </ModalRow>
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={usbLoading || connecting}
+              onClick={() => void refreshUsbPorts()}
+            >
+              {usbLoading ? "Refreshing…" : "Refresh ports"}
+            </Button>
+            <span className="text-[11px] text-fg-subtle">Ports on the computer running MAPS Web</span>
+          </div>
+          <p className="mt-3 text-[11.5px] leading-[1.45] text-fg-muted">
+            Use the USB console port, not the USB host port for flash drives.
+            Close desktop MAPS or other software using the selected port.
+          </p>
+          {usbError ? (
+            <p role="alert" className="mt-3 rounded border border-error-border bg-error-bg px-3 py-2 text-xs text-error">
+              {usbError}
+            </p>
+          ) : null}
+        </Modal>
+      ) : null}
 
       {manualOpen ? (
         <Modal
@@ -540,7 +644,7 @@ function SelectedGateway({
   const connected = session?.connected ?? false;
 
   const rows: DetailRow[] = [
-    { k: "IP address", v: gateway.address, tone: "accent" },
+    { k: gateway.transport === "usb" ? "USB port" : "IP address", v: gateway.address, tone: "accent" },
     {
       k: "Protocols",
       v: family ? FAMILY_LABELS[family] : (info.appName ?? "Unknown"),
@@ -560,8 +664,8 @@ function SelectedGateway({
       ? [
           {
             k: "Session",
-            v: `${session.encrypted ? "Encrypted" : "Cleartext fallback"} · since ${formatTime(session.connectedAt)}`,
-            tone: (session.encrypted ? "success" : "warning") as RowTone,
+            v: `${session.transport === "usb" ? "USB console" : (session.encrypted ? "Encrypted" : "Cleartext fallback")} · since ${formatTime(session.connectedAt)}`,
+            tone: (session.transport === "usb" || session.encrypted ? "success" : "warning") as RowTone,
           },
         ]
       : []),
