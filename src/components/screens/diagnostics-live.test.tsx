@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
@@ -51,6 +51,38 @@ beforeEach(() => {
 });
 
 describe("MBS–KNX live diagnostics", () => {
+  it("identifies bus traffic, filters by signal name and explains unassigned frames", async () => {
+    state.monitor = [
+      { at: "2026-10-03T10:00:00.000Z", line: "0MS:RTUB [Rx] 01 03 00 00 00 01 84 0A" },
+      { at: "2026-10-03T10:00:00.025Z", line: "0MS:RTUB [Tx] 01 03 02 00 01 79 84" },
+      { at: "2026-10-03T10:00:00.050Z", line: "0MS:RTUB [Tx] 01 03 02 00 01 79 84" },
+    ];
+    render(<DiagnosticsScreen />);
+    expect(screen.getByText("SIGNAL", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("FRAME / MESSAGE", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("OBJECT", { exact: true })).not.toBeInTheDocument();
+    const request = await screen.findByRole("button", { name: /MODBUS RX .* Setpoint/ });
+    expect(within(request).getByText("01 03 00 00 00 01 84 0A")).toBeInTheDocument();
+    expect(within(request).queryByText(/0MS:RTUB/)).not.toBeInTheDocument();
+    expect(within(request).getByText("Setpoint")).toHaveAttribute("title", "Setpoint · 0 ⇄ 1/0/1");
+    fireEvent.change(screen.getByPlaceholderText("Filter frames (text or regex)"), { target: { value: "Setpoint" } });
+    expect(screen.getAllByRole("button", { name: /MODBUS (RX|TX) .* Setpoint/ })).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /MODBUS TX .* —/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Filter frames (text or regex)"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /MODBUS TX .* —/ }));
+    expect(screen.getByText(/No signal could be identified from this frame/)).toBeInTheDocument();
+    expect(screen.getByText("Console message 0MS:RTUB [Tx] 01 03 02 00 01 79 84")).toBeInTheDocument();
+  });
+
+  it.each([null, { family: "me-mbs" } as ProjectView])("hides the signal column for an absent or unsupported project: %j", async (view) => {
+    state.view = view;
+    state.monitor = [{ at: new Date().toISOString(), line: "1MM:RTUB Timeout!" }];
+    render(<DiagnosticsScreen />);
+    expect(screen.getByText("Open a KNX ↔ Modbus project to identify signals in the traffic log.")).toBeInTheDocument();
+    expect(screen.queryByText("SIGNAL", { exact: true })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /MODBUS.*1MM:RTUB Timeout!/ })).toBeInTheDocument();
+  });
+
   it("marks unsent drafts and keeps the read-only side of each signal non-editable", async () => {
     render(<DiagnosticsScreen />);
     expect(screen.getByRole("textbox", { name: "Room temperature Modbus value" })).toHaveAttribute("readonly");
