@@ -7,7 +7,7 @@ import { projectFromXml, addTcpNode } from "@/gateway-families/knx-mbm";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import type { ApplyDeviceTemplate } from "@/core/device-templates/types";
 import { decryptDeviceTemplate, encryptDeviceTemplate } from "./crypto";
-import { parseDeviceTemplate, readDeviceTemplate } from "./read";
+import { parseDeviceTemplate, readDeviceTemplate, readDeviceTemplateMetadata } from "./read";
 import { applyDeviceTemplate } from "./apply";
 import { exportDeviceTemplate } from "./export";
 import { TEMPLATE_XML } from "./fixtures";
@@ -20,6 +20,27 @@ const options: ApplyDeviceTemplate = { type: "applyDeviceTemplate", token: "unus
 const projectDoc = () => XmlDocument.parse(SYNTHETIC_KNX_MBM_XML);
 
 describe("MAPS device template format", () => {
+  it.each([
+    ["0", true, "HMS Industrial Networks SLU"],
+    ["1", true, "Fujitsu General Limited"],
+    ["6", true, "ABB"],
+    ["-1", false, "—"],
+    ["99", null, "OEM 99"],
+    ["invalid", null, "—"],
+    ["", null, "—"],
+  ])("reports the MAPS OEM stamp for Author=%s independently of file integrity", (author, signed, name) => {
+    const xml = TEMPLATE_XML.replace('Author="0"', `Author="${author}"`);
+    const metadata = readDeviceTemplateMetadata(encryptDeviceTemplate(xml));
+    expect(metadata).toMatchObject({ version: "1.0.0.0", mapsVersion: "1.2.34.0", signed, author: name });
+    expect(parseDeviceTemplate(xml).preview).toMatchObject(metadata);
+  });
+
+  it("treats a missing OEM stamp as unsigned and rejects damaged metadata files", () => {
+    expect(readDeviceTemplateMetadata(encryptDeviceTemplate(TEMPLATE_XML.replace(' Author="0"', "")))).toMatchObject({ authorCode: -1, signed: false });
+    expect(() => readDeviceTemplateMetadata(Buffer.from(TEMPLATE_XML))).toThrow(/damaged/);
+    expect(() => readDeviceTemplateMetadata(encryptDeviceTemplate(TEMPLATE_XML.replace('Version="1.0.0.0"', 'Version="invalid"')))).toThrow(/version header/);
+  });
+
   it("reads current SHA256 exports and legacy SHA1 files with authenticated XML", () => {
     const bytes = encryptDeviceTemplate(TEMPLATE_XML);
     expect(decryptDeviceTemplate(bytes)).toBe(TEMPLATE_XML);
@@ -98,6 +119,7 @@ describe("apply / export Modbus device templates", () => {
     expect(project.signals[4]).toMatchObject({ active:false, modbus:{ port:1,deviceIndex:0,lenBits:64,address:500 } });
     expect(project.mbm.tcpNodes[0].devices[0].slave).toBe(0);
     const exported = readDeviceTemplate(exportDeviceTemplate(doc,{kind:"tcp",nodeIndex:0,deviceIndex:0}).bytes);
+    expect(exported.preview).toMatchObject({ authorCode: -1, signed: false });
     expect(exported.preview.signals).toHaveLength(2);
     expect(exported.preview.signals[1]).toMatchObject({ id:1,active:false,modbus:{port:0,deviceIndex:0} });
     expect(exported.preview.signals[0].knx.additionalAddresses).toEqual([300]);

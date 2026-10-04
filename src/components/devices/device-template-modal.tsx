@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Download, FileUp, Library } from "lucide-react";
-import type { DeviceTemplatePreview, TemplateLibrary } from "@/core/device-templates/types";
+import type { DeviceTemplateMetadata, DeviceTemplatePreview, TemplateLibrary } from "@/core/device-templates/types";
 import { MAX_ACTIVE_SIGNALS, MAX_MODBUS_DEVICES, MAX_TOTAL_SIGNAL_ROWS } from "@/core/signals/model";
 import type { NodeLocator } from "@/lib/project-types";
 import { request } from "@/lib/api";
@@ -19,6 +19,14 @@ import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 
 const PAGE_SIZE = 50;
+
+function TemplateMetadata({ metadata }: { metadata: DeviceTemplateMetadata }) {
+  return <dl className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+    <div><dt className="text-fg-muted">Template version</dt><dd className="mt-0.5 font-medium">{metadata.version}</dd></div>
+    <div><dt className="text-fg-muted">MAPS version</dt><dd className="mt-0.5 font-medium">{metadata.mapsVersion}</dd></div>
+    <div><dt className="text-fg-muted">Signature</dt><dd className="mt-0.5 font-medium">{metadata.signed === true ? `Signed by ${metadata.author}` : metadata.signed === false ? "Unsigned" : `Unknown${metadata.authorCode === null ? "" : ` · ${metadata.author}`}`}</dd></div>
+  </dl>;
+}
 
 export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocator: NodeLocator; onClose: () => void }) {
   const { view, projectId, mutating } = useCurrentProject();
@@ -38,6 +46,9 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
   const [manufacturer, setManufacturer] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [selectedId, setSelectedId] = React.useState("");
+  const [details, setDetails] = React.useState<{ id: string; metadata?: DeviceTemplateMetadata; error?: string } | null>(null);
+  const [detailsRetry, setDetailsRetry] = React.useState(0);
+  const [metadataCache, setMetadataCache] = React.useState<Record<string, DeviceTemplateMetadata>>({});
   const fileInput = React.useRef<HTMLInputElement>(null);
   const project = view?.family === "knx-mbm" ? view.project : null;
   const nodes = project ? [
@@ -47,6 +58,23 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
   const node = nodes.find((n) => n.locator.kind === locator.kind && n.locator.nodeIndex === locator.nodeIndex);
   const busy = loading || saving || !!mutating;
   const selectedEntry = library?.entries.find((entry) => entry.id === selectedId);
+  const selectedDetails = details?.id === selectedId ? details : null;
+  const selectedMetadata = metadataCache[selectedId] ?? selectedDetails?.metadata;
+
+  React.useEffect(() => {
+    if (!libraryOpen || !selectedId || metadataCache[selectedId]) return;
+    let current = true;
+    void request<DeviceTemplateMetadata>(`/api/modbus-templates/${encodeURIComponent(selectedId)}/metadata`)
+      .then((metadata) => {
+        if (!current) return;
+        setMetadataCache((cache) => ({ ...cache, [selectedId]: metadata }));
+        setDetails({ id: selectedId, metadata });
+      })
+      .catch((err) => {
+        if (current) setDetails({ id: selectedId, error: err instanceof Error ? err.message : "Could not read template details." });
+      });
+    return () => { current = false; };
+  }, [libraryOpen, selectedId, detailsRetry, metadataCache]);
   const entries = library?.entries.filter((entry) =>
     (!manufacturer || entry.manufacturer === manufacturer) &&
     `${entry.manufacturer} ${entry.model} ${entry.modelVersion}`.toLowerCase().includes(search.toLowerCase()),
@@ -141,12 +169,22 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
           {!library && !loading && <Button variant="secondary" onClick={() => void openLibrary()}>Retry library</Button>}
           {library && <div className="max-h-[42vh] overflow-auto rounded border border-border">
             {entries.length === 0 && <p className="p-4 text-sm text-fg-muted">No matching templates.</p>}
-            {entries.map((entry) => <label key={entry.id} className={`flex cursor-pointer items-center gap-3 border-b border-row-rule px-3 py-3 text-sm ${selectedId === entry.id ? "bg-hms-blue/5" : ""}`}>
-              <input type="radio" name="library-template" value={entry.id} checked={selectedId === entry.id} onChange={() => setSelectedId(entry.id)} disabled={busy} />
-              <span className="flex-1"><span className="font-medium">{entry.model}</span><span className="block text-xs text-fg-muted">{entry.manufacturer}</span></span>
-              <span className="text-xs text-fg-muted">v{entry.version}</span>
+            {entries.map((entry) => <label key={entry.id} className={`flex min-h-9 cursor-pointer items-center gap-3 border-b border-row-rule px-3 py-1.5 text-sm last:border-b-0 hover:bg-hms-blue/5 focus-within:bg-hms-blue/5 ${selectedId === entry.id ? "bg-hms-blue/5" : ""}`}>
+              <input type="radio" name="library-template" value={entry.id} checked={selectedId === entry.id} onChange={() => { setSelectedId(entry.id); setDetails(null); }} disabled={busy} />
+              <span className="min-w-0 flex-1 truncate font-medium" title={entry.model}>{entry.model}</span>
+              <span className="max-w-[25%] truncate text-xs text-fg-muted" title={entry.manufacturer}>{entry.manufacturer}</span>
+              <span className="shrink-0 text-xs text-fg-muted" title="Template version">v{entry.version}</span>
             </label>)}
           </div>}
+          <div className="min-h-20 rounded border border-border bg-card-foot px-3 py-2" aria-label="Selected template details" aria-live="polite" aria-busy={!!selectedEntry && !selectedMetadata && !selectedDetails?.error}>
+            {selectedEntry ? <>
+              <p className="mb-2 truncate text-xs font-medium" title={`${selectedEntry.manufacturer} · ${selectedEntry.model}`}>{selectedEntry.manufacturer} · {selectedEntry.model}</p>
+              {selectedMetadata ? <TemplateMetadata metadata={selectedMetadata} /> : selectedDetails?.error ? <div className="flex items-center gap-2">
+                <p role="alert" className="flex-1 text-xs text-error">{selectedDetails.error}</p>
+                <Button variant="secondary" size="sm" onClick={() => { setDetails(null); setDetailsRetry((value) => value + 1); }}>Retry details</Button>
+              </div> : <p role="status" className="text-xs text-fg-muted">Reading template version and signature…</p>}
+            </> : <p className="text-xs text-fg-muted">Select a template to see its version and signature.</p>}
+          </div>
           <Button variant="secondary" size="sm" disabled={!selectedEntry || busy} onClick={() => void downloadSelected()}><Download className="h-3.5 w-3.5" aria-hidden />Download template</Button>
         </div>
       ) : (
@@ -163,8 +201,8 @@ export function DeviceTemplateModal({ initialLocator, onClose }: { initialLocato
           {preview ? <>
             <div className="rounded border border-border bg-card-foot px-3 py-2 text-xs text-fg-muted">
               <strong className="text-text-body">{preview.device.manufacturer || "Unknown manufacturer"} · {preview.device.name}</strong>
-              <span className="ml-4">Template {preview.version} · MAPS {preview.mapsVersion} · {preview.author}</span>
               <span className="ml-4">{preview.signals.length} objects · {preview.conversions.length} conversions · {preview.device.baseRegister}-based registers</span>
+              <div className="mt-2 text-text-body"><TemplateMetadata metadata={preview} /></div>
             </div>
             {preview.warnings.map((warning) => <p key={warning} className="rounded border border-border bg-card-foot p-2 text-xs text-text-body">{warning}</p>)}
             <div className="grid gap-3 sm:grid-cols-3">
