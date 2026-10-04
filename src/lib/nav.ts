@@ -47,6 +47,7 @@ export function navLabelFor(section: NavSection, family?: FamilyId): string {
 }
 
 export function sectionLabelForPath(pathname: string, family?: FamilyId): string {
+  if (pathname.startsWith("/settings")) return "Settings";
   const section = NAV_SECTIONS.find((s) => pathname.startsWith(s.href));
   return section ? navLabelFor(section, family) : "Connection";
 }

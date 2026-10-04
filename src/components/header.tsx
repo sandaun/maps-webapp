@@ -75,6 +75,7 @@ export function Header() {
   const { dirtyCount } = useWorkspaceChrome();
   const pendingCount = dirtyCount + usePendingPropertyChanges();
   const projectsArea = pathname.startsWith("/projects");
+  const settingsArea = pathname.startsWith("/settings");
   const breadcrumb =
     pathname === "/projects/new"
       ? ["Projects", "New project"]
@@ -94,7 +95,7 @@ export function Header() {
         <span>{breadcrumb[1]}</span>
       </nav>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-3.5">
+      {!settingsArea && <div className="flex min-w-0 flex-wrap items-center gap-3.5">
         {protocols ? (
           <span className={cn(CHIP, "gap-1.5 border-border bg-[#F7F8F9]")}>
             <span className="font-mono text-[11px] font-semibold leading-none text-bms-text">{protocols[0]}</span>
@@ -125,7 +126,7 @@ export function Header() {
             : "Up to date"}
         </StatusChip>
         <GatewayTransferActions />
-      </div>
+      </div>}
     </header>
   );
 }

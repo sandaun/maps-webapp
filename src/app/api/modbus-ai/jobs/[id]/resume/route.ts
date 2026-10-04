@@ -2,26 +2,31 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getModbusAIService } from "@/server/modbus-ai/service";
 import { errorResponse } from "@/server/projects/http";
+import { ProjectServiceError } from "@/server/projects/errors";
 export const runtime = "nodejs";
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const body = z
+    const parsed = z
       .object({
         revision: z.number().int().min(0),
-        task: z.enum(["diagnosis", "review"]),
-        automatic: z.boolean().default(false),
+        useCurrentSettings: z.boolean().default(false),
       })
-      .parse(await request.json());
+      .safeParse(await request.json());
+    if (!parsed.success)
+      throw new ProjectServiceError(
+        422,
+        "Choose a valid map revision and resume options.",
+      );
+    const body = parsed.data;
     return NextResponse.json(
       {
-        job: await getModbusAIService().analyze(
+        job: await getModbusAIService().resume(
           (await params).id,
           body.revision,
-          body.task,
-          body.automatic,
+          body.useCurrentSettings,
         ),
       },
       { status: 202 },
