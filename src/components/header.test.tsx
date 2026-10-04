@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     issues: [] as { severity: string }[],
   },
   dirtyCount: 3,
+  unsavedCount: 3,
   session: null as null | { id: string; host: string; port: number; connected: boolean },
   pathname: "/signals",
   push: vi.fn(),
@@ -39,21 +40,27 @@ vi.mock("@/lib/gateway-session", () => ({
   useGatewaySession: () => ({ session: mocks.session, loading: false, refresh: vi.fn() }),
 }));
 
+vi.mock("@/lib/property-drafts", () => ({
+  usePendingPropertyChanges: () => mocks.unsavedCount,
+  useSaveInProgress: () => false,
+}));
+
 beforeEach(() => {
   mocks.pathname = "/signals";
   mocks.dirtyCount = 3;
+  mocks.unsavedCount = 3;
   mocks.session = null;
 });
 
 describe("Header", () => {
-  it("shows protocol, valid, pending changes, offline and Deploy", async () => {
+  it("shows protocol, valid, unsaved changes, offline and Deploy", async () => {
     mocks.session = null;
     render(<Header />);
 
     expect(screen.getByText("KNX TP")).toBeInTheDocument();
     expect(screen.getByText("MODBUS MASTER")).toBeInTheDocument();
     expect(screen.getByText("Valid")).toBeInTheDocument();
-    expect(screen.getByText("3 changes pending")).toBeInTheDocument();
+    expect(screen.getByText("3 unsaved changes")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deploy" })).toHaveClass("h-[34px]", "rounded-[4px]");
     await waitFor(() => expect(screen.getByText("Not connected")).toBeInTheDocument());
   });
@@ -76,12 +83,30 @@ describe("Header", () => {
   it("keeps project status and deploy actions visible in Projects", () => {
     mocks.pathname = "/projects";
     mocks.dirtyCount = 0;
+    mocks.unsavedCount = 0;
     render(<Header />);
 
     expect(screen.getByLabelText("Breadcrumb")).toHaveTextContent("Local workspace/Projects");
     expect(screen.getByText("Not connected")).toBeInTheDocument();
     expect(screen.getByText("Valid")).toBeInTheDocument();
-    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
+    expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deploy" })).toBeInTheDocument();
+  });
+
+  it("does not label saved local changes as unsaved or synchronized", () => {
+    mocks.dirtyCount = 5;
+    mocks.unsavedCount = 0;
+    render(<Header />);
+    expect(screen.queryByText(/unsaved change|changes pending|Up to date/)).not.toBeInTheDocument();
+  });
+
+  it("clears the unsaved chip when edits have been saved", () => {
+    mocks.unsavedCount = 1;
+    const { rerender } = render(<Header />);
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
+    mocks.unsavedCount = 0;
+    rerender(<Header />);
+    expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
   });
 });

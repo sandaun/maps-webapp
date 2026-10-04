@@ -1,8 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { X } from "lucide-react";
 import {
   connectGateway,
+  connectUsbGateway,
+  listGatewaySerialPorts,
   disconnectGateway,
   gatewayFamily,
   queryGatewayInfo,
@@ -10,26 +14,55 @@ import {
   type DiscoveredGateway,
   type GatewayInfoSummary,
   type GatewaySessionStatus,
+  type GatewaySerialPort,
 } from "@/lib/gateway-api";
 import { FAMILY_LABELS } from "@/lib/project-types";
+import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
-import { useSessionEvents } from "@/lib/use-session-events";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Modal, ModalRow } from "@/components/ui/modal";
 
 /** Intesis factory fallback address once the 30 s power-up DHCP window closes. */
 const FACTORY_DEFAULT_IP = "192.168.100.246";
+const RECENT_IPS_KEY = "maps-web:recent-gateway-ips";
+const RECENT_IPS_LIMIT = 5;
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
 function isIpv4(value: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(value.trim());
+  const ip = value.trim();
+  return (
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
+    ip.split(".").every((octet) => Number(octet) <= 255)
+  );
+}
+
+function readRecentIps(): string[] {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(RECENT_IPS_KEY) ?? "[]");
+    if (!Array.isArray(stored)) return [];
+    const ips = stored
+      .filter((ip): ip is string => typeof ip === "string" && isIpv4(ip))
+      .map((ip) => ip.trim());
+    return [...new Set(ips)].slice(0, RECENT_IPS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentIps(ips: string[]) {
+  try {
+    window.localStorage.setItem(RECENT_IPS_KEY, JSON.stringify(ips));
+  } catch {
+    // Recent addresses still work for this visit when browser storage is blocked.
+  }
 }
 
 function formatTime(iso: string): string {
@@ -76,11 +109,18 @@ const HOW_TO_STEPS = [
 
 export function ConnectionScreen() {
   const { session } = useGatewaySession();
+  const { view } = useCurrentProject();
 
   const [gateways, setGateways] = React.useState<DiscoveredGateway[] | null>(null);
   const [scanning, setScanning] = React.useState(false);
   const [scanError, setScanError] = React.useState<string | null>(null);
   const [selectedAddress, setSelectedAddress] = React.useState<string | null>(null);
+  const [scanIp, setScanIp] = React.useState("");
+  const [usbOpen, setUsbOpen] = React.useState(false);
+  const [usbPorts, setUsbPorts] = React.useState<GatewaySerialPort[]>([]);
+  const [usbPath, setUsbPath] = React.useState("");
+  const [usbLoading, setUsbLoading] = React.useState(false);
+  const [usbError, setUsbError] = React.useState<string | null>(null);
 
   const [password, setPassword] = React.useState("");
   const [connecting, setConnecting] = React.useState(false);
@@ -93,15 +133,17 @@ export function ConnectionScreen() {
   const [manualPassword, setManualPassword] = React.useState("");
   const [manualError, setManualError] = React.useState<string | null>(null);
 
-  const [logClearedAt, setLogClearedAt] = React.useState<string | null>(null);
+  const [recentIps, setRecentIps] = React.useState<string[]>([]);
 
-  const { log } = useSessionEvents(session?.id ?? null);
-
-  const handleScan = React.useCallback(async () => {
+  const handleScan = React.useCallback(async (target?: string) => {
+    if (target && !isIpv4(target)) {
+      setScanError(`"${target}" is not a valid IPv4 address.`);
+      return;
+    }
     setScanning(true);
     setScanError(null);
     try {
-      setGateways(await scanGateways());
+      setGateways(await scanGateways(target ? [target] : undefined));
     } catch (err) {
       setGateways([]);
       setScanError(errorMessage(err, "Scan failed"));
@@ -112,7 +154,10 @@ export function ConnectionScreen() {
 
   // Auto-scan on mount; deferred like the gateway-session provider's initial load.
   React.useEffect(() => {
-    const initial = window.setTimeout(() => void handleScan(), 0);
+    const initial = window.setTimeout(() => {
+      setRecentIps(readRecentIps());
+      void handleScan();
+    }, 0);
     return () => window.clearTimeout(initial);
   }, [handleScan]);
 
@@ -120,7 +165,7 @@ export function ConnectionScreen() {
   const rows = React.useMemo(() => {
     const list = [...(gateways ?? [])];
     if (session?.gateway && !list.some((gateway) => gateway.address === session.host)) {
-      list.unshift({ address: session.host, info: session.gateway, raw: {} });
+      list.unshift({ address: session.host, info: session.gateway, raw: {}, transport: session.transport });
     }
     return list;
   }, [gateways, session]);
@@ -159,20 +204,28 @@ export function ConnectionScreen() {
   }
 
   async function handleManualConnect() {
-    if (!isIpv4(manualIp)) {
-      setManualError(`"${manualIp.trim()}" is not a valid IPv4 address.`);
+    const host = manualIp.trim();
+    if (!isIpv4(host)) {
+      setManualError(`"${host}" is not a valid IPv4 address.`);
       return;
     }
+    setManualError(null);
     const pw = manualPassword;
     setManualPassword("");
-    const error = await connectTo(manualIp.trim(), pw);
+    const error = await connectTo(host, pw);
     if (error) {
       setManualError(error);
     } else {
+      updateRecentIps([host, ...recentIps.filter((ip) => ip !== host)].slice(0, RECENT_IPS_LIMIT));
       setManualOpen(false);
       setManualIp("");
       setManualError(null);
     }
+  }
+
+  function updateRecentIps(ips: string[]) {
+    setRecentIps(ips);
+    writeRecentIps(ips);
   }
 
   async function handleDisconnect() {
@@ -194,12 +247,46 @@ export function ConnectionScreen() {
     }
   }
 
-  const visibleLog = logClearedAt ? log.filter((entry) => entry.at > logClearedAt) : log;
-  const compatibleCount = rows.filter((gateway) => gatewayFamily(gateway.info, gateway.raw)).length;
+  async function refreshUsbPorts() {
+    setUsbLoading(true);
+    setUsbError(null);
+    try {
+      const result = await listGatewaySerialPorts();
+      setUsbPorts(result.ports);
+      setUsbPath((current) => result.ports.some((port) => port.path === current)
+        ? current : (result.ports[0]?.path ?? ""));
+    } catch (error) {
+      setUsbError(errorMessage(error, "Could not list USB serial ports"));
+    } finally {
+      setUsbLoading(false);
+    }
+  }
+
+  async function handleUsbConnect() {
+    setConnecting(true);
+    setUsbError(null);
+    try {
+      const next = await connectUsbGateway(usbPath);
+      setSelectedAddress(next.host);
+      setInfoError(null);
+      setConnectError(null);
+      setUsbOpen(false);
+    } catch (error) {
+      setUsbError(errorMessage(error, "USB connection failed"));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  const matchCount = rows.filter((gateway) => {
+    const info = session?.host === gateway.address ? session.gateway ?? gateway.info : gateway.info;
+    const family = gatewayFamily(info, gateway.raw);
+    return view ? family === view.family : family !== null;
+  }).length;
 
   return (
     <div className="max-w-[1240px]">
-      <div className="grid gap-[14px] lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-[14px] lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         {/* ---------- Discovered gateways ---------- */}
         <Card className="flex flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-3 border-b border-border px-[18px] py-[14px]">
@@ -214,27 +301,39 @@ export function ConnectionScreen() {
             <div className="flex shrink-0 items-center gap-1.5">
               <span className="text-xs text-fg-muted">Connection type</span>
               <span
-                className="rounded-[4px] border border-info-border bg-info-bg px-2.5 py-[5px] text-xs font-bold text-hms-blue"
-                aria-current="true"
+                className={cn("rounded-[4px] border px-2.5 py-[5px] text-xs font-bold text-hms-blue",
+                  session?.transport === "usb" ? "border-border" : "border-info-border bg-info-bg")}
+                aria-current={session?.transport === "usb" ? undefined : "true"}
               >
                 IP
               </span>
-              <span
-                title="USB console connection is not supported yet"
-                className="cursor-not-allowed rounded-[4px] border border-border px-2.5 py-[5px] text-xs text-fg-muted opacity-60"
+              <button
+                type="button"
+                onClick={() => { setUsbOpen(true); void refreshUsbPorts(); }}
+                disabled={connecting}
+                aria-current={session?.transport === "usb" ? "true" : undefined}
+                className={cn("rounded-[4px] border px-2.5 py-[5px] text-xs text-hms-blue hover:bg-info-bg",
+                  session?.transport === "usb" ? "border-info-border bg-info-bg" : "border-border")}
               >
                 USB port
-              </span>
+              </button>
             </div>
             <Button
               variant="secondary"
               size="sm"
               className="h-auto shrink-0 border-hms-accent px-3 py-[7px] text-[12.5px] font-bold text-hms-accent hover:bg-info-bg"
-              onClick={() => void handleScan()}
+              onClick={() => void handleScan(scanIp.trim() || undefined)}
               disabled={scanning}
             >
               {scanning ? "Scanning…" : "Scan again"}
             </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-[18px] py-2">
+            <label htmlFor="scan-direct-ip" className="text-xs text-fg-muted">Direct IP (optional)</label>
+            <Input id="scan-direct-ip" value={scanIp} onChange={(event) => setScanIp(event.target.value)}
+              placeholder="192.168.2.167" autoComplete="off" className="w-[150px] font-mono" />
+            <p className="text-[11px] text-fg-muted">Use a known IP if discovery does not find the gateway.</p>
           </div>
 
           <div className="flex bg-table-header px-[18px] py-[7px] font-mono text-[10.5px] font-semibold uppercase tracking-[.06em] text-fg-muted">
@@ -243,7 +342,7 @@ export function ConnectionScreen() {
             <span className="w-[118px] shrink-0 overflow-hidden">Address · FW</span>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="h-[clamp(16rem,50dvh,32rem)] flex-none overflow-auto">
             {scanError ? (
               <p role="alert" className="mx-[18px] mt-3 rounded border border-error-border bg-error-bg px-3 py-2 text-xs text-error">
                 {scanError}
@@ -303,7 +402,7 @@ export function ConnectionScreen() {
                 <p className="mx-auto max-w-[340px] text-[13px] leading-[1.6] text-fg-muted">
                   {gateways === null
                     ? "Not scanned yet. Run a scan to find Intesis gateways on this network."
-                    : "No gateway answered the discovery broadcast. Check the cabling, or connect directly to an IP address."}
+                    : "No gateway answered the discovery broadcast. Enter a known Direct IP and scan again, or connect manually."}
                 </p>
                 <Button className="mt-[14px]" onClick={() => void handleScan()}>
                   Scan the network
@@ -316,7 +415,7 @@ export function ConnectionScreen() {
             <span>
               {gateways === null
                 ? "Not scanned yet"
-                : `${rows.length} gateways found · ${compatibleCount} compatible`}
+                : `${rows.length} gateway${rows.length === 1 ? "" : "s"} found · ${matchCount} ${view ? `template match${matchCount === 1 ? "" : "es"}` : "supported"}`}
             </span>
             <span className="flex-1" />
             <button
@@ -329,7 +428,7 @@ export function ConnectionScreen() {
           </div>
         </Card>
 
-        {/* ---------- Selected gateway + help + log ---------- */}
+        {/* ---------- Selected gateway + help ---------- */}
         <div className="flex flex-col gap-[14px]">
           <Card className="px-[18px] py-4">
             {selected ? (
@@ -355,6 +454,11 @@ export function ConnectionScreen() {
                 </p>
               </>
             )}
+            <div className="mt-4 border-t border-border pt-3">
+              <Link href="/diagnostics" className="text-xs font-bold text-hms-accent hover:underline">
+                Open Diagnostics →
+              </Link>
+            </div>
           </Card>
 
           <Card className="px-[18px] py-4">
@@ -377,43 +481,55 @@ export function ConnectionScreen() {
               ))}
             </ol>
           </Card>
-
-          <Card className="px-[18px] py-4">
-            <div className="mb-[11px] flex items-center">
-              <h2 className="flex-1 font-display text-[15px] font-light text-hms-blue">
-                Connection log
-              </h2>
-              <button
-                type="button"
-                className="text-[11.5px] text-hms-accent hover:underline disabled:pointer-events-none disabled:opacity-50"
-                disabled={visibleLog.length === 0}
-                onClick={() => setLogClearedAt(new Date().toISOString())}
-              >
-                Clear
-              </button>
-            </div>
-            <div className="max-h-40 overflow-auto">
-              {visibleLog.length === 0 ? (
-                <p className="font-mono text-[11px] text-fg-subtle">
-                  No activity yet — connect to a gateway to see the conversation.
-                </p>
-              ) : (
-                visibleLog.map((entry, index) => (
-                  <div
-                    key={index}
-                    className="flex gap-[9px] border-t border-row-rule py-[5px] font-mono text-[11px] leading-[1.5]"
-                  >
-                    <span className="shrink-0 text-fg-subtle">{formatTime(entry.at)}</span>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-text-body">
-                      {entry.line}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
         </div>
       </div>
+
+      {usbOpen ? (
+        <Modal
+          title="Connect over USB"
+          description="Connect the gateway's USB console cable and select its serial port."
+          foot="No password is required over USB."
+          ctaLabel={connecting ? "Connecting…" : "Connect"}
+          ctaDisabled={connecting || usbLoading || !usbPath}
+          onConfirm={() => void handleUsbConnect()}
+          onClose={() => setUsbOpen(false)}
+        >
+          <ModalRow label="Serial port" hint="USB console">
+            <Select
+              aria-label="USB serial port"
+              value={usbPath}
+              onValueChange={setUsbPath}
+              options={usbPorts.map((port) => ({
+                value: port.path,
+                label: `${port.path}${port.manufacturer ? ` · ${port.manufacturer}` : ""}`,
+              }))}
+              placeholder={usbLoading ? "Loading…" : "No serial ports found"}
+              disabled={usbLoading || connecting || usbPorts.length === 0}
+              className="w-[260px] max-w-[65%] shrink-0 font-mono"
+            />
+          </ModalRow>
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={usbLoading || connecting}
+              onClick={() => void refreshUsbPorts()}
+            >
+              {usbLoading ? "Refreshing…" : "Refresh ports"}
+            </Button>
+            <span className="text-[11px] text-fg-subtle">Ports on the computer running MAPS Web</span>
+          </div>
+          <p className="mt-3 text-[11.5px] leading-[1.45] text-fg-muted">
+            Use the USB console port, not the USB host port for flash drives.
+            Close desktop MAPS or other software using the selected port.
+          </p>
+          {usbError ? (
+            <p role="alert" className="mt-3 rounded border border-error-border bg-error-bg px-3 py-2 text-xs text-error">
+              {usbError}
+            </p>
+          ) : null}
+        </Modal>
+      ) : null}
 
       {manualOpen ? (
         <Modal
@@ -439,12 +555,45 @@ export function ConnectionScreen() {
                 value={manualIp}
                 onChange={(event) => setManualIp(event.target.value)}
                 placeholder={FACTORY_DEFAULT_IP}
+                disabled={connecting}
                 autoComplete="off"
                 autoFocus
                 aria-label="IP address"
                 className="w-[190px] font-mono"
               />
             </ModalRow>
+            {recentIps.length > 0 ? (
+              <div className="border-b border-row-rule py-[9px]">
+                <p className="mb-2 text-[11px] text-fg-muted">Recent IP addresses</p>
+                <ul className="flex flex-wrap gap-2" aria-label="Recent IP addresses">
+                  {recentIps.map((ip) => (
+                    <li key={ip} className="flex overflow-hidden rounded border border-border">
+                      <button
+                        type="button"
+                        className="px-2 py-1 font-mono text-xs text-hms-accent hover:bg-info-bg disabled:opacity-50"
+                        disabled={connecting}
+                        aria-label={`Use IP address ${ip}`}
+                        onClick={() => {
+                          setManualIp(ip);
+                          setManualError(null);
+                        }}
+                      >
+                        {ip}
+                      </button>
+                      <button
+                        type="button"
+                        className="border-l border-border px-1.5 text-fg-muted hover:bg-row-hover disabled:opacity-50"
+                        disabled={connecting}
+                        aria-label={`Remove IP address ${ip}`}
+                        onClick={() => updateRecentIps(recentIps.filter((recent) => recent !== ip))}
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <ModalRow label="Port" hint="MAPS control port">
               <span className="font-mono text-[12.5px] text-hms-blue">23</span>
             </ModalRow>
@@ -452,6 +601,7 @@ export function ConnectionScreen() {
               <Input
                 type="password"
                 value={manualPassword}
+                disabled={connecting}
                 onChange={(event) => setManualPassword(event.target.value)}
                 autoComplete="off"
                 aria-label="Password"
@@ -494,13 +644,15 @@ function SelectedGateway({
   onDisconnect: () => void;
   onRefreshInfo: () => void;
 }) {
-  const family = gatewayFamily(gateway.info, gateway.raw);
+  const { view } = useCurrentProject();
   // Once connected, the session carries the fresher INFO? summary.
   const info: GatewayInfoSummary = session?.gateway ?? gateway.info;
+  const family = gatewayFamily(info, gateway.raw);
+  const templateMatch = view !== null && family === view.family;
   const connected = session?.connected ?? false;
 
   const rows: DetailRow[] = [
-    { k: "IP address", v: gateway.address, tone: "accent" },
+    { k: gateway.transport === "usb" ? "USB port" : "IP address", v: gateway.address, tone: "accent" },
     {
       k: "Protocols",
       v: family ? FAMILY_LABELS[family] : (info.appName ?? "Unknown"),
@@ -509,8 +661,8 @@ function SelectedGateway({
     { k: "Firmware", v: info.appVersion ?? "—", tone: "muted" },
     {
       k: "Template match",
-      v: family ? "compatible" : "not compatible",
-      tone: family ? "success" : "error",
+      v: view ? (templateMatch ? "Match" : "No match") : "No project open",
+      tone: view ? (templateMatch ? "success" : "warning") : "muted",
     },
     ...(info.dhcp !== undefined
       ? [{ k: "Addressing", v: info.dhcp ? "DHCP" : "static", tone: "muted" as RowTone }]
@@ -520,8 +672,8 @@ function SelectedGateway({
       ? [
           {
             k: "Session",
-            v: `${session.encrypted ? "Encrypted" : "Cleartext fallback"} · since ${formatTime(session.connectedAt)}`,
-            tone: (session.encrypted ? "success" : "warning") as RowTone,
+            v: `${session.transport === "usb" ? "USB console" : (session.encrypted ? "Encrypted" : "Cleartext fallback")} · since ${formatTime(session.connectedAt)}`,
+            tone: (session.transport === "usb" || session.encrypted ? "success" : "warning") as RowTone,
           },
         ]
       : []),
@@ -531,6 +683,10 @@ function SelectedGateway({
   if (!family) {
     warnings.push(
       "This gateway runs a protocol combination this app does not support. You can connect to inspect it, but projects cannot be sent to or received from it.",
+    );
+  } else if (view && !templateMatch) {
+    warnings.push(
+      `This gateway does not match the open project's template (${FAMILY_LABELS[view.family]}). You can connect to inspect it or receive its configuration as another project.`,
     );
   }
   if (info.bootloader) {

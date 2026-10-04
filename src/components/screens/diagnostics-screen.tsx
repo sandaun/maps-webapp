@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { diagnosticSignals, diagnosticStreamValues, signalCommand, type DiagnosticSignal } from "@/lib/diagnostics-signals";
+import { diagnosticTrafficSignals } from "@/lib/diagnostics-traffic";
 import { useCurrentProject } from "@/lib/current-project";
 import {
   sendConsoleCommand,
@@ -215,19 +216,23 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const [autoScroll, setAutoScroll] = React.useState(true);
   const [holdCount, setHoldCount] = React.useState<number | null>(null);
   const [showTs, setShowTs] = React.useState(true);
+  const showTrafficSignals = signals !== null;
+  const trafficContentClass = showTrafficSignals ? "w-[480px] shrink-0" : "min-w-[240px] flex-1";
+  const trafficMinWidth = 142 + (showTrafficSignals ? 480 + 180 : 240) + (showTs ? 104 : 0);
   const [filter, setFilter] = React.useState<"all" | MonitorProto>("all");
   const [query, setQuery] = React.useState("");
   const [openIdx, setOpenIdx] = React.useState<number | null>(null);
   const [resetOpen, setResetOpen] = React.useState(false);
 
   const source = pausedFrames ?? frames;
+  const trafficSignals = React.useMemo(() => diagnosticTrafficSignals(view, source), [view, source]);
   const heldCount = holdCount !== null ? Math.max(0, source.length - holdCount) : 0;
   const heldSource = holdCount !== null ? source.slice(0, holdCount) : source;
   const needle = query.trim().toLowerCase();
   const visibleFrames = heldSource.filter(
     (frame) =>
       (filter === "all" || frame.proto === filter) &&
-      (!needle || (frame.dec + frame.frame + frame.obj).toLowerCase().includes(needle)),
+      (!needle || [frame.dec, frame.frame, frame.obj, trafficSignals.get(frame.i)?.detail].join(" ").toLowerCase().includes(needle)),
   );
   // Newest frames at the bottom (console convention; AutoScroll pins it).
   const renderedFrames = visibleFrames;
@@ -622,14 +627,20 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
         <div ref={columnRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* traffic monitor */}
           <div className="flex min-h-[160px] flex-1 flex-col bg-console-bg">
+            {!showTrafficSignals && (
+              <p className="shrink-0 px-[14px] py-[6px] text-[11px] text-console-fg/45">
+                Open a KNX ↔ Modbus project to identify signals in the traffic log.
+              </p>
+            )}
             <div ref={trafficScrollRef} className="flex-1 overflow-auto pb-5">
-              <div className="sticky top-0 z-[2] flex min-w-[640px] bg-console-header px-[14px] py-[6px] font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45">
-                {showTs && <div className="w-[88px] shrink-0">TIME</div>}
+              <div style={{ minWidth: trafficMinWidth }} className="sticky top-0 z-[2] flex bg-console-header px-[14px] py-[6px] font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45">
+                {showTs && <div className="w-[104px] shrink-0 pr-4">TIME</div>}
                 <div className="w-[74px] shrink-0">SOURCE</div>
-                <div className="w-[46px] shrink-0">DIR</div>
-                <div className="w-[150px] shrink-0">FRAME</div>
-                <div className="min-w-[260px] flex-1">DECODED</div>
-                <div className="w-[96px] shrink-0">OBJECT</div>
+                <div className="w-[40px] shrink-0">DIR</div>
+                <div className={cn(trafficContentClass, "pr-3")}>FRAME / MESSAGE</div>
+                {showTrafficSignals && (
+                  <div className="w-[180px] shrink-0" title="Signals identified from the current project. — means this frame could not be linked to a signal.">SIGNAL</div>
+                )}
               </div>
               {renderedFrames.length === 0 && (
                 <div className="px-[14px] py-6 font-mono text-[11.5px] leading-[1.7] text-console-fg/30">
@@ -641,18 +652,20 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
               {renderedFrames.map((frame) => {
                 const open = openIdx === frame.i;
                 const failed = isFailureText(frame.dec);
+                const signal = trafficSignals.get(frame.i)!;
                 return (
                   <div key={frame.i}>
                     <button
                       type="button"
+                      style={{ minWidth: trafficMinWidth }}
                       onClick={() => setOpenIdx(open ? null : frame.i)}
                       className={cn(
-                        "flex w-full min-w-[640px] cursor-pointer items-start px-[14px] py-[4px] text-left font-mono text-[11.5px]",
+                        "flex w-full cursor-pointer items-start px-[14px] py-[4px] text-left font-mono text-[11.5px]",
                         open && "bg-console-accent/10",
                       )}
                     >
                       {showTs && (
-                        <div className="w-[88px] shrink-0 text-console-fg/42">
+                        <div className="w-[104px] shrink-0 whitespace-nowrap pr-4 tabular-nums text-console-fg/42">
                           {formatFrameTime(frame.at)}
                         </div>
                       )}
@@ -668,7 +681,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                       </div>
                       <div
                         className={cn(
-                          "w-[46px] shrink-0",
+                          "w-[40px] shrink-0",
                           frame.dir === "TX"
                             ? "text-console-tx"
                             : frame.dir === "RX"
@@ -679,21 +692,20 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                         {frame.dir}
                       </div>
                       <div
-                        title={frame.frame}
-                        className="w-[150px] shrink-0 truncate pr-[8px] text-console-fg/60"
-                      >
-                        {frame.frame || "—"}
-                      </div>
-                      <div
-                        title={frame.dec}
+                        title={frame.frame || frame.dec}
                         className={cn(
-                          "min-w-[260px] flex-1 whitespace-normal break-words leading-[1.5]",
+                          trafficContentClass,
+                          "whitespace-normal break-words pr-3 leading-[1.5]",
                           failed ? "text-console-error" : "text-console-fg/90",
                         )}
                       >
-                        {frame.dec}
+                        {frame.frame || frame.dec}
                       </div>
-                      <div className="w-[96px] shrink-0 text-console-object">{frame.obj}</div>
+                      {showTrafficSignals && (
+                        <div title={signal.detail} className="w-[180px] shrink-0 truncate text-console-object">
+                          {signal.label}
+                        </div>
+                      )}
                     </button>
                     {open && (
                       <div className="border-l-2 border-console-accent bg-console-fg/4 px-[14px] pb-[12px] pl-[24px] pt-[10px] font-mono text-[11.5px] leading-[1.7] text-console-fg/70">
@@ -702,9 +714,15 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                           Protocol {frame.proto} · {PROTO_DESC[frame.proto]}
                         </div>
                         <div className="whitespace-normal break-words">
-                          Interpretation {frame.dec}
+                          Console message {frame.dec}
                         </div>
-                        <div>Object {frame.obj || "—"}</div>
+                        {showTrafficSignals && (
+                          <>
+                            <div>Signal {signal.label}</div>
+                            <div className="whitespace-pre-line">{signal.detail}</div>
+                          </>
+                        )}
+                        {frame.obj && <div>Runtime signal ID {frame.obj}</div>}
                       </div>
                     )}
                   </div>
@@ -1035,7 +1053,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       {/* ---------- status bar ---------- */}
       <div className="flex h-[28px] shrink-0 items-center justify-between gap-4 bg-hms-blue px-[14px] font-mono text-[11px] text-[rgba(255,255,255,.85)]">
         <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-          Connected to {session.host}:{session.port}
+          Connected to {session.host}{session.transport === "usb" ? " · USB" : `:${session.port}`}
           {familyLine ? ` · ${familyLine}` : ""}
         </span>
         <span className="whitespace-nowrap">

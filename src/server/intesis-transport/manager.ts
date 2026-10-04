@@ -8,6 +8,7 @@ import {
   type SendFileOptions,
 } from "./session";
 import { TcpDuplex, type Duplex } from "./transport";
+import { SerialDuplex } from "./serial";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
 import { assertGatewayAvailable } from "../modbus-scan/guard";
 
@@ -21,6 +22,7 @@ import { assertGatewayAvailable } from "../modbus-scan/guard";
  */
 
 export interface GatewaySessionStatus {
+  transport?: "tcp" | "usb";
   id: string;
   /** Local project selected for this session, when one is open. */
   projectId?: string;
@@ -49,6 +51,7 @@ export type SessionEvent =
 export type SessionEventListener = (event: SessionEvent) => void;
 
 export interface ConnectOptions {
+  transport?: "tcp" | "usb";
   host: string;
   port?: number;
   password: string;
@@ -123,6 +126,7 @@ type SessionEventInput =
 interface ManagedSession {
   password: string;
   internal?: boolean;
+  transport: "tcp" | "usb";
   projectId?: string;
   session: GatewaySession;
   host: string;
@@ -149,18 +153,24 @@ export class GatewaySessionManager implements GatewaySessions {
   constructor(
     private readonly createDuplex: DuplexFactory = (host, port, timeout) =>
       TcpDuplex.connect(host, port, timeout),
+    private readonly createSerialDuplex: (path: string, timeout: number) => Promise<Duplex> =
+      (path, timeout) => SerialDuplex.connect(path, timeout),
   ) {}
 
   async connect(options: ConnectOptions): Promise<GatewaySessionStatus> {
     const id = randomUUID();
-    const port = options.port ?? 23;
+    const transport = options.transport ?? "tcp";
+    const port = transport === "usb" ? 0 : (options.port ?? 23);
     let managed: ManagedSession | undefined;
     try {
-      const duplex = await this.createDuplex(options.host, port, CONNECT_TIMEOUT_MS);
+      const duplex = transport === "usb"
+        ? await this.createSerialDuplex(options.host, CONNECT_TIMEOUT_MS)
+        : await this.createDuplex(options.host, port, CONNECT_TIMEOUT_MS);
       const emit = (event: SessionEventInput) => {
         if (managed) pushEvent(managed, { ...event, at: new Date().toISOString() });
       };
       const session = new GatewaySession(duplex, {
+        transport,
         password: options.password,
         log: (line) => emit({ type: "log", line }),
         progress: (receivedBytes, totalBytes) =>
@@ -168,6 +178,7 @@ export class GatewaySessionManager implements GatewaySessions {
       });
       managed = {
         password: options.password,
+        transport,
         session,
         host: options.host,
         port,
@@ -207,7 +218,12 @@ export class GatewaySessionManager implements GatewaySessions {
    */
   scanConnector(id: string): () => Promise<GatewaySessionStatus> {
     const source = this.require(id);
-    const options = { host: source.host, port: source.port, password: source.password };
+    const options: ConnectOptions = {
+      transport: source.transport,
+      host: source.host,
+      port: source.port,
+      password: source.password,
+    };
     let first = true;
     return async () => {
       assertGatewayAvailable(options.host);
@@ -329,6 +345,7 @@ export class GatewaySessionManager implements GatewaySessions {
 
   private toStatus(id: string, m: ManagedSession): GatewaySessionStatus {
     return {
+      transport: m.transport,
       id,
       ...(m.projectId ? { projectId: m.projectId } : {}),
       host: m.host,
@@ -358,9 +375,20 @@ function pushEvent(managed: ManagedSession, event: SessionEvent): void {
  */
 const globalForSessions = globalThis as unknown as {
   __mapsGatewaySessionManager?: GatewaySessionManager;
+  __mapsGatewaySessionManagerVersion?: number;
 };
 
+// Bump when cached managers cannot support the new transport/session contract.
+const SESSION_MANAGER_VERSION = 2;
+
 export function getGatewaySessionManager(): GatewaySessionManager {
+  if (globalForSessions.__mapsGatewaySessionManagerVersion !== SESSION_MANAGER_VERSION) {
+    const previous = globalForSessions.__mapsGatewaySessionManager;
+    // Release open sockets/serial handles before replacing an incompatible cache.
+    for (const { id } of previous?.list() ?? []) previous?.disconnect(id);
+    globalForSessions.__mapsGatewaySessionManager = new GatewaySessionManager();
+    globalForSessions.__mapsGatewaySessionManagerVersion = SESSION_MANAGER_VERSION;
+  }
   globalForSessions.__mapsGatewaySessionManager ??= new GatewaySessionManager();
   return globalForSessions.__mapsGatewaySessionManager;
 }
@@ -368,4 +396,5 @@ export function getGatewaySessionManager(): GatewaySessionManager {
 /** Test hook: drop the singleton. */
 export function resetGatewaySessionManagerForTests(): void {
   globalForSessions.__mapsGatewaySessionManager = undefined;
+  globalForSessions.__mapsGatewaySessionManagerVersion = undefined;
 }

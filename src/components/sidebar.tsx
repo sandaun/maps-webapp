@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, CircleDot, Settings, Wifi, WifiOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings, Wifi, WifiOff } from "lucide-react";
 import { navLabelFor, navSectionsFor } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
@@ -42,7 +43,7 @@ export function Sidebar() {
             title="Expand sidebar"
             onClick={() => setSidebarCollapsed(false)}
           >
-            <CircleDot className="size-[17px]" strokeWidth={2} aria-hidden />
+            <Image src="/maps-icon.svg" alt="" width={24} height={24} unoptimized aria-hidden />
             <ChevronRight
               className="absolute -bottom-1 -right-1 size-3.5 rounded-full border border-white/20 bg-hms-blue p-0.5 text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
               strokeWidth={2}
@@ -52,11 +53,11 @@ export function Sidebar() {
         ) : (
           <>
             <span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-white text-hms-blue" aria-hidden>
-              <CircleDot className="size-[17px]" strokeWidth={2} />
+              <Image src="/maps-icon.svg" alt="" width={24} height={24} unoptimized aria-hidden />
             </span>
             <div className="min-w-0 flex-1 pl-2.5">
               <div className="font-display text-[16px] font-medium leading-4 tracking-[0.06em]">MAPS</div>
-              <div className="font-display text-[9.5px] leading-3 tracking-[0.14em] text-white/55">INTESIS · CLOUD</div>
+              <div className="font-display text-[9.5px] leading-3 tracking-[0.14em] text-white/55">INTESIS</div>
             </div>
             <button
               type="button"

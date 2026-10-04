@@ -59,6 +59,7 @@ export interface GatewayInfoSummary {
 
 /** Mirror of `GatewaySessionStatus` in `src/server/intesis-transport/manager.ts`. */
 export interface GatewaySessionStatus {
+  transport?: "tcp" | "usb";
   id: string;
   projectId?: string;
   host: string;
@@ -77,6 +78,7 @@ export interface GatewaySessionStatus {
 
 /** Mirror of `DiscoveredGateway` in `src/server/intesis-transport/discovery.ts`. */
 export interface DiscoveredGateway {
+  transport?: "tcp" | "usb";
   address: string;
   info: GatewayInfoSummary;
   raw: Record<string, string>;
@@ -140,6 +142,26 @@ export async function connectGateway(host: string, password: string): Promise<Ga
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host, password }),
+  });
+  notifyGatewaySessionsChanged({ session: data.session });
+  return data.session;
+}
+
+export interface GatewaySerialPort {
+  path: string;
+  manufacturer?: string;
+  serialNumber?: string;
+}
+
+export async function listGatewaySerialPorts(): Promise<{ ports: GatewaySerialPort[]; isWsl: boolean }> {
+  return request("/api/gateway/serial-ports");
+}
+
+export async function connectUsbGateway(path: string): Promise<GatewaySessionStatus> {
+  const data = await request<{ session: GatewaySessionStatus }>("/api/gateway/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transport: "usb", path }),
   });
   notifyGatewaySessionsChanged({ session: data.session });
   return data.session;

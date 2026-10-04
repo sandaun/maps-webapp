@@ -18,7 +18,7 @@ export function exportDeviceTemplate(doc: XmlDocument, locator: { kind: "rtu" | 
   const port = locator.kind === "rtu" ? locator.nodeIndex : project.mbm.rtuNodes.length + locator.nodeIndex;
   const selected = project.signals.filter((s) => s.modbus.port === port && s.modbus.deviceIndex === locator.deviceIndex && !s.virtual && !s.modbusVirtual);
   if (!selected.length) throw new ProjectServiceError(422,"This device has no non-virtual signals to export.");
-  const out = XmlDocument.parse('<?xml version="1.0" encoding="UTF-8"?><Template Version="1.0.0.0" MAPSVersion="" Author="0"><Conversions/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><Signals/></ExternalProtocol></Template>');
+  const out = XmlDocument.parse('<?xml version="1.0" encoding="UTF-8"?><Template Version="1.0.0.0" MAPSVersion="" Author="-1"><Conversions/><InternalProtocol ProtocolType="KNX"/><ExternalProtocol ProtocolType="Modbus Master"><Signals/></ExternalProtocol></Template>');
   setAttr(out.root,"MAPSVersion", MAPS_REFERENCE_VERSION);
   const d = copy(device); setAttr(d,"Index","0");
   appendChildIndented(out.find(["ExternalProtocol"])!,d,2);

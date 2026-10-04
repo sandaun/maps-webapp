@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,6 +6,8 @@ import { claimGateway, releaseGateway, withScanOwner } from "../modbus-scan/guar
 import {
   GatewayRequestError,
   GatewaySessionManager,
+  getGatewaySessionManager,
+  resetGatewaySessionManagerForTests,
   toGatewayRequestError,
   type SessionEvent,
 } from "./manager";
@@ -114,6 +116,39 @@ describe("GatewaySessionManager", () => {
     await expect(manager.connect({ host: "10.0.0.5", password: "admin" })).rejects.toMatchObject({
       status: 401,
     });
+  });
+});
+
+describe("gateway manager across dev recompilations", () => {
+  it("replaces a legacy TCP-only singleton and releases its sessions", () => {
+    const cache = globalThis as unknown as {
+      __mapsGatewaySessionManager?: unknown;
+      __mapsGatewaySessionManagerVersion?: number;
+    };
+    const legacy = { list: () => [{ id: "legacy-session" }], disconnect: vi.fn() };
+    resetGatewaySessionManagerForTests();
+    cache.__mapsGatewaySessionManager = legacy;
+    try {
+      const manager = getGatewaySessionManager();
+      expect(manager).toBeInstanceOf(GatewaySessionManager);
+      expect(manager).not.toBe(legacy);
+      expect(legacy.disconnect).toHaveBeenCalledWith("legacy-session");
+      expect(getGatewaySessionManager()).toBe(manager);
+    } finally {
+      resetGatewaySessionManagerForTests();
+    }
+  });
+
+  it("keeps a compatible singleton after module re-evaluation", async () => {
+    resetGatewaySessionManagerForTests();
+    try {
+      const manager = getGatewaySessionManager();
+      vi.resetModules();
+      const recompiled = await import("./manager");
+      expect(recompiled.getGatewaySessionManager()).toBe(manager);
+    } finally {
+      resetGatewaySessionManagerForTests();
+    }
   });
 });
 
