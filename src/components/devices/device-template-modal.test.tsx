@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { projectFromXml } from "@/gateway-families/knx-mbm";
@@ -17,7 +17,7 @@ const preview = () => ({...parseDeviceTemplate(TEMPLATE_XML).preview,token:"test
 const library = {manufacturers:["Maker"],entries:[{id:"first",manufacturer:"Maker",model:"AHU",version:"1",modelVersion:"1",manufacturerSlug:"maker",protocol:"knx"}]};
 beforeEach(() => {
   vi.clearAllMocks(); mocks.revision=3;
-  mocks.request.mockImplementation(async (url:string) => url === "/api/modbus-templates" ? library : preview());
+  mocks.request.mockImplementation(async (url:string) => url === "/api/modbus-templates" ? library : url.endsWith("/metadata") ? parseDeviceTemplate(TEMPLATE_XML).preview : preview());
   mocks.save.mockResolvedValue(true);
 });
 
@@ -30,6 +30,7 @@ describe("device template preview", () => {
   it("shows real values, applies disabled selection and destination in one patch, and offers one undo", async () => {
     const closed = vi.fn(); render(<DeviceTemplateModal initialLocator={{kind:"rtu",nodeIndex:0}} onClose={closed}/>);
     await loadFile();
+    expect(screen.getByText("Signed by HMS Industrial Networks SLU")).toBeInTheDocument();
     expect(screen.getByText("9.001")).toBeInTheDocument();
     expect(screen.getByText("0/0/102")).toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
@@ -61,6 +62,8 @@ describe("device template preview", () => {
     fireEvent.click(screen.getByRole("button",{name:"Download templates"}));
     await screen.findByRole("radio");
     fireEvent.click(screen.getByRole("radio"));
+    await screen.findByText("Signed by HMS Industrial Networks SLU");
+    expect(within(screen.getByLabelText("Selected template details")).getByText("1.0.0.0")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"Download template"}));
     await waitFor(() => expect(mocks.download).toHaveBeenCalledWith("/api/modbus-templates/first/download","Maker - AHU.knxmbm"));
     await waitFor(() => expect(screen.getByRole("button",{name:"Load template"})).toBeEnabled());
@@ -69,5 +72,51 @@ describe("device template preview", () => {
     const body = mocks.request.mock.calls.at(-1)![1].body as FormData;
     expect(body.get("libraryId")).toBe("first");
     expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps metadata tied to the selected template when responses arrive out of order", async () => {
+    let resolveFirst!: (value: ReturnType<typeof preview>) => void;
+    let resolveSecond!: (value: ReturnType<typeof preview>) => void;
+    mocks.request.mockImplementation((url: string) => {
+      if (url === "/api/modbus-templates") return Promise.resolve({ ...library, entries: [...library.entries, { ...library.entries[0], id: "second", model: "Meter" }] });
+      return new Promise((resolve) => {
+        if (url.includes("/first/")) resolveFirst = resolve;
+        else resolveSecond = resolve;
+      });
+    });
+    render(<DeviceTemplateModal initialLocator={{kind:"rtu",nodeIndex:0}} onClose={vi.fn()}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Download templates"}));
+    const radios = await screen.findAllByRole("radio");
+    fireEvent.click(radios[0]);
+    fireEvent.click(radios[1]);
+    await act(async () => resolveSecond({ ...preview(), version: "2.0.0.0", signed: false, authorCode: -1, author: "—" }));
+    expect(screen.getByText("Unsigned")).toBeInTheDocument();
+    expect(screen.getByText("2.0.0.0")).toBeInTheDocument();
+    await act(async () => resolveFirst(preview()));
+    expect(screen.queryByText("Signed by HMS Industrial Networks SLU")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsigned")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "AHU" } });
+    expect(screen.queryByText("Unsigned")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load template" })).toBeDisabled();
+  });
+
+  it("allows retrying metadata failures and reuses metadata when selecting a template again", async () => {
+    mocks.request.mockRejectedValueOnce(new Error("HMS temporarily unavailable"));
+    render(<DeviceTemplateModal initialLocator={{kind:"rtu",nodeIndex:0}} onClose={vi.fn()}/>);
+    fireEvent.click(screen.getByRole("button",{name:"Download templates"}));
+    await screen.findByRole("button", { name: "Retry library" });
+    fireEvent.click(screen.getByRole("button", { name: "Retry library" }));
+    await screen.findByRole("radio");
+    mocks.request.mockRejectedValueOnce(new Error("Could not read details"));
+    fireEvent.click(screen.getByRole("radio"));
+    await screen.findByText("Could not read details");
+    expect(screen.getByRole("button", { name: "Load template" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry details" }));
+    await screen.findByText("Signed by HMS Industrial Networks SLU");
+    const calls = mocks.request.mock.calls.length;
+    fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "AHU" } });
+    fireEvent.click(screen.getByRole("radio"));
+    expect(screen.getByText("Signed by HMS Industrial Networks SLU")).toBeInTheDocument();
+    expect(mocks.request).toHaveBeenCalledTimes(calls);
   });
 });

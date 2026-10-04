@@ -1,7 +1,7 @@
 import "server-only";
 import { appendChild, element, formatSingle, getAttr, parseMapsSingle, setAttr, XmlDocument, type XmlElement } from "@/core/project-format";
 import { projectFromXml } from "@/gateway-families/knx-mbm";
-import type { DeviceTemplatePreview } from "@/core/device-templates/types";
+import type { DeviceTemplateMetadata, DeviceTemplatePreview } from "@/core/device-templates/types";
 import { ProjectServiceError } from "@/server/projects/errors";
 import { readHalfConversionRefs } from "@/core/signals/conversion-refs";
 import { parseFloatLenient } from "@/core/xbl/conversions";
@@ -23,7 +23,7 @@ export function readDeviceTemplate(bytes: Uint8Array, manufacturer = ""): Parsed
   return parseDeviceTemplate(decryptDeviceTemplate(bytes), manufacturer);
 }
 
-export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDeviceTemplate {
+function templateDocument(xml: string): XmlDocument {
   // The preservation parser deliberately does not implement external entities.
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new ProjectServiceError(422, "Unsupported template XML declarations.");
   let depth = 0;
@@ -37,10 +37,36 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
     throw new ProjectServiceError(422, "Invalid template XML.");
   }
   if (doc.root.tag !== "Template") throw new ProjectServiceError(422, "This file is not a MAPS device template.");
+  return doc;
+}
+
+function templateMetadata(doc: XmlDocument): DeviceTemplateMetadata {
   const version = getAttr(doc.root, "Version") ?? "";
   const mapsVersion = getAttr(doc.root, "MAPSVersion") ?? "";
   if (![version, mapsVersion].every((v) => /^\d+(\.\d+){1,3}$/.test(v)))
     throw new ProjectServiceError(422, "Invalid template version header.");
+  // CustomOpenTemplateFile and frmMbmTemplates resolve Author via
+  // IntesisOem.GetManufacturerName. An ordinary MAPS export uses Author=-1.
+  const authors: Record<number, string> = {
+    0: "HMS Industrial Networks SLU", 1: "Fujitsu General Limited",
+    2: "HMS Industrial Networks SLU", 3: "Inelbo", 4: "Distech Controls Inc.",
+    5: "Alessa", 6: "ABB", 7: "HMS Industrial Networks SLU",
+  };
+  const rawAuthor = getAttr(doc.root, "Author") ?? "-1";
+  const authorCode = /^-?\d+$/.test(rawAuthor) && Number.isSafeInteger(Number(rawAuthor)) ? Number(rawAuthor) : null;
+  const author = authorCode === null || authorCode === -1 ? "—" : authors[authorCode] ?? `OEM ${authorCode}`;
+  const signed = authorCode === -1 ? false : authorCode !== null && authors[authorCode] !== undefined ? true : null;
+  return { version, mapsVersion, author, authorCode, signed };
+}
+
+export function readDeviceTemplateMetadata(bytes: Uint8Array): DeviceTemplateMetadata {
+  return templateMetadata(templateDocument(decryptDeviceTemplate(bytes)));
+}
+
+export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDeviceTemplate {
+  const doc = templateDocument(xml);
+  const metadata = templateMetadata(doc);
+  const { mapsVersion } = metadata;
   const external = doc.find(["ExternalProtocol"]);
   const internal = doc.find(["InternalProtocol"]);
   if (!external || !internal || !["Modbus Master", "Modbus Server"].includes(getAttr(external, "ProtocolType") ?? ""))
@@ -115,10 +141,8 @@ export function parseDeviceTemplate(xml: string, manufacturer = ""): ParsedDevic
   const invalid = project.signals.filter((s) => checkMbmSignal({ ...s.modbus, deviceBase: project.mbm.rtuNodes[0].devices[0].baseRegister }).length);
   if (invalid.length) warnings.push(`${invalid.length} objects have Modbus settings that need review. Their original values are preserved; project validation reports active errors after import.`);
   if (protocol === "BACnet Server") warnings.push("BACnet template adapted to KNX: Modbus registers are retained; default KNX DPTs and flags replace the BACnet mapping. Assign group addresses in Signals.");
-  const author = Number(getAttr(doc.root, "Author") ?? -1);
   return { doc, knx, modbus, device: deviceCopy, conversions,
-    preview: { sourceProtocol: protocol === "KNX" ? "knx" : "bacnet", version, mapsVersion,
-      author: author === 0 ? "Intesis" : author === -1 ? "—" : `OEM ${author}`,
+    preview: { sourceProtocol: protocol === "KNX" ? "knx" : "bacnet", ...metadata,
       device: { ...project.mbm.rtuNodes[0].devices[0], enabled: true }, signals: project.signals, conversions: project.conversions, warnings } };
 }
 

@@ -1,14 +1,20 @@
 import type { KnxMbmSignal, Conversion } from "@/gateway-families/knx-mbm/model";
 import type { MbmDevice } from "@/protocols/modbus/master";
 
-export interface DeviceTemplatePreview {
+export interface DeviceTemplateMetadata {
+  version: string;
+  mapsVersion: string;
+  author: string;
+  authorCode: number | null;
+  /** MAPS OEM stamp from Template/@Author, separate from file integrity. */
+  signed: boolean | null;
+}
+
+export interface DeviceTemplatePreview extends DeviceTemplateMetadata {
   token: string;
   revision: number;
   fileName: string;
   sourceProtocol: "knx" | "bacnet";
-  version: string;
-  mapsVersion: string;
-  author: string;
   device: MbmDevice;
   signals: KnxMbmSignal[];
   conversions: Conversion[];
