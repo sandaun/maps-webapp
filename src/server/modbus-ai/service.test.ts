@@ -21,6 +21,7 @@ import {
 } from "@/server/modbus-scan/service";
 import { scanInputSchema, type ScanJob } from "@/core/modbus-scan/model";
 import { createServer } from "node:net";
+import { DIAGNOSIS_PROMPT, REVIEW_PROMPT } from "./prompt";
 let dir: string;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "maps-ai-"));
@@ -87,16 +88,21 @@ const raw: RawExtraction = {
     },
   ],
 };
-async function manualPdf(count: number) {
+async function manualPdf(
+  count: number,
+  textByPage: Record<number, string> = {},
+) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let page = 1; page <= count; page++)
-    doc.addPage().drawText(`Page ${page} holding registers`, {
-      x: 40,
-      y: 700,
-      font,
-      size: 12,
-    });
+    doc
+      .addPage()
+      .drawText(textByPage[page] ?? `Page ${page} holding registers`, {
+        x: 40,
+        y: 700,
+        font,
+        size: 12,
+      });
   return new File([new Uint8Array(await doc.save())], "dense-manual.pdf", {
     type: "application/pdf",
   });
@@ -108,6 +114,88 @@ function rawOnPage(page: number): RawExtraction {
   result.tables[0].rows[0].name = `Temperature ${page}`;
   return result;
 }
+
+it("carries early addressing notes and continued-table context across the 40-page boundary", async () => {
+  const later = rawOnPage(41);
+  later.globalNotes = ["All register addresses are 1-based."];
+  later.tables[0].rows[0].normalizedAddress = 144;
+  later.tables[0].rows[0].normalizedAddressSource = "inferred-1-based";
+  const generate = vi
+    .fn()
+    .mockResolvedValueOnce(rawOnPage(1))
+    .mockResolvedValueOnce(later);
+  const service = new ModbusAIService(new ModbusAIStore(), undefined, generate);
+  const job = await service.start(
+    "demo",
+    await manualPdf(41, {
+      3: "All register addresses are 1-based.",
+      40: "Holding registers - read only; table continues on next page",
+    }),
+  );
+  await service.settled(job.id);
+  expect(
+    await PDFDocument.load(generate.mock.calls[0][0].pdf).then((pdf) =>
+      pdf.getPageCount(),
+    ),
+  ).toBe(40);
+  const next = generate.mock.calls[1][0];
+  expect(
+    await PDFDocument.load(next.pdf).then((pdf) => pdf.getPageCount()),
+  ).toBe(1);
+  expect(next.text).toContain("PAGE 3: All register addresses are 1-based.");
+  expect(next.text).toContain("CONTEXT PAGE 40");
+  expect(next.text).toContain("table continues on next page");
+  expect(job.signals[1]).toMatchObject({
+    address: 144,
+    sourceAddress: "145",
+    addressBasis: "one",
+  });
+});
+
+it("sends one supported Claude document rather than 15-page groups", async () => {
+  vi.stubEnv("ANTHROPIC_API_KEY", "unit-test-placeholder");
+  const generate = vi.fn().mockResolvedValue(rawOnPage(60));
+  const service = new ModbusAIService(new ModbusAIStore(), undefined, generate);
+  const { settings } = await service.settings();
+  settings.extraction = {
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    effort: "medium",
+  };
+  await service.setSettings(settings);
+  const job = await service.start("demo", await manualPdf(60));
+  await service.settled(job.id);
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(
+    await PDFDocument.load(generate.mock.calls[0][0].pdf).then((pdf) =>
+      pdf.getPageCount(),
+    ),
+  ).toBe(60);
+  expect(generate.mock.calls[0][0].maxTokens).toBe(16000);
+  expect(job.state).toBe("ready");
+});
+
+it("uses Signal-derived document review separately from live diagnosis", async () => {
+  const generate = vi
+    .fn()
+    .mockResolvedValueOnce(raw)
+    .mockResolvedValue({ summary: "Reviewed", findings: [], corrections: [] });
+  const service = new ModbusAIService(new ModbusAIStore(), undefined, generate);
+  const job = await service.start("demo", await pdf());
+  await service.settled(job.id);
+  await service.analyze(job.id, 0, "review");
+  await service.settled(job.id);
+  expect(generate.mock.calls[1][0].system).toBe(REVIEW_PROMPT);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000);
+  try {
+    await service.analyze(job.id, 0, "diagnosis");
+    await service.settled(job.id);
+    expect(generate.mock.calls[2][0].system).toBe(DIAGNOSIS_PROMPT);
+    expect(REVIEW_PROMPT).not.toBe(DIAGNOSIS_PROMPT);
+  } finally {
+    clock.mockRestore();
+  }
+});
 
 it("subdivides a timed-out group only on explicit resume", async () => {
   const generate = vi
@@ -169,11 +257,11 @@ it("blocks an unchanged truncated single page across restarts, but permits an ex
   const { settings } = await restarted.settings();
   settings.extraction.model = "gpt-6-astra";
   await restarted.setSettings(settings);
-  await expect(restarted.resume(job.id, 0)).rejects.toThrow(
+  await expect(restarted.resume(job.id, 0, false)).rejects.toThrow(
     "cannot be retried unchanged",
   );
   expect(restartedGenerate).not.toHaveBeenCalled();
-  await restarted.resume(job.id, 0, true);
+  await restarted.resume(job.id, 0);
   await restarted.settled(job.id);
   expect((await restarted.get(job.id)).state).toBe("ready");
   expect(restartedGenerate.mock.calls[0][0].profile.model).toBe("gpt-6-astra");
@@ -184,9 +272,9 @@ it("keeps completed groups when explicitly resuming with current Settings", asyn
     .fn()
     .mockResolvedValueOnce(rawOnPage(1))
     .mockRejectedValueOnce(new Error("Provider unavailable"))
-    .mockResolvedValueOnce(rawOnPage(16));
+    .mockResolvedValueOnce(rawOnPage(41));
   const service = new ModbusAIService(new ModbusAIStore(), undefined, generate);
-  const job = await service.start("demo", await manualPdf(16));
+  const job = await service.start("demo", await manualPdf(41));
   await service.settled(job.id);
   const original = structuredClone(job.profile);
   const { settings } = await service.settings();
@@ -198,7 +286,7 @@ it("keeps completed groups when explicitly resuming with current Settings", asyn
   expect(job.extractionChunks![0].profile).toEqual(original);
   expect(job.extractionChunks![1].profile?.model).toBe("gpt-6-astra");
   expect(generate.mock.calls[2][0].text).toContain(
-    "Original document pages 16.",
+    "Target original document pages 41.",
   );
 });
 
@@ -252,7 +340,7 @@ it("resumes after a provider failure and restart without repeating successful pa
     .mockResolvedValueOnce(rawOnPage(1))
     .mockRejectedValueOnce(new Error("Provider unavailable"));
   const service = new ModbusAIService(new ModbusAIStore(), undefined, generate);
-  const job = await service.start("demo", await manualPdf(16));
+  const job = await service.start("demo", await manualPdf(41));
   await service.settled(job.id);
   expect(job.state).toBe("failed");
   expect(job.extractionChunks![0].state).toBe("complete");
@@ -260,7 +348,7 @@ it("resumes after a provider failure and restart without repeating successful pa
   await expect(service.assertImport(job.id, 0, ["signal-1"])).rejects.toThrow(
     "finish",
   );
-  const resumedGenerate = vi.fn().mockResolvedValue(rawOnPage(16));
+  const resumedGenerate = vi.fn().mockResolvedValue(rawOnPage(41));
   const restarted = new ModbusAIService(
     service.store,
     undefined,
@@ -270,10 +358,10 @@ it("resumes after a provider failure and restart without repeating successful pa
   await restarted.settled(job.id);
   const ready = await restarted.get(job.id);
   expect(ready.state).toBe("ready");
-  expect(ready.signals.map((row) => row.address)).toEqual([105, 120]);
+  expect(ready.signals.map((row) => row.address)).toEqual([105, 145]);
   expect(resumedGenerate).toHaveBeenCalledTimes(1);
   expect(resumedGenerate.mock.calls[0][0].text).toContain(
-    "Original document pages 16.",
+    "Target original document pages 41.",
   );
 });
 

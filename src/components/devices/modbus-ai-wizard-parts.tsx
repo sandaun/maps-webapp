@@ -867,6 +867,33 @@ export function SignalEditor({
                 }
               />,
             )}
+            {row.addressNeedsConfirmation && (
+              <div className="col-span-3 rounded border border-warning-border bg-warning-bg p-3 text-xs text-warning-text">
+                <p>
+                  Possible address: {row.address}. Check the PDF quote, edit the
+                  address if needed, then confirm it before reading or importing.
+                </p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2"
+                  disabled={disabled}
+                  onClick={() =>
+                    onPatch({
+                      addressNeedsConfirmation: false,
+                      addressBasis: "explicit",
+                      enabled: row.access !== "W" && row.access !== "Trigger",
+                      reviewed: false,
+                      warnings: row.warnings.filter(
+                        (warning) => !warning.startsWith("Possible address: "),
+                      ),
+                    })
+                  }
+                >
+                  Confirm address
+                </Button>
+              </div>
+            )}
             {field(
               "Type",
               "dataType",

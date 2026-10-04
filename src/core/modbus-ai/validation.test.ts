@@ -72,7 +72,6 @@ describe("source and atomic Modbus interpretation", () => {
   it("does not silently resolve missing bases, access or unknown formulas", () => {
     const row = rawRow();
     row.sourceAddress = "104";
-    row.addressBasis = "unknown";
     row.modeText = null;
     const raw: RawExtraction = {
       manufacturer: null,
@@ -189,8 +188,7 @@ describe("source and atomic Modbus interpretation", () => {
       make({
         ...rawRow(),
         sourceAddress: "40105-40106",
-        dataType: "float32",
-        byteOrder: "ABCD",
+        dataText: "float32 ABCD",
       }),
       [],
     ).signals;

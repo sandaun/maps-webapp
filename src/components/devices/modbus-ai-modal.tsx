@@ -117,7 +117,7 @@ export function ModbusAIModal({
   const [changeAt, setChangeAt] = React.useState("");
   const [restoreOpen, setRestoreOpen] = React.useState(false);
   const [settingsLoaded, setSettingsLoaded] = React.useState(false);
-  const [useCurrentSettings, setUseCurrentSettings] = React.useState(false);
+  const [useCurrentSettings, setUseCurrentSettings] = React.useState(true);
   const [filter, setFilter] = React.useState<
     "all" | "review" | "warnings" | "excluded"
   >("all");
@@ -530,7 +530,7 @@ export function ModbusAIModal({
       !scan?.needsRestore &&
       !draftRows &&
       selected.length &&
-      selected.every((row) => row.reviewed) &&
+      selected.every((row) => row.reviewed && !row.addressNeedsConfirmation) &&
       Number.isInteger(slave) &&
       slave >= 1 &&
       slave <= 247 &&
@@ -1415,7 +1415,10 @@ export function ModbusAIModal({
                     setDraftRows(
                       rows.map((row) => ({
                         ...row,
-                        reviewed: row.enabled ? true : row.reviewed,
+                        reviewed:
+                          row.enabled && !row.addressNeedsConfirmation
+                            ? true
+                            : row.reviewed,
                       })),
                     )
                   }
@@ -1463,7 +1466,7 @@ export function ModbusAIModal({
               {lastAnalysis && (
                 <details className="shrink-0 border-b border-border bg-info-bg/30 px-[22px] py-2 text-xs">
                   <summary className="cursor-pointer text-hms-accent">
-                    AI review · {lastAnalysis.summary}
+                    {lastAnalysis.task === "diagnosis" ? "AI diagnosis" : "AI review"} · {lastAnalysis.summary}
                   </summary>
                   <div className="mt-2 space-y-2">{findings(null)}</div>
                 </details>
@@ -1514,7 +1517,7 @@ export function ModbusAIModal({
                             <Checkbox
                               aria-label={`Include ${row.name}`}
                               checked={row.enabled}
-                              disabled={!canEdit}
+                              disabled={!canEdit || row.addressNeedsConfirmation}
                               onChange={(event) =>
                                 patchRow(row.id, {
                                   enabled: event.target.checked,
@@ -1549,7 +1552,9 @@ export function ModbusAIModal({
                           <td
                             className={cn(tableCell, "font-mono text-hms-blue")}
                           >
-                            {row.address}
+                            {row.addressNeedsConfirmation
+                              ? `${row.address} ?`
+                              : row.address}
                           </td>
                           <td
                             className={cn(

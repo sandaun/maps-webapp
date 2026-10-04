@@ -29,10 +29,10 @@ it.each([false, true])(
     expect(resume).toHaveBeenCalledWith("document", 7, useCurrentSettings);
   },
 );
-it("defaults to the original profile", async () => {
+it("defaults to the current Settings profile", async () => {
   resume.mockResolvedValue({ id: "document" });
   await POST(request({ revision: 7 }), context());
-  expect(resume).toHaveBeenCalledWith("document", 7, false);
+  expect(resume).toHaveBeenCalledWith("document", 7, true);
 });
 it.each([{ revision: -1 }, { revision: 1, useCurrentSettings: "yes" }, {}])(
   "rejects invalid input without starting work",

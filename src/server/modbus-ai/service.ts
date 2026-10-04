@@ -44,7 +44,8 @@ import {
 } from "./providers";
 import { ModbusAIStore } from "./store";
 import { extractPdfEvidencePages } from "./pdf-text";
-import { EXTRACTION_PROMPT, DIAGNOSIS_PROMPT } from "./prompt";
+import { EXTRACTION_PROMPT, DIAGNOSIS_PROMPT, REVIEW_PROMPT } from "./prompt";
+import { documentContext, extractionPageLimit } from "./document-context";
 
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Operation failed";
@@ -67,6 +68,24 @@ export class ModbusAIService {
   async initialize() {
     this.initialization ??= (async () => {
       for (const job of await this.store.list()) {
+        for (const row of job.signals) {
+          if (
+            row.addressNeedsConfirmation === undefined &&
+            row.warnings.some((warning) =>
+              warning.startsWith("Wrapped address digits joined as "),
+            )
+          ) {
+            row.addressNeedsConfirmation = true;
+            row.enabled = false;
+            row.reviewed = false;
+            row.warnings = row.warnings.map((warning) =>
+              warning.startsWith("Wrapped address digits joined as ")
+                ? `Possible address: ${row.address}. Confirm the address cell in the source PDF before reading or importing this signal.`
+                : warning,
+            );
+            job.revision++;
+          }
+        }
         this.jobs.set(job.id, job);
         if (job.state === "extracting") {
           job.state = "failed";
@@ -169,7 +188,7 @@ export class ModbusAIService {
     this.launch(job, () => this.extract(job, bytes));
     return job;
   }
-  async resume(id: string, revision: number, useCurrentSettings = false) {
+  async resume(id: string, revision: number, useCurrentSettings = true) {
     return this.exclusive(id, async () => {
       const job = await this.get(id);
       this.assertRevision(job, revision);
@@ -249,9 +268,14 @@ export class ModbusAIService {
       attempts: 0,
       rows: 0,
     });
+    const pageLimit = extractionPageLimit(job.profile.provider);
     job.extractionChunks ??= Array.from(
-      { length: Math.ceil(job.pages.length / 15) },
-      (_, i) => makeChunk(i * 15 + 1, Math.min(job.pages.length, (i + 1) * 15)),
+      { length: Math.ceil(job.pages.length / pageLimit) },
+      (_, i) =>
+        makeChunk(
+          i * pageLimit + 1,
+          Math.min(job.pages.length, (i + 1) * pageLimit),
+        ),
     );
     await this.store.save(job);
     for (;;) {
@@ -329,9 +353,9 @@ export class ModbusAIService {
           profile: job.profile,
           schema: rawExtractionSchema,
           system: EXTRACTION_PROMPT,
-          text: `Original document pages ${pages.map((p) => p.page).join(", ")}. The PDF chunk starts at original page ${chunk.startPage}; preserve original page numbers.\n${text}`,
+          text: `Target original document pages ${pages.map((p) => p.page).join(", ")}. The PDF chunk starts at original page ${chunk.startPage}; preserve original page numbers.\n${documentContext(job.pages, chunk.startPage, chunk.endPage)}\n\nTARGET PAGES:\n${text}`,
           pdf: job.profile.provider === "kimi" ? undefined : await out.save(),
-          maxTokens: 24000,
+          maxTokens: job.profile.provider === "anthropic" ? 16000 : 32768,
           onTextDelta: async (delta) => {
             const rows = parser.feed(delta);
             streamedRows.push(...rows);
@@ -497,7 +521,10 @@ export class ModbusAIService {
         signalIds: job.signals
           .filter(
             (row) =>
-              row.enabled && row.access !== "W" && row.access !== "Trigger",
+              row.enabled &&
+              !row.addressNeedsConfirmation &&
+              row.access !== "W" &&
+              row.access !== "Trigger",
           )
           .map((row) => row.id),
         startedAt: scan.createdAt,
@@ -655,7 +682,7 @@ export class ModbusAIService {
         const analysis = await this.generate({
           profile,
           schema: analysisSchema,
-          system: DIAGNOSIS_PROMPT,
+          system: task === "review" ? REVIEW_PROMPT : DIAGNOSIS_PROMPT,
           text,
           maxTokens: 10000,
         });
@@ -761,12 +788,15 @@ export class ModbusAIService {
       !rows.length ||
       rows.length !== new Set(selected).size ||
       rows.some(
-        (r) => !r.reviewed || (/32|64/.test(r.dataType) && !r.byteOrder),
+        (r) =>
+          r.addressNeedsConfirmation ||
+          !r.reviewed ||
+          (/32|64/.test(r.dataType) && !r.byteOrder),
       )
     )
       throw new ProjectServiceError(
         422,
-        "Select reviewed signals and resolve multi-register byte order before import.",
+        "Confirm addresses, review signals and resolve multi-register byte order before import.",
       );
     return { job, rows };
   }

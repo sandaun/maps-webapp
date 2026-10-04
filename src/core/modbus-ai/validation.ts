@@ -79,7 +79,11 @@ export function validationTargets(
 ): NonNullable<ScanInput["targets"]> {
   const targets = new Map<string, NonNullable<ScanInput["targets"]>[number]>();
   for (const row of rows.filter(
-    (row) => row.enabled && row.access !== "W" && row.access !== "Trigger",
+    (row) =>
+      row.enabled &&
+      !row.addressNeedsConfirmation &&
+      row.access !== "W" &&
+      row.access !== "Trigger",
   )) {
     const quantity = wordCount(row);
     const key = `${row.function}:${row.address}`;
@@ -122,6 +126,10 @@ export function validateSignals(
       },
       warnings: [],
     };
+    if (row.addressNeedsConfirmation) {
+      result.warnings.push("Confirm the proposed address in Map before live validation.");
+      return result;
+    }
     const observed = (job.observations ?? []).filter(
       (obs) =>
         obs.function === row.function &&

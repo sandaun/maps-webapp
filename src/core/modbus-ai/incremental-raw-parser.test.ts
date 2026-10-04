@@ -44,7 +44,7 @@ it("emits only complete schema-valid rows across fragmented JSON, without duplic
 
 it("keeps source addresses provisional, even if normalization would be ambiguous", () => {
   const parser = createIncrementalRawModbusRowParser();
-  const raw = { ...row(), sourceAddress: "40001", addressBasis: "unknown" };
+  const raw = { ...row(), sourceAddress: "40001" };
   expect(
     parser.feed(
       '```json\n{"tables":[{"rows":[' + JSON.stringify(raw) + "]}]}\n```",

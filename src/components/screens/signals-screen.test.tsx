@@ -292,7 +292,7 @@ describe("SignalsScreen (knx-mbm)", () => {
     expect(mocks.applyPatches).toHaveBeenCalledWith([
       { type: "updateSignal", id: 0, patch: { description: "HP command" } },
     ]);
-    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
   it("edits KNX–MBM listening addresses and restores them with Undo", async () => {

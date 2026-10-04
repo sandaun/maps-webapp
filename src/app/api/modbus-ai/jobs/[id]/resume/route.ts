@@ -12,7 +12,7 @@ export async function POST(
     const parsed = z
       .object({
         revision: z.number().int().min(0),
-        useCurrentSettings: z.boolean().default(false),
+        useCurrentSettings: z.boolean().default(true),
       })
       .safeParse(await request.json());
     if (!parsed.success)

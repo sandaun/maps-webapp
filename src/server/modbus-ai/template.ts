@@ -65,10 +65,14 @@ export function appendCandidateSignals(
         422,
         "Address span exceeds this device's range after base conversion.",
       );
-    if (!row.reviewed || (wordCount(row) > 1 && row.byteOrder === null))
+    if (
+      row.addressNeedsConfirmation ||
+      !row.reviewed ||
+      (wordCount(row) > 1 && row.byteOrder === null)
+    )
       throw new ProjectServiceError(
         422,
-        "Review the map and byte order before importing.",
+        "Confirm addresses and review the map and byte order before importing.",
       );
   }
   if (

@@ -51,6 +51,7 @@ export const candidateSchema = z
     description: z.string().max(4000),
     function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
     address: z.number().int().min(0).max(65535),
+    addressNeedsConfirmation: z.boolean().optional(),
     sourceAddress: z.string().max(200),
     addressBasis: z.enum(["zero", "one", "plc", "explicit", "unknown"]),
     dataType: z.enum(DATA_TYPES),
