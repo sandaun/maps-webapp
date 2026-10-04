@@ -307,7 +307,7 @@ export class GatewaySessionManager implements GatewaySessions {
 
   async setMonitor(id: string, enabled: boolean, options?: MonitorOptions): Promise<GatewaySessionStatus> {
     const managed = this.require(id);
-    return this.runExclusive(managed, async () => {
+    await this.runExclusive(managed, async () => {
       await managed.session.setMonitor(enabled, (line) => {
         const event: SessionEvent = { type: "monitor", at: new Date().toISOString(), line };
         managed.monitorHistory.push(event);
@@ -316,14 +316,16 @@ export class GatewaySessionManager implements GatewaySessions {
         }
         for (const listener of managed.listeners) listener(event);
       }, options);
-      const status = this.toStatus(id, managed);
-      for (const listener of managed.listeners) {
-        listener({ type: "status", at: new Date().toISOString(), status });
-      }
-      return status;
     }).catch((error: unknown) => {
       throw toGatewayRequestError(error);
     });
+    // Publish only after runExclusive releases the lock; otherwise SSE clients
+    // retain busy=true and keep gateway transfers disabled indefinitely.
+    const status = this.toStatus(id, managed);
+    for (const listener of managed.listeners) {
+      listener({ type: "status", at: new Date().toISOString(), status });
+    }
+    return status;
   }
 
   private async runExclusive<T>(managed: ManagedSession, op: () => Promise<T>): Promise<T> {

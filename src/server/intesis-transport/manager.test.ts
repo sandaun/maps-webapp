@@ -98,6 +98,26 @@ describe("GatewaySessionManager", () => {
     expect(replayed.length).toBeGreaterThan(0);
   });
 
+  it("returns and streams idle status after each diagnostics monitor toggle", async () => {
+    const manager = makeManager({ "10.0.0.9": { password: "admin" } });
+    const { id } = await manager.connect({ host: "10.0.0.9", password: "admin" });
+    const events: SessionEvent[] = [];
+    const unsubscribe = manager.subscribe(id, (event) => events.push(event));
+    try {
+      for (const enabled of [true, false]) {
+        const status = await manager.setMonitor(id, enabled);
+        expect(status).toMatchObject({ busy: false, monitoring: enabled });
+        expect(events.at(-1)).toMatchObject({
+          type: "status", status: { busy: false, monitoring: enabled },
+        });
+        expect(manager.getStatus(id).busy).toBe(false);
+      }
+    } finally {
+      unsubscribe();
+      manager.disconnect(id);
+    }
+  });
+
   it("maps transport errors to HTTP statuses", async () => {
     const manager = makeManager({ "10.0.0.4": { password: "admin" } }); // no project
     const { id } = await manager.connect({ host: "10.0.0.4", password: "admin" });
