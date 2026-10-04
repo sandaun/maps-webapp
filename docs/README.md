@@ -20,6 +20,8 @@ Dues categories, en carpetes separades:
 
 ## `reference/`
 
+- `modbus-ai-validation.md` — flux PDF → mapa candidat → validació Modbus,
+  reutilització selectiva de Signal, proveïdors, cost i límits de l'evidència.
 - `console-protocol.md` — consola de diagnòstic ASCII de les passarel·les 700
   Series: catàleg de comandes validat en viu (RO i RW), formats de resposta i
   comportaments observats.

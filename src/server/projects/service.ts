@@ -13,6 +13,11 @@ import {
 } from "@/core/project-format";
 import type { KnxMbmProject } from "@/gateway-families/knx-mbm";
 import { projectFromXml as knxMbmProjectFromXml } from "@/gateway-families/knx-mbm";
+import { addDevice as addScanDevice, updateDevice as updateScanDevice, addSignal as addScanSignal, updateSignal as updateScanSignal } from "@/gateway-families/knx-mbm/xml-ops";
+import { MAX_ACTIVE_SIGNALS, MAX_TOTAL_SIGNAL_ROWS } from "@/core/signals/model";
+import type { ScanInput, ScanResult } from "@/core/modbus-scan/model";
+import type { CandidateSignal } from "@/core/modbus-ai/model";
+import { appendCandidateSignals } from "@/server/modbus-ai/template";
 import type { MeMbsProject } from "@/gateway-families/me-mbs";
 import { projectFromXml as meMbsProjectFromXml } from "@/gateway-families/me-mbs";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
@@ -256,6 +261,61 @@ export async function applyPatches(
     await store.upsert(nextRevision(stored));
     await snapshotDraft(id, templatePatch?.type === "applyDeviceTemplate" ? `Imported Modbus device ${templatePatch.name}` : templatePatch?.type === "undoDeviceTemplate" ? "Undid device template import" : "Edited project");
     if (templatePatch?.type === "applyDeviceTemplate") rememberTemplateUndo(templatePatch.token, originalXml);
+    return readProjectView(id, { locked: true });
+  });
+}
+
+/** Import confirmed reads into the local draft only; no gateway deployment. */
+export async function addScannedSignals(id: string, input: ScanInput, rows: ScanResult[], expectedRevision: number, fingerprint: string): Promise<ProjectView> {
+  const store = getProjectStore();
+  return withProjectLock(store.storageId(id), async () => {
+    const stored = await store.get(id);
+    if (!stored) throw new ProjectServiceError(404, "Project not found");
+    if (revisionOf(stored) !== expectedRevision) throw new ProjectServiceError(409, "The project changed. Reload it before adding scan results.", "revision-conflict");
+    const doc = XmlDocument.parse(await store.readXml(id)); normalizeProject(doc);
+    if (detectFamily(doc)?.id !== "knx-mbm") throw new ProjectServiceError(422, "Scan results require a KNX–MBM project.");
+    const project = knxMbmProjectFromXml(doc);
+    const node = input.locator.kind === "rtu" ? project.mbm.rtuNodes[input.locator.nodeIndex] : project.mbm.tcpNodes[input.locator.nodeIndex];
+    if (!node || JSON.stringify(Object.fromEntries(Object.entries(node).filter(([key]) => key !== "devices"))) !== fingerprint) throw new ProjectServiceError(409, "The scanned connection settings changed. Scan this connection again.");
+    let deviceIndex = node.devices.findIndex((device) => device.slave === input.slave);
+    if (deviceIndex < 0) { deviceIndex = addScanDevice(doc, input.locator); updateScanDevice(doc, { ...input.locator, deviceIndex }, { slave: input.slave, name: `Scanned slave ${input.slave}`, enabled: true, baseRegister: 0 }); }
+    const base = node.devices[deviceIndex]?.baseRegister ?? 0;
+    const port = input.locator.kind === "rtu" ? input.locator.nodeIndex : project.mbm.rtuNodes.length + input.locator.nodeIndex;
+    const existing = new Set(project.signals.filter((s) => s.modbus.port === port && s.modbus.deviceIndex === deviceIndex).map((s) => `${s.modbus.readFunc}:${s.modbus.address}`));
+    const selected = rows.filter((row) => !existing.has(`${row.function}:${row.address + base}`));
+    if (!selected.length) throw new ProjectServiceError(409, "These function/address pairs already exist on this device.");
+    if (project.signals.filter((s) => s.active).length + selected.length > MAX_ACTIVE_SIGNALS || project.signals.length + selected.length > MAX_TOTAL_SIGNAL_ROWS) throw new ProjectServiceError(422, "Selected results exceed the project signal capacity.");
+    const used = new Set(project.signals.map((s) => s.knx.groupAddress)); let ga = 1;
+    for (const row of selected) {
+      if (!row.samples || row.lastValue === undefined) throw new ProjectServiceError(422, "Only successfully read addresses can be added.");
+      if (row.address + base > 65535) throw new ProjectServiceError(422, "The address exceeds this device's address range after base conversion.");
+      while (used.has(ga)) ga++;
+      if (ga > 0x7fff) throw new ProjectServiceError(422, "No free KNX group address available."); used.add(ga);
+      const signalId = addScanSignal(doc); const bit = row.function <= 2;
+      updateScanSignal(doc, signalId, { active: true, description: `Scanned slave ${input.slave} FC0${row.function} PDU ${row.address}`, knx: { dpt: bit ? 0x0101 : 0x0701, groupAddress: ga, additionalAddresses: [], flags: { r: true, t: false, ri: false, w: false, u: false } }, modbus: { port, deviceIndex, isBroadcast: false, readFunc: row.function, writeFunc: -1, lenBits: bit ? 1 : 16, format: bit ? -1 : 0, byteOrder: bit ? -1 : 0, bit: -1, numOfBits: -1, address: row.address + base, deadband: 0 } });
+    }
+    const next = knxMbmProjectFromXml(doc);
+    const addedIds = new Set(next.signals.slice(project.signals.length).map((s) => s.id));
+    const errors = familyById("knx-mbm").validate(next).filter((issue) => issue.severity === "error" && issue.ref?.id !== undefined && addedIds.has(Number(issue.ref.id)));
+    if (errors.length) throw new ProjectServiceError(422, errors.map((issue) => issue.message).join("; "));
+    await store.writeXml(id, doc.serialize()); await store.upsert(nextRevision(stored));
+    await snapshotDraft(id, `Added ${selected.length} read-only Modbus scan results`);
+    return readProjectView(id, { locked: true });
+  });
+}
+
+export async function addDocumentSignals(id: string, rows: CandidateSignal[], target: { kind: "rtu" | "tcp"; nodeIndex: number; slave: number; name: string; manufacturer: string }, expectedRevision: number, fingerprint: string): Promise<ProjectView> {
+  const store = getProjectStore();
+  return withProjectLock(store.storageId(id), async () => {
+    const stored = await store.get(id); if (!stored) throw new ProjectServiceError(404, "Project not found");
+    if (revisionOf(stored) !== expectedRevision) throw new ProjectServiceError(409, "The project changed. Reload before importing the map.", "revision-conflict");
+    const doc = XmlDocument.parse(await store.readXml(id)); normalizeProject(doc);
+    if (detectFamily(doc)?.id !== "knx-mbm") throw new ProjectServiceError(422, "Document maps require KNX–Modbus Master.");
+    const project = knxMbmProjectFromXml(doc); const node = target.kind === "rtu" ? project.mbm.rtuNodes[target.nodeIndex] : project.mbm.tcpNodes[target.nodeIndex];
+    if (!node || JSON.stringify(Object.fromEntries(Object.entries(node).filter(([key]) => key !== "devices"))) !== fingerprint) throw new ProjectServiceError(409, "Connection settings changed. Review the target before import.");
+    appendCandidateSignals(doc, rows, target);
+    await store.writeXml(id, doc.serialize()); await store.upsert(nextRevision(stored));
+    await snapshotDraft(id, `Added ${rows.length} reviewed PDF map signals (Modbus writes disabled)`);
     return readProjectView(id, { locked: true });
   });
 }

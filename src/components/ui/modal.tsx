@@ -20,6 +20,11 @@ export function Modal({
   onClose,
   width = 500,
   scrollable = false,
+  closeLabel = "Cancel",
+  header,
+  footer,
+  bodyClassName,
+  height,
   children,
 }: {
   title: string;
@@ -31,13 +36,19 @@ export function Modal({
   ctaDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
-  width?: number;
+  width?: number | string;
   scrollable?: boolean;
+  closeLabel?: string;
+  /** Custom chrome for long workflows; ordinary confirmation modals keep their defaults. */
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+  bodyClassName?: string;
+  height?: string;
   children: React.ReactNode;
 }) {
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -55,25 +66,55 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn("relative w-full overflow-hidden whitespace-normal rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]", scrollable && "flex max-h-[calc(100dvh-32px)] flex-col")}
-        style={{ maxWidth: width }}
+        className={cn(
+          "relative w-full overflow-hidden whitespace-normal rounded-[8px] border border-border bg-white shadow-[0_18px_45px_rgba(4,61,93,.22)]",
+          scrollable && "flex max-h-[calc(100dvh-32px)] flex-col",
+        )}
+        style={{ maxWidth: width, height }}
       >
-        <div className="border-b border-border px-[22px] pb-[14px] pt-[18px]">
-          <h2 className="font-display text-[19px] font-light text-hms-blue">{title}</h2>
-          {description ? (
-            <p className="mt-1 text-[12.5px] leading-[1.5] text-fg-muted">{description}</p>
-          ) : null}
+        {header ?? (
+          <div className="border-b border-border px-[22px] pb-[14px] pt-[18px]">
+            <h2 className="font-display text-[19px] font-light text-hms-blue">
+              {title}
+            </h2>
+            {description ? (
+              <p className="mt-1 text-[12.5px] leading-[1.5] text-fg-muted">
+                {description}
+              </p>
+            ) : null}
+          </div>
+        )}
+        <div
+          className={cn(
+            "px-[22px] py-4",
+            scrollable && "min-h-0 overflow-auto",
+            bodyClassName,
+          )}
+        >
+          {children}
         </div>
-        <div className={cn("px-[22px] py-4", scrollable && "min-h-0 overflow-auto")}>{children}</div>
-        <div className="flex items-center gap-[9px] border-t border-border bg-card-foot px-[22px] py-[14px]">
-          <p className="flex-1 text-[11.5px] text-fg-subtle">{foot}</p>
-          <Button variant="secondary" size="sm" className="h-8" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" variant={ctaVariant} className="h-8" onClick={onConfirm} disabled={ctaDisabled}>
-            {ctaLabel}
-          </Button>
-        </div>
+        {footer ?? (
+          <div className="flex items-center gap-[9px] border-t border-border bg-card-foot px-[22px] py-[14px]">
+            <p className="flex-1 text-[11.5px] text-fg-subtle">{foot}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8"
+              onClick={onClose}
+            >
+              {closeLabel}
+            </Button>
+            <Button
+              size="sm"
+              variant={ctaVariant}
+              className="h-8"
+              onClick={onConfirm}
+              disabled={ctaDisabled}
+            >
+              {ctaLabel}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -92,7 +133,12 @@ export function ModalRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex items-center gap-[14px] border-b border-row-rule py-[9px]", className)}>
+    <div
+      className={cn(
+        "flex items-center gap-[14px] border-b border-row-rule py-[9px]",
+        className,
+      )}
+    >
       <div className="flex-1">
         <div className="text-[12.5px] font-bold text-text-body">{label}</div>
         {hint ? <div className="text-[11px] text-fg-subtle">{hint}</div> : null}

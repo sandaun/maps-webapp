@@ -1,0 +1,30 @@
+{
+  "repository": "signal-ai",
+  "commit": "ad9d60c6619bfab7a9186e96938bd0b20a4403cc",
+  "files": {
+    "normalize.ts": {
+      "source": "src/lib/ai/structured-modbus/normalize.ts",
+      "sha256": "10eb5d2d2b095a595ca5ff6663da462b1f51a05d18ef65d82d681e3228d8673f"
+    },
+    "schema.ts": {
+      "source": "src/lib/ai/structured-modbus/schema.ts",
+      "sha256": "cdb1adc618af31270f7d8885840a4f99a8849cf76c583b7a70a79d671e4a4bae"
+    },
+    "prompt.ts": {
+      "source": "src/lib/ai/structured-modbus/prompt.ts",
+      "sha256": "18383d04f73083127749664eccfe825ec3476679b1e49b07b01e1f8b76998885"
+    },
+    "enum-states.ts": {
+      "source": "src/lib/signals/enum-states.ts",
+      "sha256": "938776f74485aa1c20d2bea2e33f6a019b67ee5696db42281dd80ebdc6376d6b"
+    },
+    "expand-templates.ts": {
+      "source": "src/lib/ai/expansion/expand-templates.ts",
+      "sha256": "c943258b377a49ed19a6fd3cd50fe4c43505416b8fc1ea3e3882aaac9e2147b6"
+    },
+    "expansion-options.ts": {
+      "source": "src/lib/ai/expansion/expansion-options.ts",
+      "sha256": "e3cc94e5aef12f81fc04c6779c87b38a237a078b465b0516f012196acac9a912"
+    }
+  }
+}

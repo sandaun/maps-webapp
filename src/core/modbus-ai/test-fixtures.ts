@@ -1,0 +1,31 @@
+import { candidateSchema, type CandidateSignal } from "./model";
+export const temperature = (
+  patch: Partial<CandidateSignal> = {},
+): CandidateSignal =>
+  candidateSchema.parse({
+    id: "temperature",
+    name: "G01 Setpoint",
+    description: "Temperature x10",
+    function: 3,
+    address: 104,
+    sourceAddress: "104",
+    addressBasis: "zero",
+    dataType: "int16",
+    byteOrder: null,
+    bit: null,
+    scale: 0.1,
+    offset: 0,
+    unit: "°C",
+    access: "R/W",
+    min: 0,
+    max: 50,
+    enumValues: [],
+    sentinels: [65535],
+    sourcePages: [1],
+    sourceQuote: "104 G01 Setpoint int16 x10 R/W",
+    applicableModels: [],
+    warnings: [],
+    reviewed: true,
+    enabled: true,
+    ...patch,
+  });

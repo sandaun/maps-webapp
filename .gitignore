@@ -3,6 +3,9 @@ temp/
 
 # Local MVP data (projects, received files) — local single-user storage
 .local-data/
+.env
+.env.*
+!.env.example
 
 # Dependencies
 node_modules/

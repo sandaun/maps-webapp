@@ -14,7 +14,6 @@ famílies existents.
 | Font | Ubicació | Què hi trobaràs |
 |---|---|---|
 | Codi descompilat del desktop | `temp/maps-cloud/maps-poc/decompiled/IntesisMAPS/` | La veritat funcional: forms de configuració, models, runtime |
-| Guies HMS | `temp/HMS Communication Guide.pdf`, guies per producte | Semàntica que el descompilat no explica (límits, defaults, significat de camps) |
 | Fixtures reals | `.local-data/fixtures/` (**mai a Git**: credencials) | XML real per contrastar parsing i XBL |
 | Captures / dissenys | `temp/*.png`, `temp/MAPS Web vXX - standalone.html` | Referència visual acordada |
 | Anàlisis prèvies | `docs/reference/` (p.ex. `ac-me-mbs-analisi.md`) | Patró a imitar per documentar |

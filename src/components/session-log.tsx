@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { LogEntry, TransferProgress } from "@/lib/use-session-events";
+import { ProgressBar } from "@/components/ui/progress-bar";
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -17,19 +18,13 @@ function formatBytes(n: number): string {
 
 /** XMODEM transfer progress bar. */
 export function TransferProgressBar({ progress }: { progress: TransferProgress }) {
-  const percent =
-    progress.totalBytes > 0
-      ? Math.min(100, Math.round((progress.receivedBytes / progress.totalBytes) * 100))
-      : 0;
   return (
-    <div className="space-y-1" aria-label="Transfer progress">
-      <div className="h-2 w-full overflow-hidden rounded-full bg-hms-muted">
-        <div className="h-full bg-hms-pop transition-[width]" style={{ width: `${percent}%` }} />
-      </div>
-      <p className="font-mono text-[11px] text-fg-muted">
-        {formatBytes(progress.receivedBytes)} / {formatBytes(progress.totalBytes)} ({percent}%)
-      </p>
-    </div>
+    <ProgressBar
+      value={progress.receivedBytes}
+      max={progress.totalBytes}
+      label="Transfer progress"
+      caption={`${formatBytes(progress.receivedBytes)} / ${formatBytes(progress.totalBytes)}`}
+    />
   );
 }
 

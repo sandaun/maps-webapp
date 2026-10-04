@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getGatewaySessionManager } from "@/server/intesis-transport";
 import { errorResponse } from "@/server/projects/http";
+import { getModbusScanService } from "@/server/modbus-scan/service";
 
 export const runtime = "nodejs";
 
@@ -20,9 +21,12 @@ const connectSchema = z.union([z.object({
 export async function POST(request: Request) {
   try {
     const body = connectSchema.parse(await request.json());
-    const session = await getGatewaySessionManager().connect(body.transport === "usb"
-      ? { transport: "usb", host: body.path, password: "" }
-      : body);
+    const options = body.transport === "usb"
+      ? { transport: "usb" as const, host: body.path, password: "" }
+      : body;
+    await getModbusScanService().checkReconnect(options.host);
+    const session = await getGatewaySessionManager().connect(options);
+    await getModbusScanService().reconnect(session.id);
     return NextResponse.json({ session }, { status: 201 });
   } catch (error) {
     return errorResponse(error);

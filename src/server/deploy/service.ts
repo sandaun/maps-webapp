@@ -10,6 +10,7 @@ import { beginProjectDeploy, getProjectSnapshot, snapshotDeploy, type ProjectVie
 import { hasValidProjectPassword } from "../projects/password";
 import { defaultCapabilitiesPath, hasCapability } from "./capabilities";
 import { deadbandFirmwareWarning, evaluateGatewayCompatibility, type ProjectClassIdentity } from "./gateway-compat";
+import { assertGatewayAvailable } from "../modbus-scan/guard";
 
 /**
  * Deploy service: writes a (possibly modified) project to a gateway via
@@ -240,6 +241,7 @@ async function runGates(
   let sessionDetail = "No gateway session";
   try {
     const status = (deps.sessions ?? getGatewaySessionManager()).getStatus(sessionId);
+    assertGatewayAvailable(status.host);
     appId = status.gateway?.appId;
     if (!status.connected) {
       sessionDetail = "The gateway session is not connected";
@@ -253,8 +255,8 @@ async function runGates(
       const firmware = deadbandFirmwareWarning(descriptor.minFwVersionForPerSignalDeadband, status.gateway?.appVersion);
       if (firmware) warnings.push({ id: "deadband-firmware", message: firmware });
     }
-  } catch {
-    sessionDetail = "Gateway session not found";
+  } catch (error) {
+    sessionDetail = error instanceof Error ? error.message : "Gateway session not found";
   }
   checks.push({ id: "session-appid", ok: sessionOk, detail: sessionDetail });
 

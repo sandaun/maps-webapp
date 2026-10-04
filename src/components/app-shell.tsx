@@ -1,6 +1,7 @@
 "use client";
 
 import { DemoBanner } from "@/components/demo-banner";
+import { ModbusScanBanner } from "@/components/devices/modbus-scan-banner";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { UndoPill } from "@/components/signals/undo-pill";
@@ -21,6 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const bindingQueue = useRef<Promise<unknown>>(Promise.resolve());
   const pathname = usePathname();
   const projectsArea = pathname.startsWith("/projects");
+  const settingsArea = pathname.startsWith("/settings");
 
   useEffect(() => {
     if (!sessionId || projectLoading) return;
@@ -35,7 +37,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar />
       <div className={cn("flex h-full flex-col", sidebarCollapsed ? "ml-[56px]" : "ml-[228px]")}>
         <Header />
-        {!projectsArea && <DemoBanner />}
+        {!projectsArea && !settingsArea && <DemoBanner />}
+        <ModbusScanBanner />
         {/* tabIndex -1: focus target when transient UI (the save bar) closes under the user. */}
         <main
           id="main-content"
@@ -48,7 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-      <UndoPill />
+      {!settingsArea && <UndoPill />}
     </div>
   );
 }

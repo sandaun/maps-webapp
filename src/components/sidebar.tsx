@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, Wifi, WifiOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Settings, Wifi, WifiOff } from "lucide-react";
 import { navLabelFor, navSectionsFor } from "@/lib/nav";
 import { useCurrentProject } from "@/lib/current-project";
 import { useGatewaySession } from "@/lib/gateway-session";
@@ -109,6 +109,28 @@ export function Sidebar() {
             </Link>
           );
         })}
+      </nav>
+
+      <nav className="mx-2 border-t border-white/10 py-3" aria-label="Application navigation">
+        {!sidebarCollapsed && (
+          <div className="px-3 pb-1.5 text-[10px] uppercase tracking-[0.11em] text-white/40">Application</div>
+        )}
+        <Link
+          href="/settings"
+          aria-label="Settings"
+          title={sidebarCollapsed ? "Settings" : undefined}
+          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+          className={cn(
+            "relative flex items-center gap-2.5 rounded-r px-3 py-2 text-[13px] transition-colors",
+            sidebarCollapsed && "justify-center px-2",
+            pathname.startsWith("/settings")
+              ? "bg-white/10 font-medium text-white before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-hms-pop"
+              : "text-white/70 hover:bg-white/5 hover:text-white",
+          )}
+        >
+          <Settings className="h-4 w-4 shrink-0" aria-hidden />
+          {!sidebarCollapsed && "Settings"}
+        </Link>
       </nav>
 
       {sidebarCollapsed ? (
