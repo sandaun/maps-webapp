@@ -15,6 +15,8 @@ export interface Duplex {
    */
   read(timeoutMs: number): Promise<Uint8Array | null>;
   close(): void;
+  /** Transport detail retained on EOF (FIN, reset, serial error, local close). */
+  getCloseReason?(): string;
 }
 
 /** TCP adapter over node:net (gateway control channel is TCP/23, PROTOCOL.md §3). */
@@ -23,6 +25,8 @@ export class TcpDuplex implements Duplex {
   private queue: Uint8Array[] = [];
   private waiters: ((chunk: Uint8Array | null) => void)[] = [];
   private closed = false;
+  private queuedBytes = 0;
+  private closeReason = "TCP peer closed the connection (FIN)";
 
   static connect(host: string, port: number, timeoutMs: number): Promise<TcpDuplex> {
     return new Promise((resolve, reject) => {
@@ -49,7 +53,8 @@ export class TcpDuplex implements Duplex {
           duplex.closed = true;
           duplex.flush(null);
         });
-        socket.on("error", () => {
+        socket.on("error", (error: NodeJS.ErrnoException) => {
+          duplex.closeReason = `TCP ${error.code ?? "error"}: ${error.message}`;
           duplex.closed = true;
           duplex.flush(null);
         });
@@ -61,7 +66,12 @@ export class TcpDuplex implements Duplex {
   private push(chunk: Uint8Array): void {
     const waiter = this.waiters.shift();
     if (waiter) waiter(chunk);
-    else this.queue.push(chunk);
+    else {
+      this.queue.push(chunk);
+      this.queuedBytes += chunk.byteLength;
+      // Apply TCP backpressure rather than dropping encrypted bytes.
+      if (this.queuedBytes >= 1024 * 1024) this.socket?.pause();
+    }
   }
 
   private flush(chunk: null): void {
@@ -75,7 +85,11 @@ export class TcpDuplex implements Duplex {
 
   read(timeoutMs: number): Promise<Uint8Array | null> {
     const queued = this.queue.shift();
-    if (queued) return Promise.resolve(queued);
+    if (queued) {
+      this.queuedBytes -= queued.byteLength;
+      if (this.queuedBytes < 512 * 1024 && !this.closed) this.socket?.resume();
+      return Promise.resolve(queued);
+    }
     if (this.closed) return Promise.resolve(null);
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -92,9 +106,14 @@ export class TcpDuplex implements Duplex {
   }
 
   close(): void {
+    if (!this.closed) this.closeReason = "TCP connection closed locally";
     this.closed = true;
     this.flush(null);
     this.socket?.destroy();
     this.socket = undefined;
+    this.queue = [];
+    this.queuedBytes = 0;
   }
+
+  getCloseReason(): string { return this.closeReason; }
 }

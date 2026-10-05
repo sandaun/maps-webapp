@@ -95,12 +95,18 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .property-save-bar { animation: property-save-up .22s ease-out; }
+@keyframes diagnostic-arrival {
+  from { background-color: rgb(29 195 235 / 10%); }
+  to { background-color: transparent; }
+}
+.diagnostic-arrival { animation: diagnostic-arrival .3s ease-out; }
 @keyframes select-menu-in {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .property-save-bar { animation: none; }
+  .diagnostic-arrival { animation: none; }
 }
 
 /*

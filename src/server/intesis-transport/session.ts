@@ -54,6 +54,7 @@ export interface SessionEvents {
   log?: (line: string) => void;
   /** XMODEM progress. */
   progress?: (receivedBytes: number, totalBytes: number) => void;
+  disconnected?: (reason: string) => void;
 }
 
 export interface GatewaySessionOptions extends SessionEvents {
@@ -69,8 +70,8 @@ export interface GatewaySessionOptions extends SessionEvents {
   transferTimeoutMs?: number;
   /**
    * Keepalive event interval (default 80000 ms like MAPS MILISECONDS_KEEPALIVE;
-   * 0 disables). Mirrors the desktop tool: it emits a local event, it does not
-   * send bytes — TCP liveness is handled by the socket itself.
+   * 0 disables). V6CommObject.MonitorKeepAlive emits SendSponsStatus; the
+   * frmMain handler actually sends prefixed SPONS commands to the gateway.
    */
   keepAliveIntervalMs?: number;
   /** Test hook: deterministic randomness for the DH handshake. */
@@ -140,7 +141,8 @@ function enabledToggles(streams: Required<MonitorOptions>): MonitorToggle[] {
 
 /** Buffered text/binary channel over a Duplex, decrypting on arrival (sonda's `Canal`). */
 class Channel {
-  private buf: number[] = [];
+  private buf: Buffer = Buffer.alloc(0);
+  private offset = 0;
   private eof = false;
 
   constructor(
@@ -150,7 +152,8 @@ class Channel {
 
   /** Prepend already-read bytes (SKT cleartext first message, decrypted chunk). */
   seed(bytes: Uint8Array): void {
-    this.buf.unshift(...bytes);
+    this.buf = Buffer.concat([Buffer.from(bytes), this.buf.subarray(this.offset)]);
+    this.offset = 0;
   }
 
   private async fill(timeoutMs: number): Promise<boolean> {
@@ -161,7 +164,11 @@ class Channel {
     }
     if (chunk.length === 0) return false;
     const dec = this.cipher ? this.cipher.decryptRx(chunk) : chunk;
-    for (const b of dec) this.buf.push(b);
+    this.buf = Buffer.concat([this.buf.subarray(this.offset), Buffer.from(dec)]);
+    this.offset = 0;
+    if (this.buf.length > 2 * 1024 * 1024) {
+      throw new GatewayError("protocol", "Gateway sent more than 2 MB without a complete console line");
+    }
     return true;
   }
 
@@ -170,10 +177,16 @@ class Channel {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const i = this.findCrlf();
-      if (i >= 0) return Uint8Array.from(this.buf.splice(0, i + 2));
+      if (i >= 0) {
+        const line = this.buf.subarray(this.offset, i + 2);
+        this.offset = i + 2;
+        return line;
+      }
       if (this.eof) {
-        if (this.buf.length === 0) return null;
-        return Uint8Array.from(this.buf.splice(0));
+        if (this.offset === this.buf.length) return null;
+        const tail = this.buf.subarray(this.offset);
+        this.offset = this.buf.length;
+        return tail;
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) return null;
@@ -183,16 +196,18 @@ class Channel {
 
   /** Reads all currently buffered bytes, waiting up to `timeoutMs` for the first. */
   async readAvailable(timeoutMs: number): Promise<Uint8Array | null> {
-    if (this.buf.length === 0) {
+    if (this.offset === this.buf.length) {
       const got = await this.fill(timeoutMs);
-      if (!got && this.buf.length === 0) return this.eof ? null : new Uint8Array(0);
+      if (!got && this.offset === this.buf.length) return this.eof ? null : new Uint8Array(0);
     }
-    return Uint8Array.from(this.buf.splice(0));
+    const bytes = this.buf.subarray(this.offset);
+    this.offset = this.buf.length;
+    return bytes;
   }
 
   /** True when the remote end closed and the buffer is drained. */
   isEof(): boolean {
-    return this.eof && this.buf.length === 0;
+    return this.eof && this.offset === this.buf.length;
   }
 
   send(data: Uint8Array): void {    this.link.write(this.cipher ? this.cipher.encryptTx(data) : data);
@@ -207,10 +222,7 @@ class Channel {
   }
 
   private findCrlf(): number {
-    for (let i = 0; i < this.buf.length - 1; i++) {
-      if (this.buf[i] === CR && this.buf[i + 1] === LF) return i;
-    }
-    return -1;
+    return this.buf.indexOf(CRLF, this.offset);
   }
 }
 
@@ -280,7 +292,7 @@ function sanitizeSendArg(value: string, maxLength: number): string {
 export class GatewaySession {
   private readonly login: ClientLogin;
   private readonly events: SessionEvents;
-  private readonly opts: Required<Omit<GatewaySessionOptions, "password" | "random" | "log" | "progress">>;
+  private readonly opts: Required<Omit<GatewaySessionOptions, "password" | "random" | "log" | "progress" | "disconnected">>;
   private channel: Channel | undefined;
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private busy = false;
@@ -307,7 +319,7 @@ export class GatewaySession {
     options: GatewaySessionOptions,
   ) {
     this.login = new ClientLogin(options.password, options.random);
-    this.events = { log: options.log, progress: options.progress };
+    this.events = { log: options.log, progress: options.progress, disconnected: options.disconnected };
     this.opts = {
       transport: options.transport ?? "tcp",
       greetingTimeoutMs: options.greetingTimeoutMs ?? 500,
@@ -660,6 +672,7 @@ export class GatewaySession {
     if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
     this.link.close();
     this.events.log?.("Session closed");
+    this.events.disconnected?.("Session closed locally");
   }
 
   /** True while the live monitor (SPONS/COMMS pushes) is enabled. */
@@ -744,7 +757,10 @@ export class GatewaySession {
     const value = on ? 1 : 0;
     for (const toggle of toggles) {
       for (const [port, prefix] of prefixes.entries()) {
-        await this.commandLocked(`${port}${prefix}:${toggle}=${value}`, TOGGLE_OPTS);
+        const result = await this.commandLocked(`${port}${prefix}:${toggle}=${value}`, TOGGLE_OPTS);
+        if (!result.lines.includes(`${port}${prefix}:OK`)) {
+          throw new GatewayError(result.timedOut ? "timeout" : "protocol", `${port}${prefix}:${toggle}=${value} was not acknowledged`);
+        }
       }
     }
   }
@@ -786,6 +802,7 @@ export class GatewaySession {
     if (this.pumpRunning) return;
     this.pumpRunning = true;
     const channel = this.requireChannel();
+    let linesThisTurn = 0;
     try {
       while (!this.closed && this.pumpDesired) {
         const line = await channel.readLine(250);
@@ -816,11 +833,18 @@ export class GatewaySession {
           collector.resolve({ lines: collector.lines, timedOut: now >= collector.deadline });
         }
         if (channel.isEof()) {
-          this.connected = false;
-          this.events.log?.("Connection lost (gateway closed the session)");
+          this.connectionLost(this.link.getCloseReason?.() ?? "Gateway closed the transport");
           break;
         }
+        // Buffered readLine resolves synchronously: yield so a burst cannot
+        // starve HTTP, disk writes, timers or the next socket read.
+        if (++linesThisTurn >= 256) {
+          linesThisTurn = 0;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
+    } catch (error) {
+      this.connectionLost(error instanceof Error ? error.message : "Diagnostics reader failed");
     } finally {
       this.pumpRunning = false;
       const collector = this.collector;
@@ -937,9 +961,29 @@ export class GatewaySession {
   private startKeepAlive(): void {
     if (this.opts.keepAliveIntervalMs <= 0) return;
     this.keepAliveTimer = setInterval(() => {
-      if (this.connected && !this.closed) this.events.log?.("keepalive");
+      if (!this.connected || this.closed || this.busy) return;
+      // Do not interleave with console collectors or XMODEM. When the monitor
+      // is off, renew SPONS=0 so keepalive never restarts a disabled stream.
+      const prefixes = this.prefixes;
+      if (!prefixes) return;
+      void this.withBusy(() => this.toggleMonitor(prefixes, this.monitorOn, ["SPONS"]))
+        .then(() => this.events.log?.("keepalive"))
+        .catch((error: unknown) => {
+          if (!this.closed) this.events.log?.(`Keepalive failed: ${error instanceof Error ? error.message : "unknown error"}`);
+        });
     }, this.opts.keepAliveIntervalMs);
     this.keepAliveTimer.unref?.();
+  }
+
+  private connectionLost(reason: string): void {
+    if (!this.connected) return;
+    this.connected = false;
+    this.monitorOn = false;
+    this.pumpDesired = false;
+    if (this.keepAliveTimer) clearInterval(this.keepAliveTimer);
+    this.link.close();
+    this.events.log?.(`Connection lost (${reason})`);
+    this.events.disconnected?.(reason);
   }
 }
 

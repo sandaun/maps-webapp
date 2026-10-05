@@ -154,9 +154,9 @@ export function rollingRates(
   return { knxPerMin: knx, modbusPerMin: modbus, modbusPerSec: modbus / (windowMs / 1000) };
 }
 
-/** Footer label, e.g. `KNX 24 tg/min · Modbus 0.4 req/s`. */
+/** Counts received lines; TX/RX and debug lines are not unique bus requests. */
 export function formatRates(rates: RollingRates): string {
-  return `KNX ${rates.knxPerMin} tg/min · Modbus ${rates.modbusPerSec.toFixed(1)} req/s`;
+  return `KNX ${rates.knxPerMin} lines/min · Modbus ${rates.modbusPerSec.toFixed(1)} lines/s`;
 }
 
 /** `HH:MM:SS.mmm` for traffic rows; "" when the timestamp is invalid. */

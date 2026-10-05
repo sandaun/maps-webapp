@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   monitor: [] as LogEntry[],
   log: [] as LogEntry[],
   setMonitor: vi.fn(),
+  recording: vi.fn(),
   command: vi.fn(),
 }));
 
@@ -29,11 +30,17 @@ vi.mock("@/lib/use-session-events", () => ({
 vi.mock("@/lib/gateway-api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/gateway-api")>(),
   setGatewayMonitor: state.setMonitor,
+  setGatewayRecording: state.recording,
   sendConsoleCommand: state.command,
 }));
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Give the real virtualizer a viewport: jsdom has no layout engine.
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.dataset.testid === "traffic-viewport" ? 480 : 28;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1000);
   window.localStorage.setItem("maps.diagnostics.signalsOpen", "1");
   state.session = {
     id: "session", host: "10.0.0.1", port: 23, connected: true, encrypted: true,
@@ -47,6 +54,7 @@ beforeEach(() => {
   state.monitor = [];
   state.log = [];
   state.setMonitor.mockResolvedValue(state.session);
+  state.recording.mockResolvedValue(state.session);
   state.command.mockImplementation(async (_id: string, command: string) => ({
     lines: [command.endsWith("?") ? `${command.slice(0, -1)}=0;0` : `${command.slice(0, 3)}:OK`],
     timedOut: false,
@@ -188,5 +196,38 @@ describe("live diagnostics", () => {
     await waitFor(() => expect(state.setMonitor).toHaveBeenCalledTimes(3));
     expect(state.setMonitor.mock.calls.map((call) => call[1])).toEqual([true, false, true]);
     expect(maxConcurrent).toBe(1);
+  });
+
+  it("waits for a recording change before leaving the screen and disabling the monitor", async () => {
+    let finish!: () => void;
+    state.session!.recording = true;
+    state.recording.mockImplementation(() => new Promise<GatewaySessionStatus>((resolve) => { finish = () => resolve(state.session!); }));
+    const { unmount } = render(<DiagnosticsScreen />);
+    await waitFor(() => expect(state.setMonitor).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Stop background recording" }));
+    await waitFor(() => expect(state.recording).toHaveBeenCalledWith("session", false));
+    unmount();
+    expect(state.setMonitor).toHaveBeenCalledOnce();
+    finish();
+    await waitFor(() => expect(state.setMonitor).toHaveBeenCalledTimes(2));
+    expect(state.setMonitor.mock.calls[1][1]).toBe(false);
+  });
+
+  it("virtualizes a full window and freezes reading position while counting new entries past the window limit", async () => {
+    state.view = null;
+    state.monitor = Array.from({ length: 10_000 }, (_, i) => ({ seq: i + 1, at: new Date().toISOString(), line: `1MM:RTUB frame ${i + 1}` }));
+    const { rerender } = render(<DiagnosticsScreen />);
+    await screen.findByText("10,000 frames");
+    expect(document.querySelectorAll("[data-frame-id]").length).toBeLessThan(100);
+    fireEvent.click(screen.getByRole("button", { name: /^AutoScroll$/ }));
+    const visibleBefore = [...document.querySelectorAll("[data-frame-id]")].map((row) => row.getAttribute("data-frame-id"));
+    state.monitor = [...state.monitor.slice(1000), ...Array.from({ length: 1000 }, (_, i) => ({ seq: 10_001 + i, at: new Date().toISOString(), line: `1MM:RTUB frame ${10_001 + i}` }))];
+    rerender(<DiagnosticsScreen />);
+    const jump = await screen.findByRole("button", { name: /1,000 new entries.*Jump to latest/ });
+    expect([...document.querySelectorAll("[data-frame-id]")].map((row) => row.getAttribute("data-frame-id"))).toEqual(visibleBefore);
+    fireEvent.click(jump);
+    expect(screen.getByRole("button", { name: /^AutoScroll$/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /new entries.*Jump to latest/ })).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[data-frame-id]").length).toBeLessThan(100);
   });
 });

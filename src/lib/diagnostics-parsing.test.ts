@@ -145,7 +145,7 @@ describe("rolling rates", () => {
 
   it("formats the footer label", () => {
     expect(formatRates({ knxPerMin: 24, modbusPerMin: 26, modbusPerSec: 26 / 60 })).toBe(
-      "KNX 24 tg/min · Modbus 0.4 req/s",
+      "KNX 24 lines/min · Modbus 0.4 lines/s",
     );
   });
 });

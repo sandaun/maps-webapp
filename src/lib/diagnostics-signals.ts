@@ -112,6 +112,11 @@ export function signalCommand(signal: DiagnosticSignal, side: SignalSide, value?
 
 /** Match both the protocol/port and id so reversed sides and repeated GAs cannot collide. */
 export function diagnosticStreamValues(signals: DiagnosticSignal[] | null, frames: MonitorFrame[]) {
+  return createDiagnosticValueResolver(signals).consume(frames);
+}
+
+/** Latest values persist when their source frame leaves the traffic window. */
+export function createDiagnosticValueResolver(signals: DiagnosticSignal[] | null) {
   const targets = new Map<string, string[]>();
   for (const signal of signals ?? []) {
     for (const side of ["knx", "me", "mb"] as const) {
@@ -123,15 +128,24 @@ export function diagnosticStreamValues(signals: DiagnosticSignal[] | null, frame
     }
   }
   const values = new Map<string, string>();
-  for (const frame of frames) {
-    const equals = frame.dec.indexOf("=");
-    const target = targets.get(frame.dec.slice(0, equals).toUpperCase());
-    if (!target) continue;
-    const value = parseReadValue(frame.dec);
-    for (const key of target) {
-      if (value !== null) values.set(key, value);
-      else values.delete(key);
-    }
-  }
-  return values;
+  let lastSequence = -1;
+  return {
+    consume(frames: MonitorFrame[]) {
+      const start = frames.findLastIndex((frame) => frame.i <= lastSequence) + 1;
+      for (let i = start; i < frames.length; i++) {
+        const frame = frames[i];
+        if (frame.i <= lastSequence) continue;
+        lastSequence = frame.i;
+        const equals = frame.dec.indexOf("=");
+        const target = targets.get(frame.dec.slice(0, equals).toUpperCase());
+        if (!target) continue;
+        const value = parseReadValue(frame.dec);
+        for (const key of target) {
+          if (value !== null) values.set(key, value);
+          else values.delete(key);
+        }
+      }
+      return new Map(values);
+    },
+  };
 }

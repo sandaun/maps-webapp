@@ -99,6 +99,9 @@ describe("GatewaySessionManager", () => {
   });
 
   it("returns and streams idle status after each diagnostics monitor toggle", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "maps-monitor-"));
+    const previous = process.env.MAPS_DATA_DIR;
+    process.env.MAPS_DATA_DIR = dataDir;
     const manager = makeManager({ "10.0.0.9": { password: "admin" } });
     const { id } = await manager.connect({ host: "10.0.0.9", password: "admin" });
     const events: SessionEvent[] = [];
@@ -115,6 +118,9 @@ describe("GatewaySessionManager", () => {
     } finally {
       unsubscribe();
       manager.disconnect(id);
+      await manager.flushArchive(id);
+      if (previous === undefined) delete process.env.MAPS_DATA_DIR; else process.env.MAPS_DATA_DIR = previous;
+      rmSync(dataDir, { recursive: true, force: true });
     }
   });
 
