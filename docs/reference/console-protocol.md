@@ -116,6 +116,24 @@ Formats d'ID de senyal (KNX–MBM):
   `COMMS`/`DEBUG` mostren **quins esclaus** s'adrecen però no els registres de cada
   senyal. Els dispositius sense cap senyal habilitat no apareixen a l'XBL i no s'adrecen.
 
+Formats ME–MBS (font estàtica: `IntesisProjectMbsMe_RT.PreXBLActions`,
+`ExternalME.CreateExternalAskValueLine`, `IntesisMe.ConstructMEExternalID`):
+
+- Modbus fa servir `0MS:<índex hex8>?`, amb els actius ordenats per
+  `(Address, Bit)`, igual que MBS–KNX.
+- ME fa servir `1ME:<id hex8>?`; l'ID codifica controlador, grup/unitat,
+  senyal i status/comanda. Els virtuals tenen una branca pròpia i no
+  inclouen el grup. No és l'índex de la fila ni l'índex Modbus.
+- Les escriptures ME no porten `;` final. `ExternalME.GetWriteEnabled`
+  només habilita status amb `SignalIndex != -1` i no virtuals;
+  Modbus conserva els permisos Read/Write i Trigger d'`InternalMbs`.
+- El flag virtual ME prové d'`ExternalProtocol/Signals/Signal/Virtual`,
+  independent del flag virtual Modbus. Diverses files poden compartir
+  un endpoint ME; els pushes actualitzen totes les files associades.
+
+Aquests formats s'han comprovat contra el codi MAPS i en tests offline;
+no s'han validat aquí amb lectures o escriptures sobre una ME–MBS real.
+
 ## 3. Sessió i transferència de fitxers (resum)
 
 - Login (només TCP :23): `LOGIN0=admin;<b64 g>;<b64 p>;<b64 g^a>` →

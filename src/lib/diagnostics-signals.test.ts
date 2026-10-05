@@ -4,9 +4,11 @@ import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synth
 import { projectFromXml as mbsKnxFromXml } from "@/gateway-families/mbs-knx/from-xml";
 import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synthetic-project";
 import { projectFromXml as knxMbmFromXml } from "@/gateway-families/knx-mbm/from-xml";
+import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { projectFromXml as meFromXml } from "@/gateway-families/me-mbs/from-xml";
 import type { ProjectView } from "./project-types";
 import { parseMonitorLine } from "./diagnostics-parsing";
-import { diagnosticSignals, diagnosticStreamValues, signalCommand } from "./diagnostics-signals";
+import { diagnosticSignals, diagnosticStreamValues, meConsoleId, signalCommand } from "./diagnostics-signals";
 
 function mbsView(): Extract<ProjectView, { family: "mbs-knx" }> {
   return {
@@ -92,8 +94,53 @@ describe("diagnostic signal runtime mapping", () => {
     expect(diagnosticSignals(view)!.find((signal) => signal.id === row.id)!.writable).toEqual({ knx: true, mb: true });
   });
 
-  it("keeps an honest empty state for missing or unsupported projects", () => {
+  it("maps ME IDs from controller, group and status, and MBS IDs from sorted active rows", () => {
+    const project = meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML));
+    const view = { ...mbsView(), family: "me-mbs", project } as ProjectView;
+    project.signals[0].active = false;
+    const row = project.signals[2];
+    row.modbus.address = 1;
+    row.me.isVirtual = false;
+    row.me.g50Index = 1;
+    row.me.groupIndex = 2;
+    row.me.signalIndex = 0;
+    const signals = diagnosticSignals(view)!;
+    expect(signals[0].endpoints).toEqual({});
+    expect(signals[2].endpoints).toEqual({ me: "1ME:00004300", mb: "0MS:00000000" });
+    expect(signals[2].mapping).toBe("1 ⇄ C2/G3");
+    expect(signalCommand(signals[2], "me")).toBe("1ME:00004300?");
+    expect(signalCommand(signals[2], "me", "1")).toBe("1ME:00004300=1");
+    row.me.isStatus = false;
+    expect(meConsoleId(row.me)).toBe("00004380");
+    expect(signalCommand(diagnosticSignals(view)![2], "me", "1")).toBeNull();
+    row.me.isVirtual = true;
+    expect(meConsoleId(row.me)).toBe("00004080");
+    expect(signalCommand(diagnosticSignals(view)![2], "me", "1")).toBeNull();
+    expect(signals[0].writable.mb).toBe(false);
+  });
+
+  it("handles ME unit IDs and updates every row sharing an ME endpoint", () => {
+    const project = meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML));
+    const view = { ...mbsView(), family: "me-mbs", project } as ProjectView;
+    const me = project.signals[2].me;
+    me.isVirtual = false;
+    me.groupIndex = -1;
+    me.unitId = 0;
+    me.signalIndex = 0;
+    expect(meConsoleId(me)).toBe("00000140");
+    me.unitId = 50;
+    expect(meConsoleId(me)).toBe("00000160");
+    project.signals[3].me = { ...me };
+    const signals = diagnosticSignals(view)!;
+    const frames = ["1ME:00000160=1;0", "0MS:00000002=10;0"]
+      .map((line, i) => parseMonitorLine(line, i, ""));
+    const values = diagnosticStreamValues(signals, frames);
+    expect(values.get("2|me")).toBe("1");
+    expect(values.get("3|me")).toBe("1");
+    expect(values.get("2|mb")).toBe("10");
+  });
+
+  it("keeps an honest empty state for missing projects", () => {
     expect(diagnosticSignals(null)).toBeNull();
-    expect(diagnosticSignals({ family: "me-mbs" } as ProjectView)).toBeNull();
   });
 });

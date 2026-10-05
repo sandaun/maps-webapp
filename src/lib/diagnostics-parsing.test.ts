@@ -14,6 +14,12 @@ import {
 } from "./diagnostics-parsing";
 
 describe("parseMonitorLine", () => {
+  it("recognises ME values and bus frames while keeping controller traces as system events", () => {
+    expect(parseMonitorLine("1ME:00000100=1;0", 0, "")).toMatchObject({ proto: "ME", obj: "00000100" });
+    expect(parseMonitorLine("1ME:[Tx] 01 02", 1, "")).toMatchObject({ proto: "ME", dir: "TX" });
+    expect(parseMonitorLine("1ME:[G50Sampler[0]]Connected", 2, "")).toMatchObject({ proto: "SYS", obj: "" });
+  });
+
   it("recognises MBS–KNX bus frames and spontaneous values on reversed ports", () => {
     expect(parseMonitorLine("0MS:RTUB [Rx] 01 03 00 01 00 01 D5 CA", 0, "")).toMatchObject({ proto: "MODBUS", dir: "RX" });
     expect(parseMonitorLine("1KX: [Tx] BC 11 01 08 03 E1 00 81", 1, "")).toMatchObject({ proto: "KNX", dir: "TX" });

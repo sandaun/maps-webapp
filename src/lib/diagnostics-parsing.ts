@@ -6,7 +6,7 @@
  * Console protocol reference: docs/reference/console-protocol.md.
  */
 
-export type MonitorProto = "KNX" | "MODBUS" | "SYS";
+export type MonitorProto = "KNX" | "MODBUS" | "ME" | "SYS";
 export type MonitorDir = "TX" | "RX" | "—";
 
 export interface MonitorFrame {
@@ -53,7 +53,9 @@ export function parseMonitorLine(line: string, i: number, at: string): MonitorFr
     ? "MODBUS"
     : /^[0-2]KX:/.test(line)
       ? "KNX"
-      : "SYS";
+      : /^[0-2]ME:/.test(line) && (TX_RX_RE.test(line) || PUSH_ID_RE.test(line))
+        ? "ME"
+        : "SYS";
 
   const txrx = TX_RX_RE.exec(line);
   if (txrx) {

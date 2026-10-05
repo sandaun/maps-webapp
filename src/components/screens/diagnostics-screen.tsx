@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { diagnosticSignals, diagnosticStreamValues, signalCommand, type DiagnosticSignal } from "@/lib/diagnostics-signals";
+import { diagnosticSignals, diagnosticStreamValues, signalCommand, type DiagnosticSignal, type SignalSide } from "@/lib/diagnostics-signals";
 import { diagnosticTrafficSignals } from "@/lib/diagnostics-traffic";
 import { useCurrentProject } from "@/lib/current-project";
 import {
@@ -56,12 +56,14 @@ const PROTO_BADGE: Record<MonitorProto, string> = {
   KNX: "bg-console-bms text-console-bms-fg",
   MODBUS: "bg-console-device text-console-device-fg",
   SYS: "bg-console-fg/20 text-console-fg",
+  ME: "bg-console-device text-console-device-fg",
 };
 
 const PROTO_DESC: Record<MonitorProto, string> = {
   KNX: "KNX TP1 telegram, standard frame",
   MODBUS: "Modbus Master ADU",
   SYS: "internal event",
+  ME: "Mitsubishi Electric AC",
 };
 
 const FILTER_TABS: { key: "all" | MonitorProto; label: string }[] = [
@@ -131,6 +133,10 @@ export function DiagnosticsScreen() {
 
 function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const { view } = useCurrentProject();
+  const deviceSide = view?.family === "me-mbs" ? "me" : "knx";
+  const deviceLabel = deviceSide === "me" ? "ME" : "KNX";
+  const filterTabs = FILTER_TABS.map((tab) => tab.key === "KNX" && deviceSide === "me"
+    ? { key: "ME" as const, label: "ME" } : tab);
   const { log, monitor, status } = useSessionEvents(session.id);
 
   const liveStatus = status ?? session;
@@ -293,7 +299,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   // Values confirmed by console reads/writes override the stream snapshot.
   const [valueOverrides, setValueOverrides] = React.useState<Record<string, string>>({});
   const liveValue = React.useCallback(
-    (signalId: number, side: "knx" | "mb") =>
+    (signalId: number, side: SignalSide) =>
       valueOverrides[`${signalId}|${side}`] ?? streamValues.get(`${signalId}|${side}`),
     [valueOverrides, streamValues],
   );
@@ -416,7 +422,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     window.addEventListener("pointerup", onUp);
   }
 
-  async function writeSignal(signal: DiagnosticSignal, side: "knx" | "mb", value: string) {
+  async function writeSignal(signal: DiagnosticSignal, side: SignalSide, value: string) {
     const command = signalCommand(signal, side, value);
     if (!command) return;
     try {
@@ -449,7 +455,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   function onValueKey(
     event: React.KeyboardEvent<HTMLInputElement>,
     signal: DiagnosticSignal,
-    side: "knx" | "mb",
+    side: SignalSide,
   ) {
     if (event.key !== "Enter") return;
     const key = `${signal.id}|${side}`;
@@ -467,7 +473,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     setRefreshing(true);
     try {
       for (const signal of tableSignals.slice(0, SV_REFRESH_MAX)) {
-        const knxCommand = signalCommand(signal, "knx");
+        const knxCommand = signalCommand(signal, deviceSide);
         const mbCommand = signalCommand(signal, "mb");
         if (!knxCommand || !mbCommand) continue;
         const knxResult = await sendConsoleCommand(session.id, knxCommand).catch(() => null);
@@ -476,7 +482,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
         const mbValue = mbResult?.lines.map(parseReadValue).find((v) => v !== null);
         setValueOverrides((prev) => {
           const next = { ...prev };
-          if (knxValue) next[`${signal.id}|knx`] = knxValue;
+          if (knxValue) next[`${signal.id}|${deviceSide}`] = knxValue;
           if (mbValue) next[`${signal.id}|mb`] = mbValue;
           return next;
         });
@@ -577,7 +583,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           Debug
         </ChipButton>
         <div className="h-[22px] w-px bg-border" />
-        {FILTER_TABS.map((tab) => (
+        {filterTabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
@@ -629,7 +635,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           <div className="flex min-h-[160px] flex-1 flex-col bg-console-bg">
             {!showTrafficSignals && (
               <p className="shrink-0 px-[14px] py-[6px] text-[11px] text-console-fg/45">
-                Open a KNX ↔ Modbus project to identify signals in the traffic log.
+                Open a project to identify signals in the traffic log.
               </p>
             )}
             <div ref={trafficScrollRef} className="flex-1 overflow-auto pb-5">
@@ -917,8 +923,7 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
               </div>
               {signals === null ? (
                 <p className="px-[14px] py-4 text-[12px] leading-[1.6] text-fg-muted">
-                  Open a KNX ↔ Modbus Master or KNX ↔ Modbus Slave project to read and write
-                  its signals from here.
+                  Open a project to read and write its signals from here.
                 </p>
               ) : tableSignals.length === 0 ? (
                 <p className="px-[14px] py-4 text-[12px] leading-[1.6] text-fg-muted">
@@ -935,16 +940,16 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                     <div className="w-[36px] shrink-0">#</div>
                     <div className="min-w-[150px] flex-[1.1]">DESCRIPTION</div>
                     {showMapping && <div className="w-[124px] shrink-0">MAPPING</div>}
-                    <div className="w-[96px] shrink-0 text-warning-text">KNX VALUE</div>
+                    <div className="w-[96px] shrink-0 text-warning-text">{deviceLabel} VALUE</div>
                     <div className="w-[96px] shrink-0 text-hms-accent">MODBUS VALUE</div>
                     <div className="min-w-[200px] flex-[1.3]">LAST OPERATION</div>
                   </div>
                   {shownSignals.map((signal, index) => {
                     const mapping = signal.mapping;
                     const stat = opStats[signal.id];
-                    const liveKnx = liveValue(signal.id, "knx");
+                    const liveKnx = liveValue(signal.id, deviceSide);
                     const liveMb = liveValue(signal.id, "mb");
-                    const pendingKnx = drafts[`${signal.id}|knx`] !== undefined;
+                    const pendingKnx = drafts[`${signal.id}|${deviceSide}`] !== undefined;
                     const pendingMb = drafts[`${signal.id}|mb`] !== undefined;
                     const pending = pendingKnx || pendingMb;
                     const statText = pending
@@ -980,19 +985,19 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
                         )}
                         <div className="w-[96px] shrink-0">
                           <input
-                            value={drafts[`${signal.id}|knx`] ?? liveKnx ?? ""}
+                            value={drafts[`${signal.id}|${deviceSide}`] ?? liveKnx ?? ""}
                             placeholder="—"
-                            aria-label={`${signal.description || `Signal ${signal.id + 1}`} KNX value`}
-                            disabled={!signal.endpoints.knx}
-                            readOnly={!signal.writable.knx}
-                            title={!signal.writable.knx ? "Read-only from the KNX side" : pendingKnx ? "Pending — press Enter to send" : "Type a value and press Enter to send"}
+                            aria-label={`${signal.description || `Signal ${signal.id + 1}`} ${deviceLabel} value`}
+                            disabled={!signal.endpoints[deviceSide]}
+                            readOnly={!signal.writable[deviceSide]}
+                            title={!signal.writable[deviceSide] ? `Read-only from the ${deviceLabel} side` : pendingKnx ? "Pending — press Enter to send" : "Type a value and press Enter to send"}
                             onChange={(event) =>
                               setDrafts((prev) => ({
                                 ...prev,
-                                [`${signal.id}|knx`]: event.target.value,
+                                [`${signal.id}|${deviceSide}`]: event.target.value,
                               }))
                             }
-                            onKeyDown={(event) => onValueKey(event, signal, "knx")}
+                            onKeyDown={(event) => onValueKey(event, signal, deviceSide)}
                             className={cn("w-[86px] rounded-[3px] border border-bms-border bg-bms-surface px-[7px] py-[3px] font-mono text-[11.5px] text-hms-blue placeholder:text-fg-subtle read-only:cursor-default read-only:bg-white", pendingKnx && "border-warning-text")}
                           />
                         </div>

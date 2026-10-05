@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { XmlDocument } from "@/core/project-format";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { projectFromXml } from "@/gateway-families/mbs-knx/from-xml";
+import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { projectFromXml as meFromXml } from "@/gateway-families/me-mbs/from-xml";
+import { diagnosticSignals } from "@/lib/diagnostics-signals";
 import type { ProjectView } from "@/lib/project-types";
 import type { GatewaySessionStatus } from "@/lib/gateway-api";
 import type { LogEntry } from "@/lib/use-session-events";
@@ -50,7 +53,7 @@ beforeEach(() => {
   }));
 });
 
-describe("MBS–KNX live diagnostics", () => {
+describe("live diagnostics", () => {
   it("identifies bus traffic, filters by signal name and explains unassigned frames", async () => {
     state.monitor = [
       { at: "2026-10-03T10:00:00.000Z", line: "0MS:RTUB [Rx] 01 03 00 00 00 01 84 0A" },
@@ -74,13 +77,38 @@ describe("MBS–KNX live diagnostics", () => {
     expect(screen.getByText("Console message 0MS:RTUB [Tx] 01 03 02 00 01 79 84")).toBeInTheDocument();
   });
 
-  it.each([null, { family: "me-mbs" } as ProjectView])("hides the signal column for an absent or unsupported project: %j", async (view) => {
-    state.view = view;
+  it("hides the signal column for an absent project", async () => {
+    state.view = null;
     state.monitor = [{ at: new Date().toISOString(), line: "1MM:RTUB Timeout!" }];
     render(<DiagnosticsScreen />);
-    expect(screen.getByText("Open a KNX ↔ Modbus project to identify signals in the traffic log.")).toBeInTheDocument();
+    expect(screen.getByText("Open a project to identify signals in the traffic log.")).toBeInTheDocument();
     expect(screen.queryByText("SIGNAL", { exact: true })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /MODBUS.*1MM:RTUB Timeout!/ })).toBeInTheDocument();
+  });
+
+  it("shows and refreshes ME–MBS signals with ME columns and protocol commands", async () => {
+    state.view = { ...state.view!, family: "me-mbs", project: meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)) } as ProjectView;
+    const signals = diagnosticSignals(state.view)!;
+    const row = signals[2];
+    const name = row.description.replace(/\s+/g, " ");
+    state.monitor = [
+      { at: new Date().toISOString(), line: `${row.endpoints.me}=1;0` },
+      { at: new Date().toISOString(), line: `${row.endpoints.mb}=10;0` },
+    ];
+    render(<DiagnosticsScreen />);
+    expect(screen.getByText("9 of 9 signals")).toBeInTheDocument();
+    expect(screen.getByText("ME VALUE")).toBeInTheDocument();
+    expect(screen.queryByText("KNX VALUE")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ME" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: `${name} ME value` })).toHaveValue("1"));
+    expect(screen.getByRole("textbox", { name: `${name} Modbus value` })).toHaveValue("10");
+    // The synthetic ME endpoints are virtual, hence read-only under MAPS rules.
+    expect(screen.getByRole("textbox", { name: `${name} ME value` })).toHaveAttribute("readonly");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(state.command).toHaveBeenCalledTimes(18));
+    expect(state.command).toHaveBeenCalledWith("session", `${row.endpoints.me}?`);
+    expect(state.command).toHaveBeenCalledWith("session", `${row.endpoints.mb}?`);
+    expect(state.command.mock.calls.some((call) => call[1].includes("KX:"))).toBe(false);
   });
 
   it("marks unsent drafts and keeps the read-only side of each signal non-editable", async () => {
