@@ -4,6 +4,8 @@ import { SYNTHETIC_KNX_MBM_XML } from "@/gateway-families/knx-mbm/fixtures/synth
 import { projectFromXml } from "@/gateway-families/knx-mbm/from-xml";
 import { SYNTHETIC_MBS_KNX_XML } from "@/gateway-families/mbs-knx/fixtures/synthetic-project";
 import { projectFromXml as mbsFromXml } from "@/gateway-families/mbs-knx/from-xml";
+import { SYNTHETIC_ME_MBS_XML } from "@/gateway-families/me-mbs/fixtures/synthetic-project";
+import { projectFromXml as meFromXml } from "@/gateway-families/me-mbs/from-xml";
 import type { ProjectView } from "./project-types";
 import { parseMonitorLine } from "./diagnostics-parsing";
 import { diagnosticTrafficSignals } from "./diagnostics-traffic";
@@ -35,6 +37,23 @@ function line(dir: "Tx" | "Rx", data: number[], head = "1MM:RTUB") {
 }
 
 describe("traffic signal association", () => {
+  it("identifies ME–MBS register requests and replies, including multiple slaves", () => {
+    const project = { ...view(), family: "me-mbs", project: meFromXml(XmlDocument.parse(SYNTHETIC_ME_MBS_XML)) } as Extract<ProjectView, { family: "me-mbs" }>;
+    const row = project.project.signals[2];
+    project.project.mbs.registerBase = 1;
+    project.project.mbs.slaveAddressMode = 1;
+    project.project.mbs.slaves = [{ address: 5, description: "AC group" }];
+    row.modbus.slaveIndex = 0;
+    const address = row.modbus.address - 1;
+    const request = line("Rx", [5, 3, address >> 8, address & 255, 0, 1], "0MS:RTUB");
+    const reply = line("Tx", [5, 3, 2, 0, 1], "0MS:RTUB");
+    const matches = diagnosticTrafficSignals(project, frames([request, reply, reply]));
+    expect(matches.get(0)?.label).toBe(row.description);
+    expect(matches.get(1)?.label).toBe(row.description);
+    expect(matches.get(2)?.label).toBe("—");
+    expect(diagnosticTrafficSignals(project, frames([line("Rx", [1, 3, address >> 8, address & 255, 0, 1], "0MS:RTUB")])).get(0)?.label).toBe("—");
+  });
+
   it("matches push IDs by complete protocol endpoint, with explicit fallback", () => {
     const matches = diagnosticTrafficSignals(view(), frames([
       "0KX:00020805=22.5;0", "1MM:00000000=1;0", "1KX:00020805=99;0", "1MM:RTUB Timeout!",

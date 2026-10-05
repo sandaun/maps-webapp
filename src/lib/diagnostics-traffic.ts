@@ -97,11 +97,11 @@ export function diagnosticTrafficSignals(view: ProjectView | null, frames: Monit
   for (const frame of frames) {
     let matched: DiagnosticSignal[] = [];
     if (frame.obj) matched = endpoints.get(frame.dec.slice(0, frame.dec.indexOf("=")).toUpperCase()) ?? [];
-    const supported = view?.family === "knx-mbm" || view?.family === "mbs-knx";
+    const supported = view !== null;
     const rtu = /^([012](?:MM|MS):RTU[AB])\b/i.exec(frame.dec)?.[1].toUpperCase();
     if (rtu && isTimeoutText(frame.dec)) pending.delete(rtu);
     const bytes = hexBytes(frame.frame);
-    if (supported && bytes && frame.proto === "KNX") {
+    if (view && view.family !== "me-mbs" && bytes && frame.proto === "KNX") {
       const head = view.family === "knx-mbm" ? "0KX:" : "1KX:";
       // Standard TP1 frame: group destination, length nibble and checksum.
       if (frame.dec.startsWith(head) && bytes.length >= 9 && (bytes[0] & 0xd0) === 0x90
@@ -145,7 +145,7 @@ export function diagnosticTrafficSignals(view: ProjectView | null, frames: Monit
                     timeout = Math.max(timeout, device.timeout);
                   }
                 }
-              } else if (view.family === "mbs-knx" && view.project.mbs.media !== 1 && [3, 6, 16].includes(bytes[1])) {
+              } else if (view.family !== "knx-mbm" && view.project.mbs.media !== 1 && [3, 6, 16].includes(bytes[1])) {
                 const config = view.project.mbs;
                 for (const signal of view.project.signals) {
                   const slave = config.slaveAddressMode === 1 && config.slaves.length > 0

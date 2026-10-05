@@ -1,8 +1,9 @@
 import { formatGroupAddress } from "@/protocols/knx/address";
 import type { ProjectView } from "./project-types";
+import type { MeEndpoint } from "@/gateway-families/me-mbs/model";
 import { knxConsoleId, mbmConsoleId, parseReadValue, type MonitorFrame } from "./diagnostics-parsing";
 
-export type SignalSide = "knx" | "mb";
+export type SignalSide = "knx" | "me" | "mb";
 
 export interface DiagnosticSignal {
   id: number;
@@ -12,7 +13,22 @@ export interface DiagnosticSignal {
   /** Complete protocol head + runtime id, absent for disabled signals. */
   endpoints: Partial<Record<SignalSide, string>>;
   /** MAPS GetWriteEnabled, checked separately for internal/external protocols. */
-  writable: Record<SignalSide, boolean>;
+  writable: Partial<Record<SignalSide, boolean>>;
+}
+
+/** IntesisMe.ConstructMEExternalID (IntesisMe.cs:142–174). */
+export function meConsoleId(me: MeEndpoint): string {
+  const controller = me.g50Index << 14;
+  const command = (me.isStatus ? 0 : 1) << 7;
+  let id: number;
+  if (me.isVirtual) id = controller | command | (me.signalIndex & 0x7f);
+  else if (me.groupIndex !== -1) {
+    id = controller | (((me.groupIndex + 1) & 0x3f) << 8) | command | (me.signalIndex & 0x7f);
+  } else {
+    const unit = me.unitId >= 50 ? ((me.unitId - 50 + 1) << 8) | 32 : (me.unitId + 1) << 8;
+    id = (controller | unit | command | me.signalIndex) + 64;
+  }
+  return id.toString(16).padStart(8, "0");
 }
 
 /**
@@ -23,7 +39,30 @@ export interface DiagnosticSignal {
  * enabled KNX index + 1 (hex4) and sending GA (hex4).
  */
 export function diagnosticSignals(view: ProjectView | null): DiagnosticSignal[] | null {
-  if (!view || (view.family !== "knx-mbm" && view.family !== "mbs-knx")) return null;
+  if (!view) return null;
+  if (view.family === "me-mbs") {
+    const order = view.project.signals.filter((signal) => signal.active)
+      .sort((a, b) => a.modbus.address - b.modbus.address || a.modbus.bit - b.modbus.bit);
+    const indices = new Map(order.map((signal, index) => [signal.id, index]));
+    return view.project.signals.map((signal) => {
+      const me = signal.me;
+      const group = me.groupIndex >= 0 ? `G${me.groupIndex + 1}`
+        : me.unitId >= 0 ? `U${me.unitId + 1}` : "General";
+      const bit = signal.modbus.format === 4 ? `.${signal.modbus.bit}` : "";
+      const slave = view.project.mbs.slaveAddressMode === 1
+        ? view.project.mbs.slaves[signal.modbus.slaveIndex]?.address : undefined;
+      return {
+        id: signal.id, active: signal.active, description: signal.description,
+        mapping: `${slave !== undefined ? `s${slave}:` : ""}${signal.modbus.address}${bit} ⇄ C${me.g50Index + 1}/${group}`,
+        endpoints: signal.active ? { me: `1ME:${meConsoleId(me)}`, mb: `0MS:${mbmConsoleId(indices.get(signal.id)!)}` } : {},
+        writable: {
+          // ExternalME.GetWriteEnabled (:839); InternalMbs.GetWriteEnabled.
+          me: signal.active && me.isStatus && me.signalIndex !== -1 && !me.isVirtual,
+          mb: signal.active && (signal.modbus.readWrite === 1 || signal.modbus.readWrite === 2),
+        },
+      };
+    });
+  }
   const active = view.project.signals.filter((signal) => signal.active);
   const knxIndex = new Map(active.map((signal, index) => [signal.id, index]));
   const modbusOrder = view.family === "mbs-knx"
@@ -73,11 +112,14 @@ export function signalCommand(signal: DiagnosticSignal, side: SignalSide, value?
 
 /** Match both the protocol/port and id so reversed sides and repeated GAs cannot collide. */
 export function diagnosticStreamValues(signals: DiagnosticSignal[] | null, frames: MonitorFrame[]) {
-  const targets = new Map<string, string>();
+  const targets = new Map<string, string[]>();
   for (const signal of signals ?? []) {
-    for (const side of ["knx", "mb"] as const) {
+    for (const side of ["knx", "me", "mb"] as const) {
       const endpoint = signal.endpoints[side];
-      if (endpoint) targets.set(endpoint.toUpperCase(), `${signal.id}|${side}`);
+      if (endpoint) {
+        const key = endpoint.toUpperCase();
+        targets.set(key, [...(targets.get(key) ?? []), `${signal.id}|${side}`]);
+      }
     }
   }
   const values = new Map<string, string>();
@@ -86,8 +128,10 @@ export function diagnosticStreamValues(signals: DiagnosticSignal[] | null, frame
     const target = targets.get(frame.dec.slice(0, equals).toUpperCase());
     if (!target) continue;
     const value = parseReadValue(frame.dec);
-    if (value !== null) values.set(target, value);
-    else values.delete(target);
+    for (const key of target) {
+      if (value !== null) values.set(key, value);
+      else values.delete(key);
+    }
   }
   return values;
 }

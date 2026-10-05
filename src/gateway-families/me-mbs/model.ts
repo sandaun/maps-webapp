@@ -20,6 +20,8 @@ export interface MeEndpoint {
   /** -1 = group/general signal; >= 0 = per-unit signal (UNVERIFIED). */
   unitId: number;
   isIndoor: boolean;
+  /** ME Virtual.Status; independent of the Modbus-side virtual flag. */
+  isVirtual: boolean;
   /** True = status read from the AC bus; false = command. */
   isStatus: boolean;
   /** IntesisMe.SIGNAL_* constant. */

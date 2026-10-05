@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Lato, Saira } from "next/font/google";
+import { Lato, Saira } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,9 +25,11 @@ const saira = Saira({
   preload: true,
 });
 
-const jetBrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+// Keep the console font local: Turbopack can reject the Google Fonts CSS
+// during production builds ("next/font/google queries have exactly one entry").
+const jetBrainsMono = localFont({
+  src: "./fonts/jetbrains-mono.woff2",
+  weight: "400 600",
   variable: "--font-jetbrains-mono",
   display: "swap",
   preload: true,
