@@ -1,5 +1,6 @@
 import { getGatewaySessionManager } from "@/server/intesis-transport";
 import { errorResponse } from "@/server/projects/http";
+import { sessionEventStream } from "@/server/intesis-transport/event-stream";
 
 export const runtime = "nodejs";
 
@@ -13,39 +14,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const manager = getGatewaySessionManager();
     manager.getStatus(id); // 404 for unknown sessions
 
-    const encoder = new TextEncoder();
-    let cleanup: (() => void) | undefined;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = (event: unknown) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        };
-        const unsubscribe = manager.subscribe(id, send);
-        const heartbeat = setInterval(() => {
-          controller.enqueue(encoder.encode(": ping\n\n"));
-        }, 15_000);
-        cleanup = () => {
-          clearInterval(heartbeat);
-          unsubscribe();
-        };
-        request.signal.addEventListener("abort", () => {
-          cleanup?.();
-          try {
-            controller.close();
-          } catch {
-            // already closed
-          }
-        });
-      },
-      cancel() {
-        cleanup?.();
-      },
-    });
+    const cursor = Number(request.headers.get("Last-Event-ID"));
+    const stream = sessionEventStream((listener) => manager.subscribe(id, listener), request.signal,
+      Number.isSafeInteger(cursor) && cursor > 0 ? cursor : 0);
     return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (error) {

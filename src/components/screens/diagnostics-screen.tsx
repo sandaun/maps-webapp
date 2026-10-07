@@ -2,12 +2,20 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { diagnosticSignals, diagnosticStreamValues, signalCommand, type DiagnosticSignal, type SignalSide } from "@/lib/diagnostics-signals";
-import { diagnosticTrafficSignals } from "@/lib/diagnostics-traffic";
+import { diagnosticSignals, createDiagnosticValueResolver, signalCommand, type DiagnosticSignal, type SignalSide } from "@/lib/diagnostics-signals";
+import { createDiagnosticTrafficResolver } from "@/lib/diagnostics-traffic";
+import { RingBuffer } from "@/lib/ring-buffer";
+import { DIAGNOSTICS_WINDOW } from "@/lib/diagnostics-history";
+import { createDiagnosticRateCounter } from "@/lib/diagnostics-rates";
+import { TrafficList } from "@/components/diagnostics/traffic-list";
+import { SavedDiagnosticLogs } from "@/components/diagnostics/saved-logs";
 import { useCurrentProject } from "@/lib/current-project";
 import {
   sendConsoleCommand,
   setGatewayMonitor,
+  setGatewayRecording,
+  getDiagnosticHistory,
+  diagnosticDownloadUrl,
   type GatewaySessionStatus,
 } from "@/lib/gateway-api";
 import { useGatewaySession } from "@/lib/gateway-session";
@@ -17,11 +25,9 @@ import {
   formatFrameTime,
   formatRates,
   formatUptime,
-  isFailureText,
   isTimeoutText,
   parseMonitorLine,
   parseReadValue,
-  rollingRates,
   type MonitorFrame,
   type MonitorProto,
 } from "@/lib/diagnostics-parsing";
@@ -31,7 +37,6 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 
-const TRAFFIC_LIMIT = 300;
 const CONSOLE_LIMIT = 140;
 const SV_MAX_SIGNALS = 60;
 const SV_REFRESH_MAX = 20;
@@ -50,21 +55,6 @@ const CON_SILENT = "text-console-fg/40";
 const CON_WARN = "text-console-warn";
 const CON_ERROR = "text-console-error";
 const CON_LOG = "text-console-fg/45";
-
-/** KNX–MBM: KNX is the BMS side, Modbus Master the device side. */
-const PROTO_BADGE: Record<MonitorProto, string> = {
-  KNX: "bg-console-bms text-console-bms-fg",
-  MODBUS: "bg-console-device text-console-device-fg",
-  SYS: "bg-console-fg/20 text-console-fg",
-  ME: "bg-console-device text-console-device-fg",
-};
-
-const PROTO_DESC: Record<MonitorProto, string> = {
-  KNX: "KNX TP1 telegram, standard frame",
-  MODBUS: "Modbus Master ADU",
-  SYS: "internal event",
-  ME: "Mitsubishi Electric AC",
-};
 
 const FILTER_TABS: { key: "all" | MonitorProto; label: string }[] = [
   { key: "all", label: "All" },
@@ -123,6 +113,7 @@ export function DiagnosticsScreen() {
             </Link>{" "}
             screen. Without a gateway you can keep working with the demo project.
           </p>
+          <SavedDiagnosticLogs />
         </CardContent>
       </Card>
     );
@@ -137,9 +128,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   const deviceLabel = deviceSide === "me" ? "ME" : "KNX";
   const filterTabs = FILTER_TABS.map((tab) => tab.key === "KNX" && deviceSide === "me"
     ? { key: "ME" as const, label: "ME" } : tab);
-  const { log, monitor, status } = useSessionEvents(session.id);
+  const { log, monitor, status, dropped = 0, streamError } = useSessionEvents(session.id);
 
-  const liveStatus = status ?? session;
+  const liveStatus = status ? { ...session, ...status, archive: session.archive ?? status.archive } : session;
   const monitoring = liveStatus.connected && liveStatus.monitoring;
 
   /* ----- family-specific runtime signal ids ----- */
@@ -154,7 +145,10 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
   // Bus frames (COMMS=1) are on by default; firmware debug lines (DEBUG=1)
   // are opt-in, like the MAPS "Debug" checkbox.
   const [monitorError, setMonitorError] = React.useState<string | null>(null);
-  const [streams, setStreams] = React.useState({ comms: true, debug: false });
+  const [streams, setStreams] = React.useState({
+    comms: session.monitoring ? (session.monitorComms ?? true) : true,
+    debug: session.monitoring ? (session.monitorDebug ?? false) : false,
+  });
   const streamsRef = React.useRef(streams);
   // StrictMode replays setup/cleanup; rapid toolbar clicks also overlap.
   // The server rejects concurrent operations, so apply toggles in order.
@@ -190,6 +184,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
 
   /* ----- traffic buffer (own copy so Clear/Pause are local) ----- */
   const [frames, setFrames] = React.useState<MonitorFrame[]>([]);
+  const frameBuffer = React.useRef(new RingBuffer<MonitorFrame>(DIAGNOSTICS_WINDOW));
+  const rateCounter = React.useRef(createDiagnosticRateCounter());
+  const nextFrameIndex = React.useRef(0);
   const lastMonitorRef = React.useRef<(typeof monitor)[number] | null>(null);
   React.useEffect(() => {
     if (monitor.length === 0) {
@@ -206,75 +203,105 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     const fresh = resync ? monitor : monitor.slice(idx + 1);
     if (fresh.length === 0) return;
     lastMonitorRef.current = monitor[monitor.length - 1];
-    setFrames((prev) => {
-      const base = resync ? [] : prev;
-      const start = base.length > 0 ? base[base.length - 1].i + 1 : 0;
-      const appended = fresh.map((entry, k) =>
-        parseMonitorLine(entry.line, start + k, entry.at),
-      );
-      return [...base, ...appended].slice(-TRAFFIC_LIMIT);
-    });
+    for (const entry of fresh) {
+      const index = entry.seq ?? nextFrameIndex.current++;
+      const frame = parseMonitorLine(entry.line, index, entry.at);
+      frameBuffer.current.push(frame);
+      rateCounter.current.add(frame);
+    }
+    setFrames(frameBuffer.current.snapshot());
   }, [monitor]);
 
   /* ----- toolbar state ----- */
   const [paused, setPaused] = React.useState(false);
   const [pausedFrames, setPausedFrames] = React.useState<MonitorFrame[] | null>(null);
   const [autoScroll, setAutoScroll] = React.useState(true);
-  const [holdCount, setHoldCount] = React.useState<number | null>(null);
+  const [readingFrames, setReadingFrames] = React.useState<MonitorFrame[] | null>(null);
+  const [heldAt, setHeldAt] = React.useState<number | null>(null);
+  const [loadingHistory, setLoadingHistory] = React.useState(false);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [recordingBusy, setRecordingBusy] = React.useState(false);
   const [showTs, setShowTs] = React.useState(true);
   const showTrafficSignals = signals !== null;
-  const trafficContentClass = showTrafficSignals ? "w-[480px] shrink-0" : "min-w-[240px] flex-1";
-  const trafficMinWidth = 142 + (showTrafficSignals ? 480 + 180 : 240) + (showTs ? 104 : 0);
   const [filter, setFilter] = React.useState<"all" | MonitorProto>("all");
   const [query, setQuery] = React.useState("");
-  const [openIdx, setOpenIdx] = React.useState<number | null>(null);
   const [resetOpen, setResetOpen] = React.useState(false);
 
-  const source = pausedFrames ?? frames;
-  const trafficSignals = React.useMemo(() => diagnosticTrafficSignals(view, source), [view, source]);
-  const heldCount = holdCount !== null ? Math.max(0, source.length - holdCount) : 0;
-  const heldSource = holdCount !== null ? source.slice(0, holdCount) : source;
+  const source = pausedFrames ?? readingFrames ?? frames;
+  const resolver = React.useMemo(() => createDiagnosticTrafficResolver(view), [view]);
+  const trafficSignals = React.useMemo(() => new Map(source.map((frame) => [frame.i, resolver.resolve(frame)])), [resolver, source]);
+  const heldCount = heldAt !== null ? Math.max(0, (frames.at(-1)?.i ?? heldAt) - heldAt) : 0;
   const needle = query.trim().toLowerCase();
-  const visibleFrames = heldSource.filter(
+  const visibleFrames = source.filter(
     (frame) =>
       (filter === "all" || frame.proto === filter) &&
       (!needle || [frame.dec, frame.frame, frame.obj, trafficSignals.get(frame.i)?.detail].join(" ").toLowerCase().includes(needle)),
   );
-  // Newest frames at the bottom (console convention; AutoScroll pins it).
-  const renderedFrames = visibleFrames;
-
-  const trafficScrollRef = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    if (autoScroll && trafficScrollRef.current) {
-      trafficScrollRef.current.scrollTop = trafficScrollRef.current.scrollHeight;
-    }
-  }, [autoScroll, renderedFrames.length]);
-
   function togglePause() {
     if (paused) {
-      setPaused(false);
-      setPausedFrames(null);
+      followLatest();
     } else {
-      setPausedFrames(frames);
+      setPausedFrames(source);
       setPaused(true);
+      setHeldAt(frames.at(-1)?.i ?? 0);
     }
   }
 
+  function readHistory() {
+    setAutoScroll(false);
+    setReadingFrames(source);
+    setHeldAt(frames.at(-1)?.i ?? 0);
+  }
+
+  function followLatest() {
+    setAutoScroll(true);
+    setPaused(false);
+    setPausedFrames(null);
+    setReadingFrames(null);
+    setHeldAt(null);
+  }
+
   function toggleAutoScroll() {
-    if (autoScroll) {
+    if (autoScroll) readHistory(); else followLatest();
+  }
+
+  async function loadOlderHistory() {
+    if (loadingHistory || !source[0]) return;
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const page = await getDiagnosticHistory(session.id, source[0].i);
+      const older = page.entries.map((entry) => parseMonitorLine(entry.line, entry.seq, entry.at));
+      if (!older.length) { setHistoryError("Beginning of saved capture reached."); return; }
       setAutoScroll(false);
-      setHoldCount(source.length);
-    } else {
-      setAutoScroll(true);
-      setHoldCount(null);
-    }
+      setPaused(false);
+      setPausedFrames(null);
+      setHeldAt(frames.at(-1)?.i ?? 0);
+      // Keep browsing bounded; the complete recording remains on disk.
+      setReadingFrames([...older, ...source].slice(0, DIAGNOSTICS_WINDOW));
+    } catch (error) { setHistoryError(errorMessage(error, "Could not load earlier traffic")); }
+    finally { setLoadingHistory(false); }
+  }
+
+  async function toggleRecording() {
+    if (recordingBusy) return;
+    setRecordingBusy(true);
+    try {
+      const operation = monitorQueue.current.then(() => setGatewayRecording(session.id, !liveStatus.recording));
+      monitorQueue.current = operation.catch(() => {});
+      await operation;
+      setHistoryError(null);
+    } catch (error) { setHistoryError(errorMessage(error, "Could not change recording")); }
+    finally { setRecordingBusy(false); }
   }
 
   function clearTraffic() {
     setFrames([]);
+    frameBuffer.current.clear();
+    rateCounter.current.clear();
     setPausedFrames(null);
-    setHoldCount(null);
-    setOpenIdx(null);
+    setReadingFrames(null);
+    setHeldAt(null);
   }
 
   /* ----- 1 s tick for rates / uptime ----- */
@@ -284,17 +311,15 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
     return () => window.clearInterval(interval);
   }, []);
 
-  const rates = rollingRates(frames, nowMs);
+  const rates = rateCounter.current.read(nowMs);
   const timeoutCount = React.useMemo(
     () => frames.filter((frame) => isTimeoutText(frame.dec)).length,
     [frames],
   );
 
   /* ----- live signal values from the stream ----- */
-  const streamValues = React.useMemo(
-    () => diagnosticStreamValues(signals, frames),
-    [frames, signals],
-  );
+  const valueResolver = React.useMemo(() => createDiagnosticValueResolver(signals), [signals]);
+  const streamValues = React.useMemo(() => valueResolver.consume(frames), [frames, valueResolver]);
 
   // Values confirmed by console reads/writes override the stream snapshot.
   const [valueOverrides, setValueOverrides] = React.useState<Record<string, string>>({});
@@ -535,12 +560,13 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
           : null;
 
   return (
-    <div className="flex h-full min-h-[540px] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {monitorError && (
         <p role="alert" className="shrink-0 border-b border-border bg-error-bg px-[18px] py-[9px] text-sm text-error">
           Monitor could not start: {monitorError}
         </p>
       )}
+      {(streamError || historyError || liveStatus.archive?.error) && <p role="status" className="shrink-0 border-b border-border bg-warning-bg px-[18px] py-2 text-sm text-warning">{liveStatus.archive?.error || historyError || streamError}</p>}
       {/* ---------- toolbar ---------- */}
       <div className="flex shrink-0 flex-wrap items-center gap-[9px] border-b border-border bg-white px-[18px] py-[9px]">
         <button
@@ -565,6 +591,9 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
         <ChipButton on={autoScroll} onClick={toggleAutoScroll}>
           AutoScroll
         </ChipButton>
+        <button type="button" disabled={recordingBusy} onClick={toggleRecording} title="Keep capturing on the server when you leave this screen" className={cn("cursor-pointer rounded border px-3 py-2 text-xs font-bold", liveStatus.recording ? "border-hms-accent bg-hms-accent text-white" : "border-border text-hms-blue")}>{liveStatus.recording ? "Stop background recording" : "Record in background"}</button>
+        {liveStatus.archive && <a href={diagnosticDownloadUrl(session.id)} download className="rounded border border-border px-3 py-2 text-xs font-bold text-hms-blue">Download log</a>}
+        <SavedDiagnosticLogs />
         <ChipButton on={showTs} onClick={() => setShowTs((v) => !v)}>
           Time stamp
         </ChipButton>
@@ -632,122 +661,29 @@ function LiveDiagnostics({ session }: { session: GatewaySessionStatus }) {
       <div ref={bodyRef} className="flex min-h-0 flex-1">
         <div ref={columnRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* traffic monitor */}
-          <div className="flex min-h-[160px] flex-1 flex-col bg-console-bg">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-console-bg">
             {!showTrafficSignals && (
               <p className="shrink-0 px-[14px] py-[6px] text-[11px] text-console-fg/45">
                 Open a project to identify signals in the traffic log.
               </p>
             )}
-            <div ref={trafficScrollRef} className="flex-1 overflow-auto pb-5">
-              <div style={{ minWidth: trafficMinWidth }} className="sticky top-0 z-[2] flex bg-console-header px-[14px] py-[6px] font-mono text-[10px] font-semibold tracking-[.08em] text-console-fg/45">
-                {showTs && <div className="w-[104px] shrink-0 pr-4">TIME</div>}
-                <div className="w-[74px] shrink-0">SOURCE</div>
-                <div className="w-[40px] shrink-0">DIR</div>
-                <div className={cn(trafficContentClass, "pr-3")}>FRAME / MESSAGE</div>
-                {showTrafficSignals && (
-                  <div className="w-[180px] shrink-0" title="Signals identified from the current project. — means this frame could not be linked to a signal.">SIGNAL</div>
-                )}
-              </div>
-              {renderedFrames.length === 0 && (
-                <div className="px-[14px] py-6 font-mono text-[11.5px] leading-[1.7] text-console-fg/30">
-                  {frames.length === 0
-                    ? "No frames yet — the monitor streams when the gateway pushes data."
-                    : "No frames match the current filter."}
-                </div>
-              )}
-              {renderedFrames.map((frame) => {
-                const open = openIdx === frame.i;
-                const failed = isFailureText(frame.dec);
-                const signal = trafficSignals.get(frame.i)!;
-                return (
-                  <div key={frame.i}>
-                    <button
-                      type="button"
-                      style={{ minWidth: trafficMinWidth }}
-                      onClick={() => setOpenIdx(open ? null : frame.i)}
-                      className={cn(
-                        "flex w-full cursor-pointer items-start px-[14px] py-[4px] text-left font-mono text-[11.5px]",
-                        open && "bg-console-accent/10",
-                      )}
-                    >
-                      {showTs && (
-                        <div className="w-[104px] shrink-0 whitespace-nowrap pr-4 tabular-nums text-console-fg/42">
-                          {formatFrameTime(frame.at)}
-                        </div>
-                      )}
-                      <div className="w-[74px] shrink-0">
-                        <span
-                          className={cn(
-                            "rounded-[2px] px-[5px] py-[1px] font-mono text-[9.5px] font-semibold",
-                            PROTO_BADGE[frame.proto],
-                          )}
-                        >
-                          {frame.proto}
-                        </span>
-                      </div>
-                      <div
-                        className={cn(
-                          "w-[40px] shrink-0",
-                          frame.dir === "TX"
-                            ? "text-console-tx"
-                            : frame.dir === "RX"
-                              ? "text-console-rx"
-                              : "text-console-fg/35",
-                        )}
-                      >
-                        {frame.dir}
-                      </div>
-                      <div
-                        title={frame.frame || frame.dec}
-                        className={cn(
-                          trafficContentClass,
-                          "whitespace-normal break-words pr-3 leading-[1.5]",
-                          failed ? "text-console-error" : "text-console-fg/90",
-                        )}
-                      >
-                        {frame.frame || frame.dec}
-                      </div>
-                      {showTrafficSignals && (
-                        <div title={signal.detail} className="w-[180px] shrink-0 truncate text-console-object">
-                          {signal.label}
-                        </div>
-                      )}
-                    </button>
-                    {open && (
-                      <div className="border-l-2 border-console-accent bg-console-fg/4 px-[14px] pb-[12px] pl-[24px] pt-[10px] font-mono text-[11.5px] leading-[1.7] text-console-fg/70">
-                        <div>Raw frame {frame.frame || "—"}</div>
-                        <div>
-                          Protocol {frame.proto} · {PROTO_DESC[frame.proto]}
-                        </div>
-                        <div className="whitespace-normal break-words">
-                          Console message {frame.dec}
-                        </div>
-                        {showTrafficSignals && (
-                          <>
-                            <div>Signal {signal.label}</div>
-                            <div className="whitespace-pre-line">{signal.detail}</div>
-                          </>
-                        )}
-                        {frame.obj && <div>Runtime signal ID {frame.obj}</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <TrafficList frames={visibleFrames} matches={trafficSignals} showSignals={showTrafficSignals}
+              showTimestamp={showTs} following={autoScroll && !paused} onReadHistory={readHistory}
+              emptyMessage={frames.length === 0 ? "No frames yet — the monitor streams when the gateway pushes data." : "No frames match the current filter."} />
             <div className="flex shrink-0 gap-4 bg-console-fg/5 px-[14px] py-[6px] font-mono text-[11px] text-console-fg/50">
-              <span>{frames.length} frames</span>
+              <span>{source.length.toLocaleString()} frames{liveStatus.archive ? ` · ${liveStatus.archive.count.toLocaleString()} saved` : ""}</span>
               <span>{formatRates(rates)}</span>
               {heldCount > 0 && (
-                <span className="text-console-warn">
-                  AutoScroll off · {heldCount} new frames held
-                </span>
+                <button type="button" onClick={followLatest} className="cursor-pointer font-semibold text-console-accent">↓ {heldCount.toLocaleString()} new entries · Jump to latest</button>
               )}
               {timeoutCount > 0 && (
                 <span className="text-console-error">{timeoutCount} timeouts</span>
               )}
+              {dropped > 0 && <span className="text-console-warn">{dropped.toLocaleString()} preview lines skipped · download the full capture</span>}
+              {liveStatus.archive && source[0]?.i > 1 && <button type="button" disabled={loadingHistory} onClick={loadOlderHistory} className="cursor-pointer text-console-accent">{loadingHistory ? "Loading…" : "Load older"}</button>}
+              {!autoScroll && heldCount === 0 && <button type="button" onClick={followLatest} className="cursor-pointer text-console-accent">↓ Jump to latest</button>}
               <div className="flex-1" />
-              <span>{streamState}</span>
+              <span>{liveStatus.recording ? "recording on server" : streamState}</span>
             </div>
           </div>
 

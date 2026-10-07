@@ -11,6 +11,9 @@ import { TcpDuplex, type Duplex } from "./transport";
 import { SerialDuplex } from "./serial";
 import { summarizeInfo, type GatewayInfoSummary } from "./info";
 import { assertGatewayAvailable } from "../modbus-scan/guard";
+import { RingBuffer } from "@/lib/ring-buffer";
+import { DIAGNOSTICS_WINDOW, type DiagnosticArchiveInfo } from "@/lib/diagnostics-history";
+import { DiagnosticsArchive } from "./diagnostics-archive";
 
 /**
  * In-memory manager for live gateway sessions, behind the `GatewaySessions`
@@ -40,12 +43,15 @@ export interface GatewaySessionStatus {
   monitorDebug: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
+  /** Keep the monitor/capture alive when the browser leaves Diagnostics. */
+  recording?: boolean;
+  archive?: DiagnosticArchiveInfo;
 }
 
 export type SessionEvent =
   | { type: "log"; at: string; line: string }
   | { type: "progress"; at: string; receivedBytes: number; totalBytes: number }
-  | { type: "monitor"; at: string; line: string }
+  | { type: "monitor"; at: string; line: string; seq?: number }
   | { type: "status"; at: string; status: GatewaySessionStatus };
 
 export type SessionEventListener = (event: SessionEvent) => void;
@@ -137,18 +143,22 @@ interface ManagedSession {
   gateway?: GatewayInfoSummary;
   listeners: Set<SessionEventListener>;
   /** Recent events replayed to new SSE subscribers (ring buffer). */
-  history: SessionEvent[];
+  history: RingBuffer<SessionEvent>;
   /** Recent monitor lines, replayed after `history` (kept apart so a chatty
    *  bus does not evict the transfer log). */
-  monitorHistory: SessionEvent[];
+  monitorHistory: RingBuffer<SessionEvent>;
+  sequence: number;
+  recording: boolean;
+  archive?: DiagnosticsArchive;
 }
 
 const HISTORY_LIMIT = 200;
-const MONITOR_HISTORY_LIMIT = 150;
+const MONITOR_HISTORY_LIMIT = DIAGNOSTICS_WINDOW;
 const CONNECT_TIMEOUT_MS = 5_000;
 
 export class GatewaySessionManager implements GatewaySessions {
   private sessions = new Map<string, ManagedSession>();
+  private finishingArchives = new Map<string, Promise<void>>();
 
   constructor(
     private readonly createDuplex: DuplexFactory = (host, port, timeout) =>
@@ -175,6 +185,15 @@ export class GatewaySessionManager implements GatewaySessions {
         log: (line) => emit({ type: "log", line }),
         progress: (receivedBytes, totalBytes) =>
           emit({ type: "progress", receivedBytes, totalBytes }),
+        disconnected: () => {
+          if (!managed) return;
+          managed.recording = false;
+          if (managed.archive) {
+            const finishing = managed.archive.seal().finally(() => this.finishingArchives.delete(id));
+            this.finishingArchives.set(id, finishing);
+          }
+          broadcast(managed, { type: "status", at: new Date().toISOString(), status: this.toStatus(id, managed) });
+        },
       });
       managed = {
         password: options.password,
@@ -186,8 +205,10 @@ export class GatewaySessionManager implements GatewaySessions {
         busy: false,
         connectedAt: new Date().toISOString(),
         listeners: new Set(),
-        history: [],
-        monitorHistory: [],
+        history: new RingBuffer(HISTORY_LIMIT),
+        monitorHistory: new RingBuffer(MONITOR_HISTORY_LIMIT),
+        sequence: 0,
+        recording: false,
       };
       this.sessions.set(id, managed);
       const { info, encrypted } = await session.connect();
@@ -281,8 +302,14 @@ export class GatewaySessionManager implements GatewaySessions {
 
   subscribe(id: string, listener: SessionEventListener): () => void {
     const managed = this.require(id);
-    for (const event of managed.history) listener(event);
-    for (const event of managed.monitorHistory) listener(event);
+    try {
+      for (const event of managed.history.snapshot()) listener(event);
+      // A small initial viewport; the disk history endpoint supplies older pages.
+      for (const event of managed.monitorHistory.snapshot().slice(-1000)) listener(event);
+    } catch {
+      // A viewer can disappear during the replay, just as during a live broadcast.
+      return () => {};
+    }
     managed.listeners.add(listener);
     return () => managed.listeners.delete(listener);
   }
@@ -294,10 +321,11 @@ export class GatewaySessionManager implements GatewaySessions {
   ): Promise<{ lines: string[]; timedOut: boolean }> {
     const managed = this.require(id);
     return this.runExclusive(managed, async () => {
+      const visibleCommand = command.trim();
       pushEvent(managed, {
         type: "log",
         at: new Date().toISOString(),
-        line: `Console: ${command}`,
+        line: `Console: ${/^(?:PWD|LOGIN[02])=/i.test(visibleCommand) ? visibleCommand.slice(0, visibleCommand.indexOf("=")) + "=[redacted]" : visibleCommand}`,
       });
       return managed.session.runConsoleCommand(command, options);
     }).catch((error: unknown) => {
@@ -307,25 +335,47 @@ export class GatewaySessionManager implements GatewaySessions {
 
   async setMonitor(id: string, enabled: boolean, options?: MonitorOptions): Promise<GatewaySessionStatus> {
     const managed = this.require(id);
-    await this.runExclusive(managed, async () => {
-      await managed.session.setMonitor(enabled, (line) => {
-        const event: SessionEvent = { type: "monitor", at: new Date().toISOString(), line };
-        managed.monitorHistory.push(event);
-        if (managed.monitorHistory.length > MONITOR_HISTORY_LIMIT) {
-          managed.monitorHistory.shift();
-        }
-        for (const listener of managed.listeners) listener(event);
-      }, options);
-    }).catch((error: unknown) => {
+    if (!enabled && managed.recording) return this.toStatus(id, managed);
+    await this.runExclusive(managed, () => this.monitorLocked(id, managed, enabled, options)).catch((error: unknown) => {
       throw toGatewayRequestError(error);
     });
     // Publish only after runExclusive releases the lock; otherwise SSE clients
     // retain busy=true and keep gateway transfers disabled indefinitely.
     const status = this.toStatus(id, managed);
-    for (const listener of managed.listeners) {
-      listener({ type: "status", at: new Date().toISOString(), status });
-    }
+    broadcast(managed, { type: "status", at: new Date().toISOString(), status });
     return status;
+  }
+
+  async setRecording(id: string, enabled: boolean): Promise<GatewaySessionStatus> {
+    const managed = this.require(id);
+    await this.runExclusive(managed, async () => {
+      if (!managed.session.connected) throw new GatewayRequestError(409, "Session is not connected");
+      if (enabled && !managed.session.monitoring) await this.monitorLocked(id, managed, true);
+      managed.recording = enabled;
+      await managed.archive?.flush();
+    }).catch((error: unknown) => { throw toGatewayRequestError(error); });
+    const status = this.toStatus(id, managed);
+    broadcast(managed, { type: "status", at: new Date().toISOString(), status });
+    return status;
+  }
+
+  private async monitorLocked(id: string, managed: ManagedSession, enabled: boolean, options?: MonitorOptions): Promise<void> {
+    if (enabled && !managed.archive) {
+      managed.archive = new DiagnosticsArchive(id, managed.host);
+      for (const event of managed.history.snapshot()) {
+        if (event.type === "log" && event.line !== "keepalive") recordMonitor(managed, `# ${event.line}`, event.at);
+      }
+      await managed.archive.flush();
+    }
+    await managed.session.setMonitor(enabled, (line) => {
+      recordMonitor(managed, line, new Date().toISOString());
+    }, options);
+  }
+
+  /** Also valid after disconnect: archived files outlive the live session. */
+  async flushArchive(id: string): Promise<void> {
+    await this.finishingArchives.get(id);
+    await this.sessions.get(id)?.archive?.flush();
   }
 
   private async runExclusive<T>(managed: ManagedSession, op: () => Promise<T>): Promise<T> {
@@ -360,14 +410,33 @@ export class GatewaySessionManager implements GatewaySessions {
       monitorDebug: m.session.monitoringDebug,
       connectedAt: m.connectedAt,
       gateway: m.gateway,
+      recording: m.recording,
+      archive: m.archive?.info(),
     };
   }
 }
 
 function pushEvent(managed: ManagedSession, event: SessionEvent): void {
   managed.history.push(event);
-  if (managed.history.length > HISTORY_LIMIT) managed.history.shift();
-  for (const listener of managed.listeners) listener(event);
+  broadcast(managed, event);
+  if (managed.archive && event.type === "log" && event.line !== "keepalive") recordMonitor(managed, `# ${event.line}`, event.at);
+}
+
+function recordMonitor(managed: ManagedSession, line: string, at: string): void {
+  const event = { type: "monitor" as const, at, line, seq: ++managed.sequence };
+  managed.monitorHistory.push(event);
+  managed.archive?.append({ seq: event.seq, at, line });
+  broadcast(managed, event);
+}
+
+function broadcast(managed: ManagedSession, event: SessionEvent): void {
+  for (const listener of managed.listeners) {
+    try { listener(event); }
+    catch {
+      // A canceled/failed SSE subscriber must never stop the gateway reader.
+      managed.listeners.delete(listener);
+    }
+  }
 }
 
 /**
@@ -381,7 +450,7 @@ const globalForSessions = globalThis as unknown as {
 };
 
 // Bump when cached managers cannot support the new transport/session contract.
-const SESSION_MANAGER_VERSION = 2;
+const SESSION_MANAGER_VERSION = 3;
 
 export function getGatewaySessionManager(): GatewaySessionManager {
   if (globalForSessions.__mapsGatewaySessionManagerVersion !== SESSION_MANAGER_VERSION) {

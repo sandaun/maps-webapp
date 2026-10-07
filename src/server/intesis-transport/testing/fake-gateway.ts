@@ -90,6 +90,7 @@ export class FakeGateway implements Duplex {
   private sponsOn = false;
   closed = false;
   readonly consoleCommands: string[] = [];
+  getCloseReason?: () => string;
 
   constructor(private readonly config: FakeGatewayConfig) {
     if (config.usb) this.stage = "established";
@@ -242,7 +243,7 @@ export class FakeGateway implements Duplex {
           this.respondEncrypted(`RECVCMPLT:READY:${n}\r\n`);
           this.stage = "xmodem";
         }
-      } else if (/^[01](KX|MM|MS):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
+      } else if (/^[01](KX|MM|MS|ME):(SPONS|COMMS|DEBUG)=[01]$/.test(line)) {
         // Monitor toggles and upload pre-commands: the real firmware ACKs
         // `<port><PREFIX>:OK` and ignores the unprefixed form in silence.
         this.respondEncrypted(`${line.slice(0, 3)}:OK\r\n`);
@@ -391,6 +392,11 @@ export class FakeGateway implements Duplex {
   /** Uploads received so far (CTRL-Z padding of the last packet included). */
   getReceivedUploads(): Uint8Array[] {
     return this.receivedUploads.map((u) => new Uint8Array(u));
+  }
+
+  /** Test driver: one encrypted packet containing a burst of console lines. */
+  emitConsoleLines(lines: string[]): void {
+    this.respondEncrypted(lines.join("\r\n") + "\r\n");
   }
 
   private respondCleartext(text: string): void {

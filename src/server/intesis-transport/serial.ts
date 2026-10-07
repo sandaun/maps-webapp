@@ -26,6 +26,9 @@ export class SerialDuplex implements Duplex {
   private queue: Uint8Array[] = [];
   private waiters: ((chunk: Uint8Array | null) => void)[] = [];
   private closed = false;
+  private queuedBytes = 0;
+  private paused = false;
+  private closeReason = "USB port closed";
 
   private constructor(private readonly port: SerialPort) {
     port.on("data", (data: Buffer) => {
@@ -33,10 +36,20 @@ export class SerialDuplex implements Duplex {
       const chunk = new Uint8Array(data);
       const waiter = this.waiters.shift();
       if (waiter) waiter(chunk);
-      else this.queue.push(chunk);
+      else {
+        this.queue.push(chunk);
+        this.queuedBytes += chunk.byteLength;
+        if (this.queuedBytes >= 1024 * 1024 && !this.paused) {
+          this.paused = true;
+          this.port.pause();
+        }
+      }
     });
     port.on("close", () => this.end());
-    port.on("error", () => this.close());
+    port.on("error", (error: Error) => {
+      this.closeReason = `USB error: ${error.message}`;
+      this.close();
+    });
   }
 
   static connect(path: string, timeoutMs: number): Promise<SerialDuplex> {
@@ -76,13 +89,23 @@ export class SerialDuplex implements Duplex {
   write(data: Uint8Array): void {
     if (this.closed) throw new Error("USB connection is closed");
     this.port.write(Buffer.from(data), (error) => {
-      if (error) this.close();
+      if (error) {
+        this.closeReason = `USB write error: ${error.message}`;
+        this.close();
+      }
     });
   }
 
   read(timeoutMs: number): Promise<Uint8Array | null> {
     const queued = this.queue.shift();
-    if (queued) return Promise.resolve(queued);
+    if (queued) {
+      this.queuedBytes -= queued.byteLength;
+      if (this.queuedBytes < 512 * 1024 && !this.closed && this.paused) {
+        this.paused = false;
+        this.port.resume();
+      }
+      return Promise.resolve(queued);
+    }
     if (this.closed) return Promise.resolve(null);
     return new Promise((resolve) => {
       const onData = (chunk: Uint8Array | null) => {
@@ -101,6 +124,7 @@ export class SerialDuplex implements Duplex {
   private end(): void {
     this.closed = true;
     this.queue = [];
+    this.queuedBytes = 0;
     for (const waiter of this.waiters.splice(0)) waiter(null);
   }
 
@@ -108,4 +132,6 @@ export class SerialDuplex implements Duplex {
     this.end();
     if (this.port.isOpen) this.port.close(() => {});
   }
+
+  getCloseReason(): string { return this.closeReason; }
 }

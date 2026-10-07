@@ -1,6 +1,7 @@
 import { ApiError, request } from "./api";
 import type { ScannedMeGroup } from "@/gateway-families/me-mbs/bus-scan";
 import type { ProjectMeta } from "./project-types";
+import type { DiagnosticArchiveInfo, DiagnosticHistoryPage } from "./diagnostics-history";
 
 export const GATEWAY_SESSIONS_CHANGED_EVENT = "maps:gateway-sessions-changed";
 
@@ -74,6 +75,8 @@ export interface GatewaySessionStatus {
   monitorDebug: boolean;
   connectedAt: string;
   gateway?: GatewayInfoSummary;
+  recording?: boolean;
+  archive?: DiagnosticArchiveInfo;
 }
 
 /** Mirror of `DiscoveredGateway` in `src/server/intesis-transport/discovery.ts`. */
@@ -88,7 +91,7 @@ export interface DiscoveredGateway {
 export type SessionEvent =
   | { type: "log"; at: string; line: string }
   | { type: "progress"; at: string; receivedBytes: number; totalBytes: number }
-  | { type: "monitor"; at: string; line: string }
+  | { type: "monitor"; at: string; line: string; seq?: number }
   | { type: "status"; at: string; status: GatewaySessionStatus };
 
 /** KNX ↔ Modbus Master AppId (`IBOX_KNX_MBM = 4`, see docs/plans/knx-mbm-mvp.md §1). */
@@ -309,6 +312,28 @@ export async function setGatewayMonitor(
     ),
   );
   return data.session;
+}
+
+export async function setGatewayRecording(id: string, enabled: boolean): Promise<GatewaySessionStatus> {
+  const data = await sessionScoped(id, request<{ session: GatewaySessionStatus }>(
+    `/api/gateway/sessions/${encodeURIComponent(id)}/recording`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }),
+    },
+  ));
+  return data.session;
+}
+
+export function getDiagnosticHistory(id: string, before?: number): Promise<DiagnosticHistoryPage> {
+  return request(`/api/gateway/logs/${encodeURIComponent(id)}${before !== undefined ? `?before=${before}` : ""}`);
+}
+
+export async function listDiagnosticLogs(): Promise<DiagnosticArchiveInfo[]> {
+  const data = await request<{ archives: DiagnosticArchiveInfo[] }>("/api/gateway/logs");
+  return data.archives;
+}
+
+export function diagnosticDownloadUrl(id: string): string {
+  return `/api/gateway/logs/${encodeURIComponent(id)}?download=1`;
 }
 
 /** Mirror of `DeployGateCheck` in `src/server/deploy/service.ts`. */
